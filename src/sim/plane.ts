@@ -23,11 +23,10 @@ export interface JumpRun {
 export const CABIN = { halfWidth: 0.82, height: 1.42 };
 /** The door: on the left side, behind the wing, from the floor up. */
 export const DOOR = { front: 0.55, back: 1.85, top: 1.3 };
-/**
- * Eyes of the jumper crouched in the doorway, facing the nose, the head just
- * out in the air.
- */
-export const DOOR_EYE = vec3(-CABIN.halfWidth - 0.24, 1.12, 0.85);
+/** Eyes of the jumper crouched in the doorway, facing the nose, the head at the door line. */
+export const DOOR_EYE = vec3(-CABIN.halfWidth - 0.04, 1.12, 0.85);
+/** Hub of the propeller, plane frame, m. */
+export const PROPELLER = vec3(0, 0.45, -4.72);
 /** Nose-up attitude of the plane flying slow on jump run. */
 const PITCH = 3 * DEG;
 const AXIS_X = vec3(1, 0, 0);

@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import type { Controls, FlightModel } from '../sim/flightModel';
 import type { RigParams } from '../sim/rig';
+import { Body, SHOULDER } from './body';
 import { GEAR_LAYER } from './scene';
 
 const DEG = Math.PI / 180;
@@ -28,7 +29,8 @@ const FRONT_LINK = new THREE.Vector3(0.21, 0, -0.11);
 const REAR_LINK = new THREE.Vector3(0.23, 0, 0.03);
 /** How far a fully pulled front riser comes down, m. */
 const FRONT_PULL = 0.18;
-const ARM_ROOT = new THREE.Vector3(0.25, -0.07, 0.01);
+/** The shoulder, where the body puts it. */
+const ARM_ROOT = SHOULDER;
 const UPPER_ARM = 0.3;
 const FOREARM = 0.28;
 /** Elbows point down, out and a little back, as when pulling something down. */
@@ -103,7 +105,8 @@ export class RigView {
   private shape = shapeAt(1);
   private readonly slider: THREE.BufferGeometry;
   private readonly sliderMesh: THREE.Mesh;
-  private readonly legs: THREE.Mesh[] = [];
+  /** The pilot's body, posed by whoever drives it. */
+  readonly body: Body;
   private readonly sides: Side[] = [];
   private readonly a = new THREE.Vector3();
   private readonly b = new THREE.Vector3();
@@ -193,19 +196,9 @@ export class RigView {
       });
     }
 
-    // Legs and shoes, hanging slightly forward as in a harness.
-    const shoe = new THREE.MeshLambertMaterial({ color: 0xdcdcdc });
-    const pilotY = rig.pilotPos.y;
-    const legLength = rig.pilotPos.y - rig.feetPos.y - 0.1;
-    for (const side of [-1, 1]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.15, legLength, 0.16).translate(0, -legLength / 2, 0), suit);
-      leg.position.set(side * 0.13, pilotY - 0.1, 0);
-      leg.rotation.x = 12 * DEG;
-      this.legs.push(leg);
-      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.09, 0.29).translate(0, -legLength, -0.08), shoe);
-      leg.add(foot);
-      this.pilot.add(leg);
-    }
+    // The rest of the pilot: torso, harness, container, legs, free arms.
+    this.body = new Body(rig);
+    this.pilot.add(this.body.group);
 
     this.shadowMaterial = new THREE.MeshBasicMaterial({
       color: 0x08100a,
@@ -301,12 +294,6 @@ export class RigView {
     for (const g of this.sides) {
       g.toggle.visible = g.hand.visible = g.upperArm.visible = g.forearm.visible = visible;
     }
-  }
-
-  /** Swings the legs from the hips: angles in radians, forward positive. */
-  setLegs(left: number, right: number): void {
-    this.legs[0]!.rotation.x = left;
-    this.legs[1]!.rotation.x = right;
   }
 
   /** Frees what the view holds on the graphics card, once it has left the scene. */

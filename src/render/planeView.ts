@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { CABIN, DOOR, type Plane } from '../sim/plane';
+import { CABIN, DOOR, PROPELLER, type Plane } from '../sim/plane';
 
 const WHITE = 0xf1f1ee;
 const STRIPE = 0x1f4f9a;
@@ -177,7 +177,7 @@ export class PlaneView {
       blades.add(mesh);
     }
     this.prop.add(disc, blades);
-    this.prop.position.set(0, 0.45, -4.72);
+    this.prop.position.set(PROPELLER.x, PROPELLER.y, PROPELLER.z);
     this.object.add(this.prop);
   }
 

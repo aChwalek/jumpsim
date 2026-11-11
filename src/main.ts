@@ -3,6 +3,7 @@ import { Sound } from './audio/sound';
 import { InputDevices, type Action } from './input/devices';
 import { rampControls } from './input/ramp';
 import { PlaneView } from './render/planeView';
+import { Posture, type Stance } from './render/posture';
 import { RigView } from './render/rigView';
 import {
   GROUND_LIGHT,
@@ -14,10 +15,12 @@ import {
   createRenderer,
   createScene,
 } from './render/scene';
-import { Arrival, LEGS_HANGING } from './sim/arrival';
+import { Arrival } from './sim/arrival';
 import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
+import { noBodyInputs } from './sim/freefall';
 import { Jump } from './sim/jump';
+import { PROPELLER } from './sim/plane';
 import { detectTouchdown, feetHeight, type Touchdown } from './sim/landing';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
@@ -98,6 +101,9 @@ let paused = false;
 let jump: Jump | null = null;
 /** Hit the ground with no canopy flying. */
 let impact = false;
+/** How the body is held, eased from one stance to the next. */
+const posture = new Posture();
+const still = noBodyInputs();
 /** Where the hands have the toggles: stowed brakes keep the canopy's short of them. */
 const hands = neutralControls();
 
@@ -121,8 +127,7 @@ function spawn(kind: Start): void {
   arrival = null;
   verdict = null;
   stepsHeard = 0;
-  rigView.setLegs(LEGS_HANGING, LEGS_HANGING);
-  rigView.setArms(true);
+  posture.reset();
   paused = false;
   devices.recentre();
   hud.showResult(null);
@@ -243,6 +248,8 @@ const eye = vec3();
 const eyeVel = vec3();
 const air = new THREE.Vector3();
 const unlook = new THREE.Quaternion();
+const propeller = vec3();
+const toPlane = new THREE.Vector3();
 const look = new THREE.Quaternion();
 const turn = new THREE.Quaternion();
 const flatView = new THREE.Quaternion();
@@ -306,6 +313,23 @@ function aimCamera(): void {
   }
 }
 
+/** How the pilot holds the body right now. */
+function stance(): Stance {
+  if (arrival) return 'ground';
+  if (!jump) return 'hanging';
+  switch (jump.phase) {
+    case 'plane':
+      return 'door';
+    case 'freefall':
+      return 'box';
+    case 'opening':
+      if (jump.inflation !== null) return 'hanging';
+      return jump.opening?.stage === 'throw' ? 'throw' : 'box';
+    default:
+      return 'hanging';
+  }
+}
+
 /** What the HUD says to do next. */
 function cue(): string {
   if (!jump || impact) return '';
@@ -335,8 +359,6 @@ function frame(now: number): void {
     if (arrival) arrival.update(seconds);
     else simulate(seconds);
     if (arrival) {
-      rigView.setLegs(arrival.legL, arrival.legR);
-      rigView.setArms(arrival.time < 0.25);
       for (; stepsHeard < arrival.steps; stepsHeard++) sound.step(arrival.speed);
       if (arrival.done && verdict) {
         verdict();
@@ -347,9 +369,16 @@ function frame(now: number): void {
 
   const inflation = jump ? jump.inflation : 1;
   rigView.setInflation(inflation);
-  if (!arrival) rigView.setArms(inflation === 1);
-  // Crouched in the door the legs would hang through the floor.
-  rigView.pilot.visible = !jump || jump.phase !== 'plane';
+  // The hands are on the risers from line stretch until they let go on the
+  // ground; otherwise they are free, and the body shows them.
+  const onRisers = inflation !== null && !(arrival && arrival.time >= 0.25);
+  rigView.setArms(onRisers);
+  const pose = stance();
+  const moving = !waiting && !paused ? Math.min(elapsed, 0.1) : 0;
+  const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : undefined;
+  rigView.body.setPose(posture.update(moving, pose, pose === 'box' ? devices.body : still, legs));
+  rigView.body.showArms(!onRisers);
+  rigView.body.setHeight(feetHeight(model, dz.groundAt));
   rigView.update(model, applied, dz.groundAt, SUN, hands);
   if (jump) planeView.update(jump.plane);
   model.pilotPoint(eye, rig.eyePos);
@@ -378,6 +407,20 @@ function frame(now: number): void {
     live: !waiting && !paused,
     canopy: inflation ?? 0,
   });
+  if (jump) {
+    // The plane: how far, which way, and how fast it is going away.
+    const plane = jump.plane;
+    plane.point(propeller, PROPELLER);
+    toPlane.set(propeller.x - eye.x, propeller.y - eye.y, propeller.z - eye.z);
+    const distance = toPlane.length();
+    const away =
+      (toPlane.x * (plane.vel.x - eyeVel.x) + toPlane.y * (plane.vel.y - eyeVel.y) + toPlane.z * (plane.vel.z - eyeVel.z)) /
+      distance;
+    toPlane.applyQuaternion(unlook);
+    sound.hearPlane({ distance, closing: -away, fromRight: toPlane.x / distance, live: !waiting && !paused });
+  } else {
+    sound.hearPlane(null);
+  }
 
   readTelemetry(model, env, telemetry);
   const height = Math.max(0, feetHeight(model, dz.groundAt));

@@ -24,6 +24,35 @@ export interface Hearing {
   canopy: number;
 }
 
+/** The jump plane, as heard from the pilot's head. */
+export interface EngineHearing {
+  /** From the ears to the propeller, m. */
+  distance: number;
+  /** How fast that distance shrinks, m/s: negative as the plane flies away. */
+  closing: number;
+  /** Side it is heard from, seen from the head: -1 full left, 1 full right. */
+  fromRight: number;
+  /** False while the sim is stopped: silence. */
+  live: boolean;
+}
+
+/**
+ * Loudness of the plane's parts with the head in the door, about six metres
+ * from the propeller: the propeller's buzz, its beating, the turbine's
+ * whistle and the exhaust's rumble.
+ */
+export const ENGINE_MIX = { buzz: 0.6, beat: 1.7, whine: 0.045, rumble: 0.35 };
+/** Distance from the propeller to the head in the door, m: the levels above are set there. */
+const ENGINE_NEAR = 6;
+/**
+ * A three-blade propeller at about 1750 rpm on jump run: the blades pass
+ * 87 times a second, which is the drone the whole plane hums at.
+ */
+const BLADE_PASS = 87.5;
+/** The gas generator's whistle, Hz. */
+const TURBINE = 2950;
+const SOUND_SPEED = 343;
+
 export interface Landing {
   /** Downward speed at contact, m/s. */
   sink: number;
@@ -184,6 +213,106 @@ export function buildWind(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioN
   };
 }
 
+/** Starts the plane's engine and returns the function that keeps it up to date. */
+export function buildEngine(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioNode): (e: EngineHearing | null) => void {
+  // Everything goes through the air on its way: far off it loses its highs
+  // and its level, and it sits to one side.
+  const air = ctx.createBiquadFilter();
+  air.type = 'lowpass';
+  air.Q.value = 0.5;
+  const level = ctx.createGain();
+  level.gain.value = 0;
+  const side = ctx.createStereoPanner();
+  air.connect(level);
+  level.connect(side);
+  side.connect(out);
+
+  // The buzz: the blades' pressure pulses, rich in harmonics, softened.
+  const blades = ctx.createOscillator();
+  blades.type = 'sawtooth';
+  const second = ctx.createOscillator();
+  second.type = 'triangle';
+  const buzzTone = ctx.createBiquadFilter();
+  buzzTone.type = 'lowpass';
+  // Laptop speakers give little below 150 Hz: the harmonics carry the drone.
+  buzzTone.frequency.value = 1100;
+  buzzTone.Q.value = 0.9;
+  const secondLevel = ctx.createGain();
+  secondLevel.gain.value = 0.45;
+  const buzz = ctx.createGain();
+  buzz.gain.value = ENGINE_MIX.buzz;
+  blades.connect(buzzTone);
+  second.connect(secondLevel);
+  secondLevel.connect(buzzTone);
+  buzzTone.connect(buzz);
+  buzz.connect(air);
+
+  // The beat: broadband noise from the blades, chopped at the blade rate.
+  const source = ctx.createBufferSource();
+  source.buffer = noise;
+  source.loop = true;
+  const beatTone = ctx.createBiquadFilter();
+  beatTone.type = 'bandpass';
+  beatTone.frequency.value = 520;
+  beatTone.Q.value = 0.7;
+  const chop = ctx.createGain();
+  chop.gain.value = 0.55;
+  const pulse = ctx.createOscillator();
+  pulse.type = 'sine';
+  const depth = ctx.createGain();
+  depth.gain.value = 0.45;
+  pulse.connect(depth);
+  depth.connect(chop.gain);
+  const beat = ctx.createGain();
+  beat.gain.value = ENGINE_MIX.beat;
+  source.connect(beatTone);
+  beatTone.connect(chop);
+  chop.connect(beat);
+  beat.connect(air);
+
+  // The rumble of the exhaust, low and steady.
+  const rumbleTone = ctx.createBiquadFilter();
+  rumbleTone.type = 'lowpass';
+  rumbleTone.frequency.value = 220;
+  rumbleTone.Q.value = 0.7;
+  const rumble = ctx.createGain();
+  rumble.gain.value = ENGINE_MIX.rumble;
+  source.connect(rumbleTone);
+  rumbleTone.connect(rumble);
+  rumble.connect(air);
+
+  // The turbine's whistle, which wavers a little.
+  const whistle = ctx.createOscillator();
+  whistle.type = 'sine';
+  const whine = ctx.createGain();
+  whine.gain.value = ENGINE_MIX.whine;
+  whistle.connect(whine);
+  whine.connect(air);
+
+  for (const node of [blades, second, pulse, whistle, source]) node.start();
+
+  return (e) => {
+    const now = ctx.currentTime;
+    const settle = 0.05;
+    if (!e || !e.live) {
+      level.gain.setTargetAtTime(0, now, settle);
+      return;
+    }
+    // Spreading: half as loud each time the distance doubles.
+    level.gain.setTargetAtTime(Math.min(1.5, ENGINE_NEAR / Math.max(e.distance, 1)), now, settle);
+    air.frequency.setTargetAtTime(Math.min(16000, 14000 / (1 + e.distance / 120)), now, settle);
+    side.pan.setTargetAtTime(Math.max(-1, Math.min(1, 0.85 * e.fromRight)), now, settle);
+    // Doppler: higher while the plane closes in, lower as it pulls away.
+    const shift = SOUND_SPEED / Math.max(SOUND_SPEED * 0.5, SOUND_SPEED - e.closing);
+    const pass = BLADE_PASS * shift;
+    blades.frequency.setTargetAtTime(pass, now, settle);
+    second.frequency.setTargetAtTime(2 * pass, now, settle);
+    pulse.frequency.setTargetAtTime(pass, now, settle);
+    beatTone.frequency.setTargetAtTime(520 * shift, now, settle);
+    whistle.frequency.setTargetAtTime(TURBINE * shift * (1 + 0.004 * Math.sin(now * 1.7)), now, settle);
+  };
+}
+
 /** A dull knock: feet on the ground. */
 function thump(ctx: BaseAudioContext, out: AudioNode, level: number): void {
   const now = ctx.currentTime;
@@ -258,6 +387,7 @@ export class Sound {
   private volume: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   private wind: ((h: Hearing) => void) | null = null;
+  private engine: ((e: EngineHearing | null) => void) | null = null;
 
   constructor() {
     // The picture stops when the tab is hidden; so must the wind.
@@ -276,6 +406,7 @@ export class Sound {
       this.volume.gain.value = this.muted ? 0 : 1;
       this.noise = makeNoise(this.ctx, 2);
       this.wind = buildWind(this.ctx, this.noise, this.volume);
+      this.engine = buildEngine(this.ctx, this.noise, this.volume);
     }
     if (this.ctx.state === 'suspended' && !document.hidden) void this.ctx.resume();
   }
@@ -289,6 +420,11 @@ export class Sound {
   /** Call every frame. */
   update(h: Hearing): void {
     this.wind?.(h);
+  }
+
+  /** The jump plane, or null when there is none. Call every frame. */
+  hearPlane(e: EngineHearing | null): void {
+    this.engine?.(e);
   }
 
   land(l: Landing): void {
