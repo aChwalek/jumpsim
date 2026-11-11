@@ -22,7 +22,9 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
   const object = new THREE.Group();
   const { groundAt } = dz;
   const windsock = buildWindsock(dz.windsock.x, dz.windsock.z, dz.windsock.height, groundAt);
-  const grass = buildGrass({ ...dz.grass, target: dz.target }, light.ground);
+  // The grass round the eye takes the light where the eye is: sun or cloud shadow.
+  const grassLight = new THREE.Color().copy(light.ground);
+  const grass = buildGrass({ ...dz.grass, target: dz.target }, grassLight);
   const water = buildWater(dz.water, light.horizon, dz.waterAreas);
   const flags = buildFlags(dz.flags, light.fabric, groundAt);
   const trees = buildTrees(dz.trees, groundAt);
@@ -40,6 +42,17 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     water.object,
     flags.object,
   );
+  // Whatever the sun lights loses it under a cloud, and cast shadows fade there.
+  const shaded = new Set<THREE.Material>();
+  object.traverse((node) => {
+    const material = (node as THREE.Mesh).material;
+    for (const m of Array.isArray(material) ? material : material ? [material] : []) {
+      if (shaded.has(m)) continue;
+      shaded.add(m);
+      if (m instanceof THREE.MeshLambertMaterial) light.clouds.shade(m, 'light');
+      else if (m.userData.castShadow) light.clouds.shade(m, 'shadow');
+    }
+  });
   return {
     object,
     setWind(fromDeg, speed) {
@@ -50,6 +63,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
       trees.setSun(l.sun, l.shadow);
     },
     update(eye, seconds) {
+      grassLight.lerpColors(light.groundShade, light.ground, light.clouds.sunThrough(eye.x, groundAt(eye.x, eye.z), eye.z));
       grass.update(eye, seconds);
       water.update(seconds);
       flags.update(seconds);

@@ -78,6 +78,14 @@ export interface Daylight {
   ground: THREE.Color;
   /** Brightness of thin fabric drawn without the lights (canopy, flags), 1 in full sun. */
   fabric: THREE.Color;
+  /** The same two in the shadow of a cloud, with only the skylight. */
+  groundShade: THREE.Color;
+  fabricShade: THREE.Color;
+  /** Cumulus in the sky. */
+  clouds: boolean;
+  /** Sunlight and skylight on the clouds, as drawn. */
+  cloudSun: THREE.Color;
+  cloudShade: THREE.Color;
 }
 
 const smoothstep = (a: number, b: number, x: number): number => {
@@ -87,6 +95,9 @@ const smoothstep = (a: number, b: number, x: number): number => {
 
 const SKY: Record<SkyKind, { sun: number; sky: number; skyHex: number; horizon: number; zenith: number; fog: number; shadow: number; disc: number }> = {
   clear: { sun: 1, sky: 1, skyHex: 0xdbe8ff, horizon: 0xc4d6e6, zenith: 0x3f7fd0, fog: 0.00011, shadow: 1, disc: 1 },
+  // Fair-weather cumulus: full sun between them, a little more light from
+  // the sky off their white sides, and the air clear under them.
+  cumulus: { sun: 1, sky: 1.12, skyHex: 0xe0eafa, horizon: 0xc8d8e6, zenith: 0x3a7ad0, fog: 0.0001, shadow: 1, disc: 1 },
   // High thin cloud: the sun shows through, softened, and the sky goes milky.
   hazy: { sun: 0.55, sky: 1.2, skyHex: 0xe2e8f0, horizon: 0xd3dbe2, zenith: 0x86a9d2, fog: 0.00022, shadow: 0.5, disc: 0.45 },
   // Low grey cloud: no sun, light from everywhere, shadows all but gone.
@@ -126,12 +137,17 @@ export function daylight(p: SunPosition, sky: SkyKind): Daylight {
     .multiplyScalar(skyIntensity)
     .add(sunColor.clone().multiplyScalar(sunIntensity * Math.max(0, sun.y)))
     .multiplyScalar(1 / Math.PI);
-  const fabric = skyColor.clone().multiplyScalar(skyIntensity).add(sunColor.clone().multiplyScalar(sunIntensity));
-  fabric.setRGB(
-    Math.min(1, Math.max(0.3, fabric.r / FABRIC_REFERENCE.r)),
-    Math.min(1, Math.max(0.3, fabric.g / FABRIC_REFERENCE.g)),
-    Math.min(1, Math.max(0.3, fabric.b / FABRIC_REFERENCE.b)),
-  );
+  const skylight = skyColor.clone().multiplyScalar(skyIntensity);
+  const groundShade = skylight.clone().multiplyScalar(1 / Math.PI);
+  /** Brightness of fabric under this light, against the reference. */
+  const onFabric = (light: THREE.Color): THREE.Color =>
+    light.setRGB(
+      Math.min(1, Math.max(0.3, light.r / FABRIC_REFERENCE.r)),
+      Math.min(1, Math.max(0.3, light.g / FABRIC_REFERENCE.g)),
+      Math.min(1, Math.max(0.3, light.b / FABRIC_REFERENCE.b)),
+    );
+  const fabric = onFabric(skylight.clone().add(sunColor.clone().multiplyScalar(sunIntensity)));
+  const fabricShade = onFabric(skylight.clone());
   return {
     sun,
     sunColor,
@@ -148,6 +164,12 @@ export function daylight(p: SunPosition, sky: SkyKind): Daylight {
     shadow: s.shadow * smoothstep(0, 10, el),
     ground,
     fabric,
+    groundShade,
+    fabricShade,
+    clouds: sky === 'cumulus',
+    // White in full sun, grey-blue in their own shade.
+    cloudSun: sunColor.clone().multiplyScalar((0.8 * sunIntensity) / SUN_INTENSITY),
+    cloudShade: skyColor.clone().multiplyScalar((0.55 * skyIntensity) / SKY_INTENSITY),
   };
 }
 

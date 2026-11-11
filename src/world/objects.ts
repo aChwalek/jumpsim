@@ -118,6 +118,7 @@ export function buildTrees(trees: Tree[], groundAt = flat): Trees {
     polygonOffsetFactor: -20,
     polygonOffsetUnits: -20,
   });
+  shadowMaterial.userData.castShadow = true;
   const shadow = new THREE.InstancedMesh(shadowGeometry, shadowMaterial, trees.length);
   shadow.renderOrder = 6;
 

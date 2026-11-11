@@ -4,6 +4,7 @@ import { Sound } from './audio/sound';
 import { InputDevices, type Action } from './input/devices';
 import { rampControls } from './input/ramp';
 import { CANOPY_COLORS } from './render/canopyColors';
+import { CLOUD_BASE, CLOUD_DEPTH } from './render/clouds';
 import { daylight, sunPosition } from './render/daylight';
 import { PlaneView } from './render/planeView';
 import { Posture, type Stance } from './render/posture';
@@ -69,10 +70,15 @@ function updateWind(): void {
 /** Altitude above the drop zone, m, as an altimeter zeroed on the landing area reads it. */
 const altitude = (): number => feetHeight(model, () => dz.groundAt(dz.target.x, dz.target.z));
 
-/** Puts the sun where the hour has it, under the sky chosen. */
-function applyDaylight(): void {
+/** The wind up at the clouds, which carries them along, m/s. */
+const cloudWind = vec3();
+
+/** Puts the sun where the hour has it, under the sky chosen, and the wind on the windsock and the clouds. */
+function applyWeather(): void {
   light.set(daylight(sunPosition(dz.lat, dz.lon, setup.hour), setup.weather.sky));
   world.setDaylight(light);
+  world.setWind(setup.weather.windFromDeg, setup.weather.windKmh / 3.6);
+  windAt(cloudWind, { ...setup.weather, gusts: 'none' }, CLOUD_BASE + CLOUD_DEPTH / 2, 0);
 }
 
 /** Moves to another drop zone. */
@@ -116,8 +122,7 @@ function apply(next: Setup, withGear: boolean): boolean {
   setup = cloneSetup(next);
   if (!withGear) setup.gear = before.gear;
   applyDz();
-  applyDaylight();
-  world.setWind(setup.weather.windFromDeg, setup.weather.windKmh / 3.6);
+  applyWeather();
   if (withGear) applyGear(before.gear);
   showGear();
   return setup.dz === before.dz && sameFlight(setup.gear, before.gear);
@@ -452,6 +457,7 @@ function frame(now: number): void {
     const gust = windAt(air, setup.weather, 6, airTime);
     world.setWind(Math.atan2(-gust.x, gust.z) / DEG, Math.hypot(gust.x, gust.z));
   }
+  if (!paused) light.clouds.drift(cloudWind.x, cloudWind.z, Math.min(elapsed, 0.1));
   world.update(camera.position, now / 1000);
   renderer.render(scene, camera);
   // The gear in the hands goes on top, from the same eye.
@@ -519,8 +525,7 @@ function frame(now: number): void {
   );
 }
 
-applyDaylight();
-world.setWind(setup.weather.windFromDeg, setup.weather.windKmh / 3.6);
+applyWeather();
 showGear();
 spawn('pattern');
 menu.open(false);
@@ -528,7 +533,7 @@ requestAnimationFrame(frame);
 
 if (import.meta.env.DEV) {
   // The rig can change between jumps: these always give the current one.
-  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, fly, light, apply };
+  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, fly, light, apply, resolution };
   Object.defineProperties(sim, {
     model: { get: () => model },
     rig: { get: () => rig },

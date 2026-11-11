@@ -28,6 +28,7 @@ export type Start = 'pattern' | 'final' | 'plane';
 
 const SKIES: { value: SkyKind; label: string }[] = [
   { value: 'clear', label: 'Grand bleu' },
+  { value: 'cumulus', label: 'Cumulus' },
   { value: 'hazy', label: 'Voilé' },
   { value: 'overcast', label: 'Couvert' },
 ];

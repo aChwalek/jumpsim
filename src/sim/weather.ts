@@ -4,7 +4,7 @@
 
 import { DEG, set, type Vec3 } from './vec';
 
-export type SkyKind = 'clear' | 'hazy' | 'overcast';
+export type SkyKind = 'clear' | 'cumulus' | 'hazy' | 'overcast';
 export type GustLevel = 'none' | 'light' | 'strong';
 
 export interface Weather {

@@ -1,6 +1,7 @@
 // Renderer, cameras, sky, light and haze.
 
 import * as THREE from 'three';
+import { Clouds } from './clouds';
 import type { Daylight } from './daylight';
 
 export function createRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
@@ -44,6 +45,9 @@ export class Lighting {
   readonly horizon = new THREE.Color();
   /** Brightness of fabric drawn without the lights. */
   readonly fabric = new THREE.Color(1, 1, 1);
+  /** The same two in the shadow of a cloud. */
+  readonly groundShade = new THREE.Color();
+  readonly fabricShade = new THREE.Color(1, 1, 1);
   /** Darkness of cast shadows, 0..1. */
   shadow = 1;
   readonly zenith = new THREE.Color();
@@ -53,6 +57,12 @@ export class Lighting {
   readonly skyLight = new THREE.HemisphereLight(0xffffff, 0x6b7a4a, 1);
   readonly sunLight = new THREE.DirectionalLight(0xffffff, 1);
   readonly fog = new THREE.FogExp2(0xffffff, 0.0001);
+  /** Sunlight and skylight on the clouds, and the haze they fade into. */
+  private readonly cloudSun = new THREE.Color();
+  private readonly cloudShade = new THREE.Color();
+  private readonly cloudFog = { value: 0 };
+  /** Cumulus, when the sky has them, and their shadows. */
+  readonly clouds = new Clouds(this.sun, { sun: this.cloudSun, shade: this.cloudShade, haze: this.horizon, fog: this.cloudFog });
 
   set(d: Daylight): void {
     this.sun.copy(d.sun);
@@ -71,6 +81,13 @@ export class Lighting {
     this.sunLight.position.copy(d.sun);
     this.fog.color.copy(d.horizon);
     this.fog.density = d.fogDensity;
+    this.groundShade.copy(d.groundShade);
+    this.fabricShade.copy(d.fabricShade);
+    this.cloudSun.copy(d.cloudSun);
+    this.cloudShade.copy(d.cloudShade);
+    // The haze lies low: clouds above it fade out farther than the ground.
+    this.cloudFog.value = 0.5 * d.fogDensity;
+    this.clouds.show(d.clouds);
   }
 }
 
@@ -140,7 +157,7 @@ export function createScene(): SceneParts {
     if ((node as THREE.Light).isLight) node.layers.enable(GEAR_LAYER);
   });
   const sky = buildSky(light);
-  scene.add(sky);
+  scene.add(sky, light.clouds.layer);
   return { scene, sky, light };
 }
 

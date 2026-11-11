@@ -100,7 +100,7 @@ export function validSetup(saved: unknown): Setup {
   }
   if (finite(s.hour)) setup.hour = Math.min(HOUR_MAX, Math.max(HOUR_MIN, s.hour));
   const w = (s.weather ?? {}) as Partial<Record<keyof Weather, unknown>>;
-  if (oneOf(w.sky, ['clear', 'hazy', 'overcast'] as const)) setup.weather.sky = w.sky;
+  if (oneOf(w.sky, ['clear', 'cumulus', 'hazy', 'overcast'] as const satisfies readonly SkyKind[])) setup.weather.sky = w.sky;
   if (finite(w.windFromDeg)) setup.weather.windFromDeg = ((Math.round(w.windFromDeg) % 360) + 360) % 360;
   if (finite(w.windKmh)) setup.weather.windKmh = Math.min(WIND_MAX_KMH, Math.max(0, Math.round(w.windKmh)));
   if (oneOf(w.gusts, ['none', 'light', 'strong'] as const satisfies readonly GustLevel[])) setup.weather.gusts = w.gusts;

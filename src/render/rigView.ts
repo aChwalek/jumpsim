@@ -115,12 +115,12 @@ export class RigView {
 
   /**
    * `cells`: one colour per cell, left tip to right tip. `light`: the light
-   * of the moment.
+   * of the moment, whose cloud shadows reach the pilot too.
    */
   constructor(
     private readonly rig: RigParams,
     palette: number[],
-    _light: Lighting,
+    light: Lighting,
   ) {
     const chambers = rig.config.chambersPerCell;
     this.steps = CELLS * chambers;
@@ -145,7 +145,7 @@ export class RigView {
     }
     this.canopy.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     const fabricMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
-    // Dimmed with the daylight: see `update`.
+    // Dimmed with the daylight, and under the clouds: see `update`.
     fabricMaterial.color = this.fabric;
     this.object.add(new THREE.Mesh(this.canopy, fabricMaterial));
 
@@ -226,6 +226,19 @@ export class RigView {
     this.pilotShadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24).rotateX(-Math.PI / 2), this.shadowMaterial);
     this.canopyShadow.renderOrder = this.pilotShadow.renderOrder = 7;
     this.shadow.add(this.canopyShadow, this.pilotShadow);
+    // Out of the sun under a cloud: the body loses its sunlit side, the
+    // shadows fade out where the cloud's shadow covers them.
+    light.clouds.shade(this.shadowMaterial, 'shadow');
+    const lit = new Set<THREE.Material>();
+    for (const group of [this.object, this.pilot]) {
+      group.traverse((node) => {
+        const material = (node as THREE.Mesh).material;
+        for (const m of Array.isArray(material) ? material : material ? [material] : []) {
+          if (m instanceof THREE.MeshLambertMaterial) lit.add(m);
+        }
+      });
+    }
+    for (const m of lit) light.clouds.shade(m, 'light');
     const still = { brakeL: 0, brakeR: 0, frontL: 0, frontR: 0 };
     this.reshape(still, still);
   }
@@ -477,7 +490,7 @@ export class RigView {
 
     const rig = this.rig;
     const centre = this.centre.set(0, rig.canopyPos.y, 0).applyQuaternion(this.object.quaternion).add(this.object.position);
-    this.fabric.copy(light.fabric);
+    this.fabric.lerpColors(light.fabricShade, light.fabric, light.clouds.sunThrough(centre.x, centre.y, centre.z));
     const forward = this.p.set(0, 0, -1).applyQuaternion(this.object.quaternion);
     const yaw = Math.atan2(-forward.x, -forward.z);
     /** Where the sun puts the shadow of a point given in the frame of the canopy or of the pilot. */
