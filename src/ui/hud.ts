@@ -1,5 +1,7 @@
+import type { AltimeterKind } from '../setup';
 import type { Controls } from '../sim/flightModel';
 import type { LandingRating, Touchdown } from '../sim/landing';
+import { Altimeter } from './altimeter';
 
 const TITLES: Record<LandingRating, string> = {
   standUp: 'Posé debout',
@@ -28,8 +30,8 @@ const el = (id: string): HTMLElement => {
 };
 
 export interface HudData {
-  /** Feet above the ground, m. */
-  height: number;
+  /** Feet above the drop zone, m: what the altimeter reads. */
+  altitude: number;
   /** m/s, negative when descending. */
   verticalSpeed: number;
   /** m/s. */
@@ -40,7 +42,9 @@ export interface HudData {
   fps: number;
   renderScale: number;
   windFromDeg: number;
-  windSpeed: number;
+  /** Mean wind and strongest gust at 10 m, km/h. */
+  windKmh: number;
+  gustKmh: number;
   muted: boolean;
 }
 
@@ -48,7 +52,7 @@ export class Hud {
   private readonly root = el('hud');
   private readonly perf = el('perf');
   private readonly wind = el('wind');
-  private readonly height = el('heightValue');
+  private readonly altimeter = new Altimeter(el('altimeter'));
   private readonly vario = el('varioValue');
   private readonly speed = el('speedValue');
   private readonly brakeL = el('brakeL');
@@ -62,6 +66,11 @@ export class Hud {
 
   toggle(): void {
     this.root.classList.toggle('hidden');
+  }
+
+  setAltimeter(kind: AltimeterKind, altitude: number): void {
+    this.altimeter.setKind(kind);
+    this.altimeter.reset(altitude);
   }
 
   /** What the pilot is flying, shown under the wind. */
@@ -94,17 +103,17 @@ export class Hud {
     this.frontL.style.opacity = String(d.controls.frontL);
     this.frontR.style.opacity = String(d.controls.frontR);
     this.held.style.opacity = d.held ? '0.9' : '0';
+    this.altimeter.update(d.altitude, frameSeconds);
 
     this.sinceText += frameSeconds;
     if (this.sinceText < 0.1) return;
     this.sinceText = 0;
-    const h = d.height;
-    this.height.textContent = h < 20 ? h.toFixed(1) : h.toFixed(0);
     this.vario.textContent = d.verticalSpeed.toFixed(1);
     this.speed.textContent = (d.groundSpeed * 3.6).toFixed(0);
     this.perf.textContent = `${d.fps.toFixed(0)} i/s · rendu ${(d.renderScale * 100).toFixed(0)} %${d.muted ? ' · son coupé' : ''}`;
+    const gusts = d.gustKmh > d.windKmh ? `, rafales ${d.gustKmh}` : '';
     this.wind.textContent = `cap ${d.headingDeg.toFixed(0).padStart(3, '0')}° · vent du ${d.windFromDeg
       .toFixed(0)
-      .padStart(3, '0')}° ${(d.windSpeed * 3.6).toFixed(0)} km/h`;
+      .padStart(3, '0')}° ${d.windKmh.toFixed(0)} km/h${gusts}`;
   }
 }

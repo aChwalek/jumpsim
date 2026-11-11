@@ -1,26 +1,7 @@
-// Renderer, sky, light and haze.
+// Renderer, cameras, sky, light and haze.
 
 import * as THREE from 'three';
-
-/**
- * Direction towards the sun: a morning sun, 30 degrees up in the east-south-east.
- * On final into a westerly wind it is behind the pilot, whose shadow lies on
- * the ground ahead and comes up to their feet.
- */
-export const SUN = new THREE.Vector3(0.785, 0.5, 0.366).normalize();
-
-const SKY_LIGHT = { color: 0xdbe8ff, intensity: 1.7 };
-const SUN_LIGHT = { color: 0xfff1dc, intensity: 2.6 };
-
-/** What flat ground sends back of its own colour, for things drawn without the lights. */
-export const GROUND_LIGHT = new THREE.Color(SKY_LIGHT.color)
-  .multiplyScalar(SKY_LIGHT.intensity)
-  .add(new THREE.Color(SUN_LIGHT.color).multiplyScalar(SUN_LIGHT.intensity * SUN.y))
-  .multiplyScalar(1 / Math.PI);
-
-/** Colour of the sky low down, and of the haze. */
-export const HORIZON = new THREE.Color(0xc4d6e6);
-const ZENITH = new THREE.Color(0x3f7fd0);
+import type { Daylight } from './daylight';
 
 export function createRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -49,16 +30,63 @@ export function createGearCamera(): THREE.PerspectiveCamera {
   return camera;
 }
 
-function buildSky(): THREE.Mesh {
+/**
+ * The light of the moment, shared by everything that needs it: change it with
+ * `set` and the sky, the lights, the haze and the materials holding these
+ * objects follow.
+ */
+export class Lighting {
+  /** Direction towards the sun. */
+  readonly sun = new THREE.Vector3(0, 1, 0);
+  /** What flat ground sends back of its own colour. */
+  readonly ground = new THREE.Color();
+  /** Colour of the sky low down and of the haze. */
+  readonly horizon = new THREE.Color();
+  /** Brightness of fabric drawn without the lights. */
+  readonly fabric = new THREE.Color(1, 1, 1);
+  /** Darkness of cast shadows, 0..1. */
+  shadow = 1;
+  readonly zenith = new THREE.Color();
+  readonly glow = new THREE.Color();
+  readonly glowStrength = { value: 0 };
+  readonly disc = { value: 1 };
+  readonly skyLight = new THREE.HemisphereLight(0xffffff, 0x6b7a4a, 1);
+  readonly sunLight = new THREE.DirectionalLight(0xffffff, 1);
+  readonly fog = new THREE.FogExp2(0xffffff, 0.0001);
+
+  set(d: Daylight): void {
+    this.sun.copy(d.sun);
+    this.ground.copy(d.ground);
+    this.horizon.copy(d.horizon);
+    this.fabric.copy(d.fabric);
+    this.shadow = d.shadow;
+    this.zenith.copy(d.zenith);
+    this.glow.copy(d.glow);
+    this.glowStrength.value = d.glowStrength;
+    this.disc.value = d.disc;
+    this.skyLight.color.copy(d.skyColor);
+    this.skyLight.intensity = d.skyIntensity;
+    this.sunLight.color.copy(d.sunColor);
+    this.sunLight.intensity = d.sunIntensity;
+    this.sunLight.position.copy(d.sun);
+    this.fog.color.copy(d.horizon);
+    this.fog.density = d.fogDensity;
+  }
+}
+
+function buildSky(light: Lighting): THREE.Mesh {
   const material = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     depthTest: false,
     fog: false,
     uniforms: {
-      horizon: { value: HORIZON },
-      zenith: { value: ZENITH },
-      sun: { value: SUN },
+      horizon: { value: light.horizon },
+      zenith: { value: light.zenith },
+      sun: { value: light.sun },
+      glow: { value: light.glow },
+      glowStrength: light.glowStrength,
+      disc: light.disc,
     },
     vertexShader: `
       varying vec3 vDir;
@@ -70,12 +98,19 @@ function buildSky(): THREE.Mesh {
       uniform vec3 horizon;
       uniform vec3 zenith;
       uniform vec3 sun;
+      uniform vec3 glow;
+      uniform float glowStrength;
+      uniform float disc;
       varying vec3 vDir;
       void main() {
         vec3 dir = normalize(vDir);
         vec3 color = mix(horizon, zenith, pow(max(dir.y, 0.0), 0.5));
+        // A low sun warms a band of sky along the horizon, most on its side.
+        float side = max(dot(normalize(dir.xz + 1e-5), normalize(sun.xz + 1e-5)), 0.0);
+        float band = exp(-max(dir.y, 0.0) * 7.0);
+        color = mix(color, glow, glowStrength * band * (0.25 + 0.75 * side * side * side));
         float s = max(dot(dir, sun), 0.0);
-        color += vec3(1.0, 0.93, 0.8) * (pow(s, 900.0) * 3.0 + pow(s, 24.0) * 0.22);
+        color += vec3(1.0, 0.93, 0.8) * disc * (pow(s, 900.0) * 3.0 + pow(s, 24.0) * 0.22);
         gl_FragColor = vec4(color, 1.0);
         #include <colorspace_fragment>
       }`,
@@ -90,24 +125,23 @@ export interface SceneParts {
   scene: THREE.Scene;
   /** Keep centred on the camera. */
   sky: THREE.Mesh;
+  light: Lighting;
 }
 
 export function createScene(): SceneParts {
   const scene = new THREE.Scene();
-  scene.background = HORIZON;
+  const light = new Lighting();
+  scene.background = light.horizon;
   // Haze: distant ground fades into the horizon colour, which gives depth.
-  scene.fog = new THREE.FogExp2(HORIZON, 0.00011);
-  scene.add(new THREE.HemisphereLight(SKY_LIGHT.color, 0x6b7a4a, SKY_LIGHT.intensity));
-  const sunLight = new THREE.DirectionalLight(SUN_LIGHT.color, SUN_LIGHT.intensity);
-  sunLight.position.copy(SUN);
-  scene.add(sunLight);
+  scene.fog = light.fog;
+  scene.add(light.skyLight, light.sunLight);
   // Lights only reach what shares a layer with the camera drawing it.
   scene.traverse((node) => {
     if ((node as THREE.Light).isLight) node.layers.enable(GEAR_LAYER);
   });
-  const sky = buildSky();
+  const sky = buildSky(light);
   scene.add(sky);
-  return { scene, sky };
+  return { scene, sky, light };
 }
 
 /**

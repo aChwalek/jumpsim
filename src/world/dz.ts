@@ -24,12 +24,27 @@ export interface Building {
   headingDeg: number;
   color: number;
   roofColor: number;
+  /** A flat roof instead of a gable. */
+  flatRoof?: boolean;
+  /** Has a hangar door; by default anything over 6 m does. */
+  hangar?: boolean;
 }
 
 export interface Tree {
   x: number;
   z: number;
   height: number;
+  /** A tall narrow tree, such as the cypresses of a windbreak. */
+  slim?: boolean;
+}
+
+/** A flat polygon on the ground. */
+export interface Area {
+  /** Corners in turn: x, z, x, z... */
+  points: number[];
+  color: number;
+  /** Draw order for overlapping flat surfaces: higher is on top. */
+  layer: number;
 }
 
 export interface Placed {
@@ -58,22 +73,81 @@ export interface Spawn {
 
 export interface DzPack {
   name: string;
+  /** Where it is on the globe, degrees: the sun depends on it. */
+  lat: number;
+  lon: number;
   /** Wind the place usually gets: where it comes from, and speed in m/s. */
   wind: { fromDeg: number; speed: number };
   groundAt(x: number, z: number): number;
   target: { x: number; z: number; radius: number };
   surfaces: Rect[];
+  /** Flat surfaces of any shape. */
+  areas?: Area[];
+  /** Colour of the ground itself at a point, where nothing is laid on it. */
+  landColor?(x: number, z: number): number;
+  /** Draw order of the target disc and its centre. */
+  targetLayer?: number;
   /** Grass drawn blade by blade: all over `area` except on `bare`, cut short on `mown`. */
   grass: { area: Rect; mown: Rect; bare: Rect[] };
   /** Ponds, level with the ground. */
   water: Rect[];
+  /** Ponds and rivers of any shape. */
+  waterAreas?: Area[];
   flags: Flag[];
   buildings: Building[];
   trees: Tree[];
   cars: Placed[];
   people: Placed[];
   windsock: { x: number; z: number; height: number };
-  spawns: { pattern: Spawn; final: Spawn };
+  /**
+   * Start of the downwind leg, placed with the wind: metres upwind of the
+   * target, and to the right of the downwind track (negative: to the left,
+   * for a right-hand circuit).
+   */
+  pattern: { upwind: number; side: number; height: number };
+  /** Start on final: metres downwind of the target, flying into the wind. */
+  final: { downwind: number; height: number };
+}
+
+/** Where the jumps start with the wind from this direction. */
+export function spawnsFor(dz: DzPack, windFromDeg: number): { pattern: Spawn; final: Spawn } {
+  const to = ((windFromDeg + 180) * Math.PI) / 180;
+  // Downwind, and to its right, in world axes (+X east, +Z south).
+  const dx = Math.sin(to);
+  const dz_ = -Math.cos(to);
+  const rx = Math.cos(to);
+  const rz = Math.sin(to);
+  const { x, z } = dz.target;
+  const p = dz.pattern;
+  const f = dz.final;
+  return {
+    pattern: {
+      x: x - p.upwind * dx + p.side * rx,
+      z: z - p.upwind * dz_ + p.side * rz,
+      height: p.height,
+      headingDeg: (windFromDeg + 180) % 360,
+    },
+    final: { x: x + f.downwind * dx, z: z + f.downwind * dz_, height: f.height, headingDeg: windFromDeg % 360 },
+  };
+}
+
+/** Whether the point lies in the polygon. */
+export function inArea(a: Area, x: number, z: number): boolean {
+  const p = a.points;
+  let hit = false;
+  for (let i = 0, j = p.length - 2; i < p.length; j = i, i += 2) {
+    const xi = p[i]!;
+    const zi = p[i + 1]!;
+    const xj = p[j]!;
+    const zj = p[j + 1]!;
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) hit = !hit;
+  }
+  return hit;
+}
+
+/** Whether the point is in water. */
+export function isWet(dz: DzPack, x: number, z: number): boolean {
+  return dz.water.some((r) => inRect(r, x, z)) || (dz.waterAreas ?? []).some((a) => inArea(a, x, z));
 }
 
 /** Whether the point lies on the rectangle. */
@@ -86,7 +160,7 @@ export function inRect(r: Rect, x: number, z: number): boolean {
   return Math.abs(along) <= r.length / 2 && Math.abs(across) <= r.width / 2;
 }
 
-function seeded(seed: number): () => number {
+export function seeded(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -226,6 +300,9 @@ export function createValbrise(): DzPack {
 
   return {
     name: 'Valbrise',
+    // Made up: somewhere in the middle of France.
+    lat: 46.2,
+    lon: 2.6,
     wind: { fromDeg: 270, speed: 3 },
     groundAt: () => 0,
     target,
@@ -243,9 +320,8 @@ export function createValbrise(): DzPack {
     cars,
     people,
     windsock: { x: -45, z: -45, height: 6 },
-    spawns: {
-      pattern: { x: -180, z: 160, height: 300, headingDeg: 90 },
-      final: { x: 260, z: 0, height: 90, headingDeg: 270 },
-    },
+    // Left-hand circuit, south of the landing area with the usual westerly.
+    pattern: { upwind: 180, side: 160, height: 300 },
+    final: { downwind: 260, height: 90 },
   };
 }

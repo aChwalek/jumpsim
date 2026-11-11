@@ -1,28 +1,25 @@
 import * as THREE from 'three';
+import { Altisonic } from './audio/altisonic';
 import { Sound } from './audio/sound';
 import { InputDevices, type Action } from './input/devices';
 import { rampControls } from './input/ramp';
+import { CANOPY_COLORS } from './render/canopyColors';
+import { daylight, sunPosition } from './render/daylight';
 import { RigView } from './render/rigView';
-import {
-  GROUND_LIGHT,
-  HORIZON,
-  Resolution,
-  SUN,
-  createCamera,
-  createGearCamera,
-  createRenderer,
-  createScene,
-} from './render/scene';
+import { Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
+import { KIND_NAMES, cloneSetup, loadSetup, loadingLabel, rigFor, sameFlight, type Setup } from './setup';
 import { Arrival, LEGS_HANGING } from './sim/arrival';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
 import { detectTouchdown, feetHeight, type Touchdown } from './sim/landing';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
 import { DEG, vec3 } from './sim/vec';
+import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
-import { KIND_NAMES, Menu, loadGear, loadingLabel, rigFor, type Gear, type Start } from './ui/menu';
-import { buildWorld } from './world/build';
-import { createValbrise, inRect } from './world/dz';
+import { Menu, type Start } from './ui/menu';
+import { buildWorld, type World } from './world/build';
+import { isWet, spawnsFor, type DzPack } from './world/dz';
+import { dzInfo } from './world/dzs';
 
 const QUALITY_RATIOS = [1, 1.5, 2, 3];
 
@@ -30,49 +27,93 @@ const canvas = document.getElementById('view') as HTMLCanvasElement;
 const renderer = createRenderer(canvas);
 const camera = createCamera();
 const gearCamera = createGearCamera();
-const { scene, sky } = createScene();
+const { scene, sky, light } = createScene();
 const hud = new Hud();
 const devices = new InputDevices(canvas);
 const sound = new Sound();
+const altisonic = new Altisonic();
 
-const dz = createValbrise();
-const world = buildWorld(dz, { sun: SUN, ground: GROUND_LIGHT, sky: HORIZON });
+/** What the current jump is set up with. */
+let setup = loadSetup();
+let dz: DzPack = dzInfo(setup.dz).pack();
+let world: World = buildWorld(dz, light);
 scene.add(world.object);
 
-let gear = loadGear();
-let rig = rigFor(gear);
+let rig = rigFor(setup.gear);
 let model = new FlightModel(rig);
-let rigView = new RigView(rig);
+let rigView = new RigView(rig, CANOPY_COLORS[setup.gear.color].cells, light.fabric);
 scene.add(rigView.object, rigView.pilot, rigView.shadow);
-const menu = new Menu(gear);
+const menu = new Menu(setup);
 
-function showGear(): void {
-  const loading = `${rig.wingLoading.toFixed(2)} lb/ft² · ${loadingLabel(rig.wingLoading)}`;
-  const kind = gear.kind === 'classic' ? '' : ` ${KIND_NAMES[gear.kind]}`;
-  hud.setGear(`${gear.canopyAreaFt2} ft²${kind} · ${gear.exitWeightKg} kg · ${loading}`);
+const env: Environment = { wind: vec3(), airDensity: AIR_DENSITY_SEA_LEVEL };
+/** Seconds of sim time since the start, which drives the gusts. */
+let airTime = 0;
+
+/** Height of the canopy above the feet, m: where the wind the canopy flies in is taken. */
+const canopyAboveFeet = (): number => rig.canopyPos.y - rig.feetPos.y;
+
+/** Brings the wind up to date for the canopy's height and the time. */
+function updateWind(): void {
+  const height = Math.max(0, feetHeight(model, dz.groundAt)) + canopyAboveFeet();
+  windAt(env.wind, setup.weather, height, airTime);
 }
 
-/** Swaps the canopy and the pilot's weight for the next jump. */
-function equip(next: Gear): void {
-  const same =
-    next.kind === gear.kind && next.canopyAreaFt2 === gear.canopyAreaFt2 && next.exitWeightKg === gear.exitWeightKg;
-  if (same) return;
-  gear = next;
+/** Altitude above the drop zone, m, as an altimeter zeroed on the landing area reads it. */
+const altitude = (): number => feetHeight(model, () => dz.groundAt(dz.target.x, dz.target.z));
+
+/** Puts the sun where the hour has it, under the sky chosen. */
+function applyDaylight(): void {
+  light.set(daylight(sunPosition(dz.lat, dz.lon, setup.hour), setup.weather.sky));
+  world.setDaylight(light);
+}
+
+/** Moves to another drop zone. */
+function applyDz(): void {
+  const next = dzInfo(setup.dz).pack();
+  if (next === dz) return;
+  dz = next;
+  scene.remove(world.object);
+  world.dispose();
+  world = buildWorld(dz, light);
+  scene.add(world.object);
+}
+
+/** Swaps the canopy, its colours and the pilot's weight. */
+function applyGear(previous: Setup['gear']): void {
+  const gear = setup.gear;
+  if (sameFlight(gear, previous) && gear.color === previous.color) return;
   scene.remove(rigView.object, rigView.pilot, rigView.shadow);
   rigView.dispose();
-  rig = rigFor(gear);
-  model = new FlightModel(rig);
-  rigView = new RigView(rig);
+  if (!sameFlight(gear, previous)) {
+    rig = rigFor(gear);
+    model = new FlightModel(rig);
+  }
+  rigView = new RigView(rig, CANOPY_COLORS[gear.color].cells, light.fabric);
   scene.add(rigView.object, rigView.pilot, rigView.shadow);
-  showGear();
 }
 
-// Wind is given by where it comes from; the air moves the other way.
-const windTo = (dz.wind.fromDeg + 180) * DEG;
-const env: Environment = {
-  wind: vec3(Math.sin(windTo) * dz.wind.speed, 0, -Math.cos(windTo) * dz.wind.speed),
-  airDensity: AIR_DENSITY_SEA_LEVEL,
-};
+function showGear(): void {
+  const { gear } = setup;
+  const loading = `${rig.wingLoading.toFixed(2)} lb/ft² · ${loadingLabel(rig.wingLoading)}`;
+  const kind = gear.kind === 'classic' ? '' : ` ${KIND_NAMES[gear.kind]}`;
+  hud.setGear(`${dz.name} · ${gear.canopyAreaFt2} ft²${kind} · ${gear.exitWeightKg} kg · ${loading}`);
+}
+
+/**
+ * Applies a setup, all of it or only the scenery. Returns whether the jump
+ * under way can go on: not if it moved to another drop zone or under another canopy.
+ */
+function apply(next: Setup, withGear: boolean): boolean {
+  const before = setup;
+  setup = cloneSetup(next);
+  if (!withGear) setup.gear = before.gear;
+  applyDz();
+  applyDaylight();
+  world.setWind(setup.weather.windFromDeg, setup.weather.windKmh / 3.6);
+  if (withGear) applyGear(before.gear);
+  showGear();
+  return setup.dz === before.dz && sameFlight(setup.gear, before.gear);
+}
 
 let quality = Number(localStorage.getItem('quality') ?? 2);
 if (!(quality >= 0 && quality < QUALITY_RATIOS.length)) quality = 2;
@@ -92,8 +133,10 @@ let paused = false;
 
 function spawn(kind: Start): void {
   scenario = kind;
-  const s = dz.spawns[kind];
+  const s = spawnsFor(dz, setup.weather.windFromDeg)[kind];
   const y = dz.groundAt(s.x, s.z) + s.height - rig.feetPos.y;
+  airTime = 0;
+  windAt(env.wind, setup.weather, s.height + canopyAboveFeet(), airTime);
   initTrimmed(model, vec3(s.x, y, s.z), s.headingDeg, env);
   Object.assign(ramped, neutralControls());
   touchdown = null;
@@ -105,6 +148,8 @@ function spawn(kind: Start): void {
   paused = false;
   devices.recentre();
   hud.showResult(null);
+  hud.setAltimeter(setup.gear.altimeter, altitude());
+  altisonic.reset(setup.gear.audible ? altitude() : 0);
 }
 
 const actions: Record<Action, () => void> = {
@@ -140,9 +185,17 @@ function fly(): void {
   devices.capture();
 }
 menu.onStart = (chosen, start) => {
-  equip(chosen);
+  apply(chosen, true);
   spawn(start);
   fly();
+};
+// The scenery follows the menu. Another drop zone puts the jump at its start,
+// to be seen from there, and it can no longer be resumed.
+menu.onPreview = (chosen) => {
+  if (!apply(chosen, false)) {
+    spawn(scenario);
+    menu.setResumable(false);
+  }
 };
 menu.onCancel = fly;
 
@@ -161,19 +214,23 @@ function simulate(seconds: number): void {
     // Whole steps, then one short step so the sim lands exactly on the frame.
     const dt = Math.min(SIM_DT, left);
     left -= dt;
+    airTime += dt;
     rampControls(ramped, devices.pulls, dt);
     applied.brakeL = Math.max(ramped.brakeL, devices.analogBrakeL);
     applied.brakeR = Math.max(ramped.brakeR, devices.analogBrakeR);
     applied.frontL = ramped.frontL;
     applied.frontR = ramped.frontR;
+    updateWind();
     model.step(dt, applied, env);
     touchdown = detectTouchdown(model, dz.groundAt);
     if (touchdown) {
       const landed = touchdown;
       const feet = model.pilotPoint(vec3(), rig.feetPos);
-      const wet = dz.water.some((pond) => inRect(pond, feet.x, feet.z));
+      const wet = isWet(dz, feet.x, feet.z);
       const distance = Math.hypot(feet.x - dz.target.x, feet.z - dz.target.z);
-      arrival = new Arrival(model, landed, { groundAt: dz.groundAt, wet, wind: env.wind });
+      // On the ground the canopy is blown by the wind at its own height.
+      windAt(env.wind, setup.weather, canopyAboveFeet(), airTime);
+      arrival = new Arrival(model, landed, { groundAt: dz.groundAt, wet, wind: vec3(env.wind.x, env.wind.y, env.wind.z) });
       verdict = () => hud.showResult(landed, distance, wet);
       sound.land({ sink: landed.sink, groundSpeed: landed.groundSpeed, wet });
       // What is left of the frame is spent on the ground.
@@ -211,10 +268,13 @@ function frame(now: number): void {
   if (elapsed < 0.25) resolution.track(elapsed);
 
   devices.poll();
-  if (!waiting && !paused) {
+  const live = !waiting && !paused;
+  if (live) {
     const seconds = Math.min(elapsed, 0.1);
-    if (arrival) arrival.update(seconds);
-    else simulate(seconds);
+    if (arrival) {
+      airTime += seconds;
+      arrival.update(seconds);
+    } else simulate(seconds);
     if (arrival) {
       rigView.setLegs(arrival.legL, arrival.legR);
       rigView.setArms(arrival.time < 0.25);
@@ -226,7 +286,7 @@ function frame(now: number): void {
     }
   }
 
-  rigView.update(model, applied, dz.groundAt, SUN);
+  rigView.update(model, applied, dz.groundAt, light);
   model.pilotPoint(eye, rig.eyePos);
   camera.position.set(eye.x, eye.y, eye.z);
   // The head turns and banks with the harness but steadies its own pitch:
@@ -240,6 +300,11 @@ function frame(now: number): void {
   lookEuler.set(HEAD_PITCH + devices.lookPitch, -devices.lookYaw, 0);
   camera.quaternion.multiply(look.setFromEuler(lookEuler));
   sky.position.copy(camera.position);
+  // The windsock and the flags follow the gusts at their own height.
+  if (live && setup.weather.gusts !== 'none') {
+    const gust = windAt(air, setup.weather, 6, airTime);
+    world.setWind(Math.atan2(-gust.x, gust.z) / DEG, Math.hypot(gust.x, gust.z));
+  }
   world.update(camera.position, now / 1000);
   renderer.render(scene, camera);
   // The gear in the hands goes on top, from the same eye.
@@ -256,12 +321,17 @@ function frame(now: number): void {
   air.set(env.wind.x - eyeVel.x, env.wind.y - eyeVel.y, env.wind.z - eyeVel.z);
   const airspeed = air.length();
   air.applyQuaternion(unlook.copy(camera.quaternion).invert());
-  sound.update({ airspeed, fromRight: airspeed > 0.1 ? -air.x / airspeed : 0, live: !waiting && !paused });
+  sound.update({ airspeed, fromRight: airspeed > 0.1 ? -air.x / airspeed : 0, live });
 
+  const reading = altitude();
+  if (live && !touchdown) {
+    const beeps = altisonic.update(reading);
+    if (beeps) sound.beep(beeps);
+  }
   readTelemetry(model, env, telemetry);
   hud.update(
     {
-      height: Math.max(0, feetHeight(model, dz.groundAt)),
+      altitude: reading,
       verticalSpeed: telemetry.verticalSpeed,
       groundSpeed: telemetry.groundSpeed,
       headingDeg: telemetry.headingDeg,
@@ -269,14 +339,17 @@ function frame(now: number): void {
       held: devices.pulls.hold,
       fps: 1 / frameAverage,
       renderScale: resolution.scale,
-      windFromDeg: dz.wind.fromDeg,
-      windSpeed: dz.wind.speed,
+      windFromDeg: setup.weather.windFromDeg,
+      windKmh: setup.weather.windKmh,
+      gustKmh: gustPeakKmh(setup.weather),
       muted: sound.muted,
     },
     elapsed,
   );
 }
 
+applyDaylight();
+world.setWind(setup.weather.windFromDeg, setup.weather.windKmh / 3.6);
 showGear();
 spawn('pattern');
 menu.open(false);
@@ -284,7 +357,14 @@ requestAnimationFrame(frame);
 
 if (import.meta.env.DEV) {
   // The rig can change between jumps: these always give the current one.
-  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, equip, fly };
-  Object.defineProperties(sim, { model: { get: () => model }, rig: { get: () => rig }, gear: { get: () => gear } });
+  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, fly, light, apply };
+  Object.defineProperties(sim, {
+    model: { get: () => model },
+    rig: { get: () => rig },
+    setup: { get: () => setup },
+    dz: { get: () => dz },
+    world: { get: () => world },
+    env: { get: () => env },
+  });
   Object.assign(window, { sim });
 }

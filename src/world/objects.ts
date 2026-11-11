@@ -8,6 +8,10 @@ import type { Building, Flag, Placed, Tree } from './dz';
 
 const DEG = Math.PI / 180;
 
+/** Height of the ground at a point, m. */
+export type GroundAt = (x: number, z: number) => number;
+const flat: GroundAt = () => 0;
+
 /** Give every vertex of a geometry the same colour. */
 function tint(geometry: THREE.BufferGeometry, hex: number): THREE.BufferGeometry {
   const color = new THREE.Color(hex);
@@ -43,33 +47,55 @@ function gableRoof(length: number, width: number, rise: number, hex: number): TH
   return tint(geometry, hex);
 }
 
-export function buildBuildings(buildings: Building[]): THREE.Group {
-  const group = new THREE.Group();
+export function buildBuildings(buildings: Building[], groundAt = flat): THREE.Mesh {
   const material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  const placed: THREE.BufferGeometry[] = [];
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const up = new THREE.Vector3(0, 1, 0);
+  const one = new THREE.Vector3(1, 1, 1);
+  const position = new THREE.Vector3();
   for (const b of buildings) {
-    const walls = b.height * 0.8;
-    const parts = [
-      box(b.width, walls, b.length, 0, walls / 2, 0, b.color),
-      gableRoof(b.length, b.width, b.height - walls, b.roofColor).translate(0, walls, 0),
-      // A person-sized door and windows on one long side.
-      box(0.1, 2.05, 0.95, b.width / 2, 1.025, -b.length / 2 + 2, 0x3b4046),
-    ];
+    const walls = b.flatRoof ? b.height : b.height * 0.8;
+    const parts = [box(b.width, walls, b.length, 0, walls / 2, 0, b.color)];
+    if (b.flatRoof) parts.push(box(b.width + 0.2, 0.25, b.length + 0.2, 0, walls, 0, b.roofColor));
+    else parts.push(gableRoof(b.length, b.width, b.height - walls, b.roofColor).translate(0, walls, 0));
+    // A person-sized door and windows on one long side.
+    parts.push(box(0.1, 2.05, 0.95, b.width / 2, 1.025, -b.length / 2 + 2, 0x3b4046));
     for (let z = -b.length / 2 + 5; z < b.length / 2 - 1.5; z += 4) {
       parts.push(box(0.1, 1.1, 1.4, b.width / 2, 1.65, z, 0x24323f));
     }
-    if (b.height > 6) {
+    if (b.hangar ?? b.height > 6) {
       // Hangar door on the other side.
       parts.push(box(0.12, walls * 0.85, b.length * 0.62, -b.width / 2, (walls * 0.85) / 2, 0, 0x596068));
     }
-    const mesh = new THREE.Mesh(mergeGeometries(parts), material);
-    mesh.position.set(b.x, 0, b.z);
-    mesh.rotation.y = -b.headingDeg * DEG;
-    group.add(mesh);
+    // Sunk a little into sloping ground rather than floating over it.
+    position.set(b.x, lowestUnder(groundAt, b.x, b.z, Math.max(b.length, b.width) / 2), b.z);
+    q.setFromAxisAngle(up, -b.headingDeg * DEG);
+    m.compose(position, q, one);
+    for (const part of parts) placed.push(part.applyMatrix4(m));
   }
-  return group;
+  // One mesh for the lot: a village is thousands of boxes.
+  const geometry = placed.length ? mergeGeometries(placed) : new THREE.BufferGeometry();
+  return new THREE.Mesh(geometry, material);
 }
 
-export function buildTrees(trees: Tree[], sun: THREE.Vector3): THREE.Group {
+/** Lowest ground within `radius` of a point, so that nothing floats on a slope. */
+function lowestUnder(groundAt: GroundAt, x: number, z: number, radius: number): number {
+  let low = groundAt(x, z);
+  for (const [dx, dz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+    low = Math.min(low, groundAt(x + dx * radius, z + dz * radius));
+  }
+  return low;
+}
+
+export interface Trees {
+  object: THREE.Group;
+  /** Lays the shadows away from the sun; `strength` 0..1 is how dark they are. */
+  setSun(sun: THREE.Vector3, strength: number): void;
+}
+
+export function buildTrees(trees: Tree[], groundAt = flat): Trees {
   const group = new THREE.Group();
   const trunk = new THREE.InstancedMesh(
     new THREE.CylinderGeometry(0.5, 0.65, 1, 6).translate(0, 0.5, 0),
@@ -82,27 +108,18 @@ export function buildTrees(trees: Tree[], sun: THREE.Vector3): THREE.Group {
     trees.length,
   );
   const shadowGeometry = new THREE.CircleGeometry(1, 16).rotateX(-Math.PI / 2);
-  const shadow = new THREE.InstancedMesh(
-    shadowGeometry,
-    new THREE.MeshBasicMaterial({
-      color: 0x0c1a08,
-      transparent: true,
-      opacity: 0.38,
-      depthWrite: false,
-      polygonOffset: true,
-      polygonOffsetFactor: -12,
-      polygonOffsetUnits: -12,
-    }),
-    trees.length,
-  );
+  const shadowMaterial = new THREE.MeshBasicMaterial({
+    color: 0x0c1a08,
+    transparent: true,
+    opacity: 0.38,
+    depthWrite: false,
+    polygonOffset: true,
+    // Over every layer of flat ground.
+    polygonOffsetFactor: -20,
+    polygonOffsetUnits: -20,
+  });
+  const shadow = new THREE.InstancedMesh(shadowGeometry, shadowMaterial, trees.length);
   shadow.renderOrder = 6;
-
-  // Shadows fall away from the sun, stretched by its elevation.
-  const flat = Math.hypot(sun.x, sun.z);
-  const stretch = Math.min(3, flat / Math.max(0.2, sun.y));
-  const awayX = -sun.x / flat;
-  const awayZ = -sun.z / flat;
-  const shadowYaw = Math.atan2(-awayZ, awayX);
 
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
@@ -110,31 +127,54 @@ export function buildTrees(trees: Tree[], sun: THREE.Vector3): THREE.Group {
   const position = new THREE.Vector3();
   const scale = new THREE.Vector3();
   const color = new THREE.Color();
+  const seeds = trees.map((t) => Math.abs(Math.sin(t.x * 12.9898 + t.z * 78.233) * 43758.5453) % 1);
+  const bases = trees.map((t) => groundAt(t.x, t.z));
+  /** Crown radius: broad for most trees, a narrow spindle for cypresses. */
+  const crownRadius = (t: Tree, seed: number): number => t.height * (t.slim ? 0.12 + 0.03 * seed : 0.26 + 0.1 * seed);
   trees.forEach((t, i) => {
-    const seed = Math.abs(Math.sin(t.x * 12.9898 + t.z * 78.233) * 43758.5453) % 1;
-    const radius = t.height * (0.26 + 0.1 * seed);
-    const trunkHeight = t.height * 0.35;
+    const seed = seeds[i]!;
+    const base = bases[i]!;
+    const radius = crownRadius(t, seed);
+    const trunkHeight = t.height * (t.slim ? 0.08 : 0.35);
     q.setFromAxisAngle(up, seed * 6.28);
-    m.compose(position.set(t.x, 0, t.z), q, scale.set(t.height * 0.035, trunkHeight, t.height * 0.035));
+    m.compose(position.set(t.x, base, t.z), q, scale.set(t.height * 0.035, trunkHeight, t.height * 0.035));
     trunk.setMatrixAt(i, m);
     const crownHeight = (t.height - trunkHeight * 0.7) / 2;
-    m.compose(position.set(t.x, t.height - crownHeight, t.z), q, scale.set(radius, crownHeight, radius));
+    m.compose(position.set(t.x, base + t.height - crownHeight, t.z), q, scale.set(radius, crownHeight, radius));
     crown.setMatrixAt(i, m);
-    crown.setColorAt(i, color.setHSL(0.26 + 0.06 * seed, 0.42, 0.2 + 0.1 * seed));
-    const reach = t.height * 0.55 * stretch;
-    q.setFromAxisAngle(up, shadowYaw);
-    m.compose(
-      position.set(t.x + awayX * reach, 0, t.z + awayZ * reach),
-      q,
-      scale.set(radius + reach, 1, radius * 1.05),
-    );
-    shadow.setMatrixAt(i, m);
+    if (t.slim) crown.setColorAt(i, color.setHSL(0.3 + 0.03 * seed, 0.38, 0.13 + 0.04 * seed));
+    else crown.setColorAt(i, color.setHSL(0.26 + 0.06 * seed, 0.42, 0.2 + 0.1 * seed));
   });
   group.add(trunk, crown, shadow);
-  return group;
+
+  return {
+    object: group,
+    setSun(sun, strength) {
+      // Shadows fall away from the sun, stretched by its elevation; with the
+      // sun overhead they shrink to a pool under the crown.
+      const flatLength = Math.max(1e-3, Math.hypot(sun.x, sun.z));
+      const stretch = Math.min(3, flatLength / Math.max(0.2, sun.y));
+      const awayX = -sun.x / flatLength;
+      const awayZ = -sun.z / flatLength;
+      q.setFromAxisAngle(up, Math.atan2(-awayZ, awayX));
+      trees.forEach((t, i) => {
+        const radius = crownRadius(t, seeds[i]!);
+        const reach = t.height * 0.55 * stretch;
+        m.compose(
+          position.set(t.x + awayX * reach, bases[i]!, t.z + awayZ * reach),
+          q,
+          scale.set(radius + reach, 1, radius * 1.05),
+        );
+        shadow.setMatrixAt(i, m);
+      });
+      shadow.instanceMatrix.needsUpdate = true;
+      shadowMaterial.opacity = 0.38 * strength;
+      shadow.visible = strength > 0.02;
+    },
+  };
 }
 
-export function buildCars(cars: Placed[]): THREE.InstancedMesh {
+export function buildCars(cars: Placed[], groundAt = flat): THREE.InstancedMesh {
   const parts = [
     box(1.8, 0.7, 4.3, 0, 0.62, 0, 0xffffff),
     box(1.62, 0.55, 2.2, 0, 1.22, 0.25, 0x30363c),
@@ -147,11 +187,11 @@ export function buildCars(cars: Placed[]): THREE.InstancedMesh {
     new THREE.MeshLambertMaterial({ vertexColors: true }),
     cars.length,
   );
-  place(mesh, cars);
+  place(mesh, cars, groundAt);
   return mesh;
 }
 
-export function buildPeople(people: Placed[]): THREE.Group {
+export function buildPeople(people: Placed[], groundAt = flat): THREE.Group {
   const group = new THREE.Group();
   const shirt = new THREE.InstancedMesh(
     mergeGeometries([
@@ -171,13 +211,13 @@ export function buildPeople(people: Placed[]): THREE.Group {
     new THREE.MeshLambertMaterial({ vertexColors: true }),
     people.length,
   );
-  place(shirt, people);
-  place(rest, people, false);
+  place(shirt, people, groundAt);
+  place(rest, people, groundAt, false);
   group.add(shirt, rest);
   return group;
 }
 
-function place(mesh: THREE.InstancedMesh, items: Placed[], colored = true): void {
+function place(mesh: THREE.InstancedMesh, items: Placed[], groundAt: GroundAt, colored = true): void {
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
@@ -186,7 +226,7 @@ function place(mesh: THREE.InstancedMesh, items: Placed[], colored = true): void
   const color = new THREE.Color();
   items.forEach((item, i) => {
     q.setFromAxisAngle(up, -item.headingDeg * DEG);
-    mesh.setMatrixAt(i, m.compose(position.set(item.x, 0, item.z), q, one));
+    mesh.setMatrixAt(i, m.compose(position.set(item.x, groundAt(item.x, item.z), item.z), q, one));
     if (colored) mesh.setColorAt(i, color.setHex(item.color));
   });
 }
@@ -196,9 +236,9 @@ export interface Windsock {
   setWind(fromDeg: number, speed: number): void;
 }
 
-export function buildWindsock(x: number, z: number, height: number): Windsock {
+export function buildWindsock(x: number, z: number, height: number, groundAt = flat): Windsock {
   const object = new THREE.Group();
-  object.position.set(x, 0, z);
+  object.position.set(x, groundAt(x, z), z);
   const material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
   object.add(new THREE.Mesh(tint(new THREE.CylinderGeometry(0.045, 0.06, height, 8).translate(0, height / 2, 0), 0xe6e6e6), material));
 
@@ -238,7 +278,7 @@ export interface Flags {
 }
 
 /** Feather flags: a pole and a tall narrow sail that trails downwind and flutters. */
-export function buildFlags(flags: Flag[]): Flags {
+export function buildFlags(flags: Flag[], fabric: THREE.Color, groundAt = flat): Flags {
   // Both are built 1 m tall and scaled up to the height of each flag.
   const pole = new THREE.CylinderGeometry(0.006, 0.008, 1, 6).translate(0, 0.5, 0);
   // The free edge of the sail, trailing along -Z: widest low down, rounded off into the tip.
@@ -255,15 +295,19 @@ export function buildFlags(flags: Flag[]): Flags {
 
   const poles = new THREE.InstancedMesh(pole, new THREE.MeshLambertMaterial({ color: 0xdadada }), flags.length);
   // Unlit, like the canopy: thin fabric glows whichever side the sun is on.
-  const sails = new THREE.InstancedMesh(sail, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }), flags.length);
+  const sailMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+  // Dimmed with the daylight: the material shares the colour object.
+  sailMaterial.color = fabric;
+  const sails = new THREE.InstancedMesh(sail, sailMaterial, flags.length);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
   const position = new THREE.Vector3();
   const scale = new THREE.Vector3();
   const color = new THREE.Color();
+  const bases = flags.map((f) => groundAt(f.x, f.z));
   flags.forEach((f, i) => {
-    poles.setMatrixAt(i, m.compose(position.set(f.x, 0, f.z), q, scale.setScalar(f.height)));
+    poles.setMatrixAt(i, m.compose(position.set(f.x, bases[i]!, f.z), q, scale.setScalar(f.height)));
     sails.setColorAt(i, color.setHex(f.color));
   });
 
@@ -273,7 +317,7 @@ export function buildFlags(flags: Flag[]): Flags {
     flags.forEach((f, i) => {
       const sway = flutter * (0.16 * Math.sin(seconds * 2.3 + i * 1.7) + 0.07 * Math.sin(seconds * 6.1 + i * 2.9));
       q.setFromAxisAngle(up, downwind + sway);
-      sails.setMatrixAt(i, m.compose(position.set(f.x, 0, f.z), q, scale.setScalar(f.height)));
+      sails.setMatrixAt(i, m.compose(position.set(f.x, bases[i]!, f.z), q, scale.setScalar(f.height)));
     });
     sails.instanceMatrix.needsUpdate = true;
   };

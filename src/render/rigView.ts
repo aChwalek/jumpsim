@@ -10,9 +10,6 @@ const DEG = Math.PI / 180;
 const CELLS = 9;
 const CHORD_STATIONS = [0.02, 0.1, 0.25, 0.45, 0.62, 0.76, 0.88, 1];
 const LINE_CHORDS = [0.08, 0.3, 0.55, 0.8];
-const CELL_COLORS = [0x18305c, 0x2a6fd0, 0x2a6fd0, 0xf2f2ee, 0xf2f2ee, 0xf2f2ee, 0x2a6fd0, 0x2a6fd0, 0x18305c];
-/** Cross-braced canopies get their own colours, to tell them apart overhead. */
-const TRI_CELL_COLORS = [0x17181c, 0xc9382c, 0xc9382c, 0xf2f2ee, 0xf2f2ee, 0xf2f2ee, 0xc9382c, 0xc9382c, 0x17181c];
 /** Shade of each chamber of a cell, so that the seams can be made out. */
 const CHAMBER_SHADES = [1, 0.93, 0.97];
 const HINGE = 0.72;
@@ -80,9 +77,16 @@ export class RigView {
   private readonly e = new THREE.Vector3();
   private readonly reach = new THREE.Vector3();
 
-  constructor(private readonly rig: RigParams) {
+  /**
+   * `cells`: one colour per cell, left tip to right tip. `fabric`: brightness
+   * of the daylight on the fabric, shared and kept up to date by the caller.
+   */
+  constructor(
+    private readonly rig: RigParams,
+    palette: number[],
+    fabric: THREE.Color,
+  ) {
     const chambers = rig.config.chambersPerCell;
-    const palette = chambers > 2 ? TRI_CELL_COLORS : CELL_COLORS;
     this.steps = CELLS * chambers;
     const quads = this.steps * (CHORD_STATIONS.length - 1) * 2;
     this.canopy = new THREE.BufferGeometry();
@@ -104,9 +108,10 @@ export class RigView {
       }
     }
     this.canopy.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    this.object.add(
-      new THREE.Mesh(this.canopy, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })),
-    );
+    const fabricMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    // Dimmed with the daylight: the material shares the colour object.
+    fabricMaterial.color = fabric;
+    this.object.add(new THREE.Mesh(this.canopy, fabricMaterial));
 
     const ribs = CELLS + 1;
     const segments = ribs * LINE_CHORDS.length + ribs + 2;
@@ -167,8 +172,9 @@ export class RigView {
       opacity: 0.4,
       depthWrite: false,
       polygonOffset: true,
-      polygonOffsetFactor: -14,
-      polygonOffsetUnits: -14,
+      // Over every layer of flat ground, and the shadows of the trees.
+      polygonOffsetFactor: -22,
+      polygonOffsetUnits: -22,
     });
     this.canopyShadow = new THREE.Mesh(
       new THREE.PlaneGeometry(rig.span * 0.92, rig.chord).rotateX(-Math.PI / 2),
@@ -344,8 +350,17 @@ export class RigView {
     this.lines.computeBoundingSphere();
   }
 
-  /** Follow the model. `sun` points towards the sun. */
-  update(model: FlightModel, c: Controls, groundAt: (x: number, z: number) => number, sun: THREE.Vector3): void {
+  /**
+   * Follow the model. `sun` points towards the sun, `shadow` (0..1) is how
+   * dark the light makes shadows.
+   */
+  update(
+    model: FlightModel,
+    c: Controls,
+    groundAt: (x: number, z: number) => number,
+    light: { sun: THREE.Vector3; shadow: number },
+  ): void {
+    const { sun } = light;
     const { pos, att, pilotAtt } = model.state;
     this.object.position.set(pos.x, pos.y, pos.z);
     this.object.quaternion.set(att.x, att.y, att.z, att.w);
@@ -380,6 +395,8 @@ export class RigView {
     this.pilotShadow.rotation.y = Math.atan2(head.x - feet.x, head.z - feet.z);
     this.pilotShadow.scale.set(0.5, 1, feet.distanceTo(head) + 0.35);
     // Shadows are faint and washed out from high up, crisp near the ground.
-    this.shadowMaterial.opacity = 0.12 + 0.36 * Math.max(0, 1 - height / 250);
+    // Under cloud only a faint pool is left right under the pilot.
+    this.shadowMaterial.opacity = (0.12 + 0.36 * Math.max(0, 1 - height / 250)) * light.shadow;
+    this.shadow.visible = light.shadow > 0.02;
   }
 }

@@ -1,43 +1,40 @@
 import * as THREE from 'three';
+import type { Lighting } from '../render/scene';
 import type { DzPack } from './dz';
 import { buildGrass } from './grass';
 import { buildDisc, buildSurfaces, buildTerrain, buildWater } from './ground';
-import { buildBuildings, buildCars, buildFlags, buildPeople, buildTrees, buildWindsock, type Windsock } from './objects';
+import { buildBuildings, buildCars, buildFlags, buildPeople, buildTrees, buildWindsock } from './objects';
 
 export interface World {
   object: THREE.Group;
-  windsock: Windsock;
+  /** Shows the wind on the windsock and the flags: where it comes from, m/s. */
+  setWind(fromDeg: number, speed: number): void;
+  /** Lays the shadows for the current light. */
+  setDaylight(light: Lighting): void;
   /** Call every frame with the eye position and the time in seconds. */
   update(eye: THREE.Vector3, seconds: number): void;
+  /** Frees what the world holds on the graphics card, once it has left the scene. */
+  dispose(): void;
 }
 
-export interface Daylight {
-  /** Direction towards the sun. */
-  sun: THREE.Vector3;
-  /** What flat ground sends back of its own colour. */
-  ground: THREE.Color;
-  /** Colour of the sky low down, which water mirrors. */
-  sky: THREE.Color;
-}
-
-/** Turn a drop zone pack into a scene graph. */
-export function buildWorld(dz: DzPack, light: Daylight): World {
+/** Turn a drop zone pack into a scene graph, lit by `light`. */
+export function buildWorld(dz: DzPack, light: Lighting): World {
   const object = new THREE.Group();
-  const windsock = buildWindsock(dz.windsock.x, dz.windsock.z, dz.windsock.height);
-  windsock.setWind(dz.wind.fromDeg, dz.wind.speed);
+  const { groundAt } = dz;
+  const windsock = buildWindsock(dz.windsock.x, dz.windsock.z, dz.windsock.height, groundAt);
   const grass = buildGrass({ ...dz.grass, target: dz.target }, light.ground);
-  const water = buildWater(dz.water, light.sky);
-  const flags = buildFlags(dz.flags);
-  flags.setWind(dz.wind.fromDeg, dz.wind.speed);
+  const water = buildWater(dz.water, light.horizon, dz.waterAreas);
+  const flags = buildFlags(dz.flags, light.fabric, groundAt);
+  const trees = buildTrees(dz.trees, groundAt);
   object.add(
-    buildTerrain(dz.grass.area.color),
-    buildSurfaces(dz.surfaces),
-    buildDisc(dz.target.x, dz.target.z, dz.target.radius, 0xcdbf9a, 4),
-    buildDisc(dz.target.x, dz.target.z, 0.6, 0xe0452a, 5),
-    buildBuildings(dz.buildings),
-    buildTrees(dz.trees, light.sun),
-    buildCars(dz.cars),
-    buildPeople(dz.people),
+    buildTerrain(dz.grass.area.color, groundAt, dz.landColor),
+    buildSurfaces(dz.surfaces, dz.areas),
+    buildDisc(dz.target.x, dz.target.z, dz.target.radius, 0xcdbf9a, dz.targetLayer ?? 4),
+    buildDisc(dz.target.x, dz.target.z, 0.6, 0xe0452a, (dz.targetLayer ?? 4) + 1),
+    buildBuildings(dz.buildings, groundAt),
+    trees.object,
+    buildCars(dz.cars, groundAt),
+    buildPeople(dz.people, groundAt),
     windsock.object,
     grass.object,
     water.object,
@@ -45,11 +42,24 @@ export function buildWorld(dz: DzPack, light: Daylight): World {
   );
   return {
     object,
-    windsock,
+    setWind(fromDeg, speed) {
+      windsock.setWind(fromDeg, speed);
+      flags.setWind(fromDeg, speed);
+    },
+    setDaylight(l) {
+      trees.setSun(l.sun, l.shadow);
+    },
     update(eye, seconds) {
       grass.update(eye, seconds);
       water.update(seconds);
       flags.update(seconds);
+    },
+    dispose() {
+      object.traverse((node) => {
+        const { geometry, material } = node as THREE.Mesh;
+        geometry?.dispose();
+        for (const m of Array.isArray(material) ? material : material ? [material] : []) m.dispose();
+      });
     },
   };
 }
