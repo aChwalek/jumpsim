@@ -7,14 +7,14 @@ import { CANOPY_COLORS } from './render/canopyColors';
 import { CLOUD_BASE, CLOUD_DEPTH } from './render/clouds';
 import { daylight, sunPosition } from './render/daylight';
 import { PlaneView } from './render/planeView';
-import { Posture, type Stance } from './render/posture';
+import { FREEFALL_STANCES, Posture, type Stance } from './render/posture';
 import { RigView } from './render/rigView';
 import { Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
 import { KIND_NAMES, cloneSetup, loadSetup, loadingLabel, rigFor, sameFlight, type Setup } from './setup';
 import { Arrival } from './sim/arrival';
 import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
-import { noBodyInputs } from './sim/freefall';
+import { noBodyInputs, type BodyPosition } from './sim/freefall';
 import { Jump } from './sim/jump';
 import { PROPELLER } from './sim/plane';
 import { detectTouchdown, feetHeight, type Touchdown } from './sim/landing';
@@ -23,6 +23,7 @@ import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/teleme
 import { DEG, vec3 } from './sim/vec';
 import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
+import type { KeysPhase } from './ui/keys';
 import { Menu, type Start } from './ui/menu';
 import { buildWorld, type World } from './world/build';
 import { isWet, spawnsFor, type DzPack } from './world/dz';
@@ -129,6 +130,14 @@ function apply(next: Setup, withGear: boolean): boolean {
 }
 
 let quality = Number(localStorage.getItem('quality') ?? 2);
+/** The keys down the side of the screen, unless turned off with K. */
+let keysShown = true;
+try {
+  keysShown = localStorage.getItem('keys') !== '0';
+} catch {
+  // Shown, then.
+}
+hud.showKeys(keysShown);
 if (!(quality >= 0 && quality < QUALITY_RATIOS.length)) quality = 2;
 const resolution = new Resolution(renderer, QUALITY_RATIOS[quality]!);
 
@@ -178,6 +187,7 @@ function spawn(kind: Start): void {
   verdict = null;
   stepsHeard = 0;
   posture.reset();
+  neck = null;
   paused = false;
   devices.recentre();
   hud.showResult(null);
@@ -185,18 +195,47 @@ function spawn(kind: Start): void {
   altisonic.reset(setup.gear.audible ? altitude() : 0);
 }
 
+/**
+ * Into a freefall position. A half turn onto the other side rolls the way
+ * the pilot slides, or tips over backwards when backing up.
+ */
+function flyInto(position: BodyPosition): void {
+  if (paused || !jump) return;
+  const b = devices.body;
+  const flat = position === 'belly' || position === 'back';
+  jump.fly(position, (flat ? b.slide : b.forward) < 0 ? -1 : 1);
+}
+
+/** In freefall R goes up: it only starts again once out of it. */
+const inFreefall = (): boolean => jump !== null && (jump.phase === 'freefall' || jump.phase === 'opening');
+
 const actions: Record<Action, () => void> = {
-  reset: () => spawn(scenario),
+  reset: () => {
+    if (!inFreefall()) spawn(scenario);
+  },
   spawnPattern: () => spawn('pattern'),
   spawnFinal: () => spawn('final'),
   spawnPlane: () => spawn('plane'),
   jump: () => {
     if (!paused) jump?.act();
   },
+  flyBelly: () => flyInto('belly'),
+  flyBack: () => flyInto('back'),
+  flySit: () => flyInto('sit'),
+  flyHeadDown: () => flyInto('headDown'),
   toggleHud: () => hud.toggle(),
   togglePause: () => (paused = !paused),
   toggleSound: () => sound.toggleMute(),
   recentre: () => devices.recentre(),
+  toggleKeys: () => {
+    keysShown = !keysShown;
+    hud.showKeys(keysShown);
+    try {
+      localStorage.setItem('keys', keysShown ? '1' : '0');
+    } catch {
+      // Not remembered, that is all.
+    }
+  },
   cycleQuality: () => {
     quality = (quality + 1) % QUALITY_RATIOS.length;
     localStorage.setItem('quality', String(quality));
@@ -320,6 +359,7 @@ const flatView = new THREE.Quaternion();
 const lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const head = new THREE.Euler(0, 0, 0, 'YXZ');
 const face = new THREE.Vector3();
+const crown = new THREE.Vector3();
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 /** Resting line of sight below the horizon. */
 const HEAD_PITCH = -8 * DEG;
@@ -344,8 +384,48 @@ const NECK_DOWN = -40 * DEG;
 const GLANCE = 62 * DEG;
 const MAX_PITCH = 85 * DEG;
 
+/**
+ * Where the neck takes the eyes in each freefall position: the pitch of the
+ * line of sight it goes for, the neck angle it would rather have when two
+ * would do, and how far it goes, rad, positive towards the top of the head.
+ */
+const NECKS: Record<BodyPosition, { gaze: number; prefer: number; lo: number; hi: number }> = {
+  belly: { gaze: FREEFALL_GAZE, prefer: 60 * DEG, lo: NECK_DOWN, hi: NECK_UP },
+  // Chin to the chest and the shoulders curled, to look out past the knees
+  // at the horizon beyond the feet.
+  back: { gaze: FREEFALL_GAZE, prefer: -75 * DEG, lo: -75 * DEG, hi: NECK_UP },
+  // The knees just in sight under the horizon.
+  sit: { gaze: -20 * DEG, prefer: 0, lo: NECK_DOWN, hi: NECK_UP },
+  // The horizon upside down: ground on top, sky underneath.
+  headDown: { gaze: -10 * DEG, prefer: 0, lo: NECK_DOWN, hi: NECK_UP },
+};
+/** Time for the neck to come round when the body changes position, s. */
+const NECK_LAG = 0.2;
+/** The neck's angle in freefall, rad, eased from one position to the next; null to take it at once. */
+let neck: number | null = null;
+
+/**
+ * The neck angle that tips the face onto the pitch `gaze`, given how high
+ * the face (`f`) and the top of the head (`h`) point: of the two that do, the
+ * nearer `prefer`, within the neck's range.
+ */
+function neckFor(f: number, h: number, gaze: number, prefer: number, lo: number, hi: number): number {
+  const r = Math.hypot(f, h);
+  let a = prefer;
+  if (r > 0.05) {
+    // f cos a + h sin a = r cos(a - phi) = sin(gaze)
+    const phi = Math.atan2(h, f);
+    const c = Math.acos(Math.max(-1, Math.min(1, Math.sin(gaze) / r)));
+    const wrap = (x: number) => Math.atan2(Math.sin(x), Math.cos(x));
+    const a1 = wrap(phi + c);
+    const a2 = wrap(phi - c);
+    a = Math.abs(a1 - prefer) <= Math.abs(a2 - prefer) ? a1 : a2;
+  }
+  return Math.max(lo, Math.min(hi, a));
+}
+
 /** Where the pilot's eyes look, from the body's attitude and the mouse. */
-function aimCamera(): void {
+function aimCamera(dt: number): void {
   const att = model.state.pilotAtt;
   look.set(att.x, att.y, att.z, att.w);
   const hang = jump ? jump.hang : 1;
@@ -362,13 +442,18 @@ function aimCamera(): void {
     camera.quaternion.multiply(turn.setFromEuler(lookEuler));
   }
   if (hang < 1) {
-    // Flat on the air: the face looks at the ground and the neck lifts it
-    // towards the horizon ahead of the head.
+    // On the air: flat on it the face looks at the ground and the neck lifts
+    // it towards the horizon ahead of the head; on the back it bends to look
+    // past the knees; upright, sitting or upside down, the eyes are on the
+    // horizon in front of the chest.
     face.set(0, 0, -1).applyQuaternion(look);
-    const facePitch = Math.asin(Math.max(-1, Math.min(1, face.y)));
+    crown.set(0, 1, 0).applyQuaternion(look);
+    const position = jump && jump.phase !== 'plane' ? jump.body.position : 'belly';
+    const n = NECKS[position];
     const out = jump && jump.phase !== 'plane' ? Math.min(1, jump.time / 1.5) : 0;
-    const gaze = DOOR_GAZE + (FREEFALL_GAZE - DOOR_GAZE) * out;
-    const neck = Math.max(NECK_DOWN, Math.min(NECK_UP, gaze - facePitch));
+    const gaze = position === 'belly' ? DOOR_GAZE + (FREEFALL_GAZE - DOOR_GAZE) * out : n.gaze;
+    const wanted = neckFor(face.y, crown.y, gaze, n.prefer, n.lo, n.hi);
+    neck = neck === null ? wanted : neck + (wanted - neck) * (1 - Math.exp(-dt / NECK_LAG));
     flatView.copy(look).multiply(turn.setFromAxisAngle(AXIS_X, neck));
     lookEuler.set(devices.lookPitch, -devices.lookYaw, 0);
     flatView.multiply(turn.setFromEuler(lookEuler));
@@ -385,20 +470,39 @@ function stance(): Stance {
     case 'plane':
       return 'door';
     case 'freefall':
-      return 'box';
+      return jump.body.position;
     case 'opening':
       if (jump.inflation !== null) return 'hanging';
-      return jump.opening?.stage === 'throw' ? 'throw' : 'box';
+      return jump.opening?.stage === 'throw' ? 'throw' : 'belly';
     default:
       return 'hanging';
   }
 }
 
+/** Which keys the side of the screen shows: what can be done right now. */
+function keysPhase(): KeysPhase | null {
+  if (menu.isOpen) return null;
+  if (touchdown || arrival || impact) return 'ground';
+  if (!jump || jump.phase === 'canopy' || jump.phase === 'opening') return 'canopy';
+  return jump.phase === 'plane' ? 'plane' : 'freefall';
+}
+
+/** Shown while flying anything but belly to earth. */
+const POSITION_NAMES: Record<BodyPosition, string> = { belly: '', back: 'SUR LE DOS', sit: 'ASSIS', headDown: 'TÊTE EN BAS' };
+
 /** What the HUD says to do next. */
 function cue(): string {
   if (!jump || impact) return '';
-  if (jump.phase === 'plane') return 'FEU VERT<small>Espace pour sauter</small>';
-  if (jump.phase === 'freefall' && jump.time > 1.5) return '<small>Espace pour ouvrir</small>';
+  if (jump.phase === 'plane') {
+    const name = POSITION_NAMES[jump.body.position].toLowerCase();
+    return `FEU VERT<small>${name ? `sortie ${name} · ` : ''}Espace pour sauter</small>`;
+  }
+  if (jump.phase === 'freefall') {
+    if (jump.pullWhenFlat) return 'À PLAT<small>pour ouvrir</small>';
+    const name = POSITION_NAMES[jump.body.position];
+    if (jump.time > 1.5) return `${name}<small>Espace pour ouvrir</small>`;
+    return name;
+  }
   if (jump.stowed && !touchdown) {
     const both = jump.stowedL && jump.stowedR;
     const which = both ? 'FREINS' : jump.stowedL ? 'FREIN GAUCHE' : 'FREIN DROIT';
@@ -443,14 +547,14 @@ function frame(now: number): void {
   const pose = stance();
   const moving = live ? Math.min(elapsed, 0.1) : 0;
   const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : undefined;
-  rigView.body.setPose(posture.update(moving, pose, pose === 'box' ? devices.body : still, legs));
+  rigView.body.setPose(posture.update(moving, pose, FREEFALL_STANCES.has(pose) ? devices.body : still, legs));
   rigView.body.showArms(!onRisers);
   rigView.body.setHeight(feetHeight(model, dz.groundAt));
   rigView.update(model, applied, dz.groundAt, light, hands);
   if (jump) planeView.update(jump.plane);
   model.pilotPoint(eye, rig.eyePos);
   camera.position.set(eye.x, eye.y, eye.z);
-  aimCamera();
+  aimCamera(moving);
   sky.position.copy(camera.position);
   // The windsock and the flags follow the gusts at their own height.
   if (live && setup.weather.gusts !== 'none') {
@@ -503,6 +607,7 @@ function frame(now: number): void {
   readTelemetry(model, env, telemetry);
   const height = Math.max(0, feetHeight(model, dz.groundAt));
   const falling = jump !== null && jump.phase !== 'canopy';
+  hud.setKeys(keysPhase(), devices.lastUsed);
   hud.update(
     {
       altitude: reading,
