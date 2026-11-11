@@ -24,7 +24,7 @@ import { trimSpeeds } from '../sim/telemetry';
 import { WIND_MAX_KMH, compassPoint, gustPeakKmh, type GustLevel, type SkyKind, type Weather } from '../sim/weather';
 import { DZS, dzInfo, type DzId } from '../world/dzs';
 
-export type Start = 'pattern' | 'final';
+export type Start = 'pattern' | 'final' | 'plane';
 
 const SKIES: { value: SkyKind; label: string }[] = [
   { value: 'clear', label: 'Grand bleu' },
@@ -169,6 +169,7 @@ export class Menu {
     el('menuUsualWind').addEventListener('click', () => this.setWeather(usualWeather(this.setup.dz, this.setup.weather.sky)));
     el('menuPattern').addEventListener('click', () => this.go('pattern'));
     el('menuFinal').addEventListener('click', () => this.go('final'));
+    el('menuPlane').addEventListener('click', () => this.go('plane'));
     window.addEventListener('keydown', (e) => this.key(e));
     this.show();
   }
@@ -291,6 +292,9 @@ export class Menu {
         break;
       case 'Digit2':
         if (!e.repeat) this.go('final');
+        break;
+      case 'Digit3':
+        if (!e.repeat) this.go('plane');
         break;
       case 'Escape':
         this.cancel();

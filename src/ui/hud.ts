@@ -1,5 +1,6 @@
 import type { AltimeterKind } from '../setup';
 import type { Controls } from '../sim/flightModel';
+import type { JumpLog } from '../sim/jump';
 import type { LandingRating, Touchdown } from '../sim/landing';
 import { Altimeter } from './altimeter';
 
@@ -46,13 +47,36 @@ export interface HudData {
   windKmh: number;
   gustKmh: number;
   muted: boolean;
+  /** Out of the plane and not yet under canopy: no toggles to show. */
+  freefall: boolean;
+  /** What to do next, if anything, as HTML. */
+  cue: string;
+  /** Colour the height: getting low for a pull, or too low. */
+  heightAlert: 'none' | 'warn' | 'danger';
 }
+
+/** A height in metres with a thin space in the thousands, as French altimeters print. */
+const metres = (m: number): string => Math.round(m).toLocaleString('fr-FR');
+
+/** What the jump itself was, for the card at the end. */
+function jumpRows(log: JumpLog): string {
+  const pull = log.aad
+    ? `<tr><td>${metres(log.openHeight)} m</td><td>ouvert par le déclencheur de sécurité</td></tr>`
+    : `<tr><td>${metres(log.pullHeight ?? 0)} m</td><td>hauteur d'ouverture, voile en vol à ${metres(log.openHeight)} m</td></tr>`;
+  return `
+    <tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>de chute libre, jusqu'à ${(log.topSpeed * 3.6).toFixed(0)} km/h</td></tr>
+    ${pull}
+    <tr><td>${log.openingLoad.toFixed(1)} g</td><td>à l'ouverture</td></tr>`;
+}
+
+const HINT = '<p class="hint">R pour recommencer · 1 circuit · 2 finale · 3 avion · V changer de voile</p>';
 
 export class Hud {
   private readonly root = el('hud');
   private readonly perf = el('perf');
   private readonly wind = el('wind');
-  private readonly altimeter = new Altimeter(el('altimeter'));
+  private readonly heightGauge = el('altimeter');
+  private readonly altimeter = new Altimeter(this.heightGauge);
   private readonly vario = el('varioValue');
   private readonly speed = el('speedValue');
   private readonly brakeL = el('brakeL');
@@ -62,6 +86,8 @@ export class Hud {
   private readonly held = el('held');
   private readonly result = el('result');
   private readonly gear = el('gear');
+  private readonly cue = el('cue');
+  private lastCue = '';
   private sinceText = 1;
 
   toggle(): void {
@@ -78,8 +104,21 @@ export class Hud {
     this.gear.textContent = text;
   }
 
-  /** `wet`: the feet came down in a pond. */
-  showResult(t: Touchdown | null, distanceToTarget = 0, wet = false): void {
+  /** Hit the ground with no canopy over the head. `opening`: one was coming out. */
+  showImpact(log: JumpLog, opening: boolean, speed: number): void {
+    this.result.innerHTML = `
+      <h1>${opening ? 'Ouverture trop basse' : 'Pas d\'ouverture'}</h1>
+      <p>${opening ? 'La voile n\'a pas eu le temps de s\'ouvrir.' : 'Impact en chute libre.'}</p>
+      <table>
+        <tr><td>${(speed * 3.6).toFixed(0)} km/h</td><td>à l'impact</td></tr>
+        <tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>de chute libre</td></tr>
+      </table>
+      ${HINT}`;
+    this.result.style.display = 'block';
+  }
+
+  /** `wet`: the feet came down in a pond. `log`: the jump, if it started from the plane. */
+  showResult(t: Touchdown | null, distanceToTarget = 0, wet = false, log: JumpLog | null = null): void {
     if (!t) {
       this.result.style.display = 'none';
       return;
@@ -91,8 +130,9 @@ export class Hud {
         <tr><td>${t.sink.toFixed(1)} m/s</td><td>vitesse verticale</td></tr>
         <tr><td>${(t.groundSpeed * 3.6).toFixed(0)} km/h</td><td>vitesse sol</td></tr>
         <tr><td>${distanceToTarget.toFixed(0)} m</td><td>de la cible</td></tr>
+        ${log ? jumpRows(log) : ''}
       </table>
-      <p class="hint">R pour recommencer · 1 circuit · 2 finale · V changer de voile</p>`;
+      ${HINT}`;
     this.result.style.display = 'block';
   }
 
@@ -104,6 +144,12 @@ export class Hud {
     this.frontR.style.opacity = String(d.controls.frontR);
     this.held.style.opacity = d.held ? '0.9' : '0';
     this.altimeter.update(d.altitude, frameSeconds);
+    this.root.classList.toggle('freefall', d.freefall);
+    this.heightGauge.classList.toggle('warn', d.heightAlert === 'warn');
+    this.heightGauge.classList.toggle('danger', d.heightAlert === 'danger');
+    if (d.cue !== this.lastCue) {
+      this.cue.innerHTML = this.lastCue = d.cue;
+    }
 
     this.sinceText += frameSeconds;
     if (this.sinceText < 0.1) return;
