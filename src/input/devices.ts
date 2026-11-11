@@ -2,6 +2,7 @@
 // (KeyboardEvent.code), so the layout is the same hand shape on AZERTY and
 // QWERTY: the AZERTY letters are given in the comments.
 
+import { noBodyInputs, type BodyInputs } from '../sim/freefall';
 import { noPulls, type Pulls } from './ramp';
 
 export type Action =
@@ -12,6 +13,8 @@ export type Action =
   | 'recentre'
   | 'spawnPattern'
   | 'spawnFinal'
+  | 'spawnPlane'
+  | 'jump'
   | 'openMenu'
   | 'cycleQuality';
 
@@ -26,6 +29,8 @@ const ACTIONS: Record<string, Action> = {
   Semicolon: 'toggleSound',
   Digit1: 'spawnPattern',
   Digit2: 'spawnFinal',
+  Digit3: 'spawnPlane',
+  Space: 'jump',
   KeyV: 'openMenu',
 };
 
@@ -42,6 +47,11 @@ const deadzone = (v: number): number =>
 export class InputDevices {
   /** Digital pulls from keys and gamepad bumpers, to be fed to the ramp. */
   readonly pulls: Pulls = noPulls();
+  /**
+   * The same keys in freefall, where they move the body: Q / D turn, Z / S
+   * forward and back, A / E slide sideways (AZERTY letters).
+   */
+  readonly body: BodyInputs = noBodyInputs();
   /** Analogue brake travel from the gamepad triggers, 0..1. */
   analogBrakeL = 0;
   analogBrakeR = 0;
@@ -52,6 +62,8 @@ export class InputDevices {
   onAction: (action: Action) => void = () => {};
 
   private readonly keys = new Set<string>();
+  /** The gamepad's A button was down at the last poll. */
+  private padJump = false;
   private mouseYaw = 0;
   private mousePitch = 0;
 
@@ -109,6 +121,11 @@ export class InputDevices {
     p.frontL = bothFront || k.has('KeyQ'); // A on AZERTY
     p.frontR = bothFront || k.has('KeyE'); // E
     p.hold = k.has('ShiftLeft') || k.has('ShiftRight');
+    const key = (code: string): number => (k.has(code) ? 1 : 0);
+    const b = this.body;
+    b.turn = key('KeyD') - key('KeyA');
+    b.forward = key('KeyW') - key('KeyS');
+    b.slide = key('KeyE') - key('KeyQ');
 
     let stickYaw = 0;
     let stickPitch = 0;
@@ -123,6 +140,13 @@ export class InputDevices {
       p.frontR ||= pad.buttons[5]?.pressed ?? false;
       stickYaw = deadzone(pad.axes[2] ?? 0) * 1.7;
       stickPitch = -deadzone(pad.axes[3] ?? 0) * 1.2;
+      // In freefall the triggers turn and the left stick drives.
+      b.turn = clamp(b.turn + this.analogBrakeR - this.analogBrakeL, -1, 1);
+      b.forward = clamp(b.forward - deadzone(pad.axes[1] ?? 0), -1, 1);
+      b.slide = clamp(b.slide + deadzone(pad.axes[0] ?? 0), -1, 1);
+      const jump = pad.buttons[0]?.pressed ?? false;
+      if (jump && !this.padJump) this.onAction('jump');
+      this.padJump = jump;
     }
     this.lookYaw = clamp(this.mouseYaw + stickYaw, -MAX_YAW, MAX_YAW);
     this.lookPitch = clamp(this.mousePitch + stickPitch, -MAX_PITCH_DOWN, MAX_PITCH_UP);

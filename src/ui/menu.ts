@@ -22,7 +22,7 @@ export interface Gear {
 export const rigFor = (gear: Gear): RigParams =>
   deriveRig(rigConfig(gear.kind, gear.canopyAreaFt2, gear.exitWeightKg));
 
-export type Start = 'pattern' | 'final';
+export type Start = 'pattern' | 'final' | 'plane';
 
 const STORE = 'gear';
 
@@ -99,6 +99,7 @@ export class Menu {
     this.weight.addEventListener('input', () => this.set({ exitWeightKg: Number(this.weight.value) }));
     el('menuPattern').addEventListener('click', () => this.go('pattern'));
     el('menuFinal').addEventListener('click', () => this.go('final'));
+    el('menuPlane').addEventListener('click', () => this.go('plane'));
     window.addEventListener('keydown', (e) => this.key(e));
     this.show();
   }
@@ -190,6 +191,9 @@ export class Menu {
         break;
       case 'Digit2':
         if (!e.repeat) this.go('final');
+        break;
+      case 'Digit3':
+        if (!e.repeat) this.go('plane');
         break;
       case 'Escape':
         this.cancel();

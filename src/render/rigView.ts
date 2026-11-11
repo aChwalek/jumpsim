@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import type { Controls, FlightModel } from '../sim/flightModel';
 import type { RigParams } from '../sim/rig';
+import { Body, SHOULDER } from './body';
 import { GEAR_LAYER } from './scene';
 
 const DEG = Math.PI / 180;
@@ -28,14 +29,37 @@ const FRONT_LINK = new THREE.Vector3(0.21, 0, -0.11);
 const REAR_LINK = new THREE.Vector3(0.23, 0, 0.03);
 /** How far a fully pulled front riser comes down, m. */
 const FRONT_PULL = 0.18;
-const ARM_ROOT = new THREE.Vector3(0.25, -0.07, 0.01);
+/** The shoulder, where the body puts it. */
+const ARM_ROOT = SHOULDER;
 const UPPER_ARM = 0.3;
 const FOREARM = 0.28;
 /** Elbows point down, out and a little back, as when pulling something down. */
 const ELBOW_OUT = new THREE.Vector3(0.6, -0.7, 0.35);
 const UP = new THREE.Vector3(0, 1, 0);
+/** Half the slider's width and depth, m: it rides down the lines as the canopy opens. */
+const SLIDER = { x: 0.36, z: 0.4 };
+/** Fabric of the slider bunched up above the links once down, m. */
+const SLIDER_BILLOW = 0.28;
 
 const ease = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+
+/** How far the canopy has opened: its span, its chord and how full its cells are, 0 to 1 each. */
+interface Shape {
+  spread: number;
+  chord: number;
+  fill: number;
+  /** Slider height between the links (0) and the canopy (1). */
+  slider: number;
+}
+
+function shapeAt(inflation: number): Shape {
+  return {
+    spread: 0.1 + 0.9 * ease((inflation - 0.05) / 0.75),
+    chord: 0.45 + 0.55 * ease(inflation / 0.5),
+    fill: 0.25 + 0.75 * ease(inflation / 0.6),
+    slider: 1 - ease((inflation - 0.15) / 0.75),
+  };
+}
 
 /** What hangs on one side of the pilot: risers, toggle, and the arm working them. */
 interface Side {
@@ -51,6 +75,9 @@ interface Side {
   rearLink: THREE.Vector3;
   ring: THREE.Vector3;
   grip: THREE.Vector3;
+  /** Where the front and rear lines of this side pass through the slider. */
+  frontGrommet: THREE.Vector3;
+  rearGrommet: THREE.Vector3;
 }
 
 export class RigView {
@@ -72,8 +99,14 @@ export class RigView {
   private readonly head = new THREE.Vector3();
   /** Strips of fabric across the span: one per chamber. */
   private readonly steps: number;
-  private readonly last = { brakeL: -1, brakeR: -1, frontL: -1, frontR: -1 };
-  private readonly legs: THREE.Mesh[] = [];
+  private readonly last = { brakeL: -1, brakeR: -1, frontL: -1, frontR: -1, handL: -1, handR: -1, inflation: -1 };
+  /** 1 once open; less while the canopy fills. */
+  private inflation = 1;
+  private shape = shapeAt(1);
+  private readonly slider: THREE.BufferGeometry;
+  private readonly sliderMesh: THREE.Mesh;
+  /** The pilot's body, posed by whoever drives it. */
+  readonly body: Body;
   private readonly sides: Side[] = [];
   private readonly a = new THREE.Vector3();
   private readonly b = new THREE.Vector3();
@@ -109,10 +142,24 @@ export class RigView {
     );
 
     const ribs = CELLS + 1;
-    const segments = ribs * LINE_CHORDS.length + ribs + 2;
+    // Every line from the slider up, the four bundles from the links to the
+    // slider, the steering lines from their rings, and down to the toggles.
+    const segments = ribs * LINE_CHORDS.length + ribs + 4 + 2 + 2;
     this.lines = new THREE.BufferGeometry();
     this.lines.setAttribute('position', new THREE.BufferAttribute(new Float32Array(segments * 6), 3));
     this.object.add(new THREE.LineSegments(this.lines, new THREE.LineBasicMaterial({ color: 0x1c1c1c })));
+
+    // The slider: a square of fabric round the lines, four triangles to a point.
+    this.slider = new THREE.BufferGeometry();
+    this.slider.setAttribute('position', new THREE.BufferAttribute(new Float32Array(4 * 9), 3));
+    const sliderMesh = new THREE.Mesh(
+      this.slider,
+      // Darker than any cell, so it reads against the canopy behind it.
+      new THREE.MeshBasicMaterial({ color: 0x3a3f47, side: THREE.DoubleSide }),
+    );
+    sliderMesh.frustumCulled = false;
+    this.sliderMesh = sliderMesh;
+    this.object.add(sliderMesh);
 
     // Risers, toggles and the arms on them: boxes stretched between two points.
     const suit = new THREE.MeshLambertMaterial({ color: 0x1d2a44 });
@@ -144,22 +191,14 @@ export class RigView {
         rearLink: new THREE.Vector3(),
         ring: new THREE.Vector3(),
         grip: new THREE.Vector3(),
+        frontGrommet: new THREE.Vector3(),
+        rearGrommet: new THREE.Vector3(),
       });
     }
 
-    // Legs and shoes, hanging slightly forward as in a harness.
-    const shoe = new THREE.MeshLambertMaterial({ color: 0xdcdcdc });
-    const pilotY = rig.pilotPos.y;
-    const legLength = rig.pilotPos.y - rig.feetPos.y - 0.1;
-    for (const side of [-1, 1]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.15, legLength, 0.16).translate(0, -legLength / 2, 0), suit);
-      leg.position.set(side * 0.13, pilotY - 0.1, 0);
-      leg.rotation.x = 12 * DEG;
-      this.legs.push(leg);
-      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.09, 0.29).translate(0, -legLength, -0.08), shoe);
-      leg.add(foot);
-      this.pilot.add(leg);
-    }
+    // The rest of the pilot: torso, harness, container, legs, free arms.
+    this.body = new Body(rig);
+    this.pilot.add(this.body.group);
 
     this.shadowMaterial = new THREE.MeshBasicMaterial({
       color: 0x08100a,
@@ -178,7 +217,21 @@ export class RigView {
     this.pilotShadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24).rotateX(-Math.PI / 2), this.shadowMaterial);
     this.canopyShadow.renderOrder = this.pilotShadow.renderOrder = 7;
     this.shadow.add(this.canopyShadow, this.pilotShadow);
-    this.reshape({ brakeL: 0, brakeR: 0, frontL: 0, frontR: 0 });
+    const still = { brakeL: 0, brakeR: 0, frontL: 0, frontR: 0 };
+    this.reshape(still, still);
+  }
+
+  /**
+   * How far the canopy is out: null while it is still packed (in the plane
+   * and in freefall), then from 0 at line stretch to 1 once open.
+   */
+  setInflation(inflation: number | null): void {
+    this.object.visible = inflation !== null;
+    this.canopyShadow.visible = inflation !== null && inflation >= 1;
+    this.inflation = inflation ?? 1;
+    // Once down on the links the slider is pulled down behind the head, out
+    // of the way, as most sport jumpers do.
+    this.sliderMesh.visible = this.inflation < 1;
   }
 
   /** Stretches a box made one metre long from a to b, or just points it that way. */
@@ -243,12 +296,6 @@ export class RigView {
     }
   }
 
-  /** Swings the legs from the hips: angles in radians, forward positive. */
-  setLegs(left: number, right: number): void {
-    this.legs[0]!.rotation.x = left;
-    this.legs[1]!.rotation.x = right;
-  }
-
   /** Frees what the view holds on the graphics card, once it has left the scene. */
   dispose(): void {
     for (const group of [this.object, this.pilot, this.shadow]) {
@@ -263,15 +310,16 @@ export class RigView {
   /** Point on the canopy skin, canopy frame. s: -1 left tip .. 1 right tip, c: 0 nose .. 1 tail. */
   private skin(out: THREE.Vector3, s: number, c: number, top: boolean, brakeL: number, brakeR: number): THREE.Vector3 {
     const rig = this.rig;
-    const theta = (s * rig.span) / (2 * rig.lineLength);
+    const shape = this.shape;
+    const theta = (s * shape.spread * rig.span) / (2 * rig.lineLength);
     const sin = Math.sin(theta);
     const cos = Math.cos(theta);
     const incidence = rig.config.riggingAngleDeg * DEG;
     const ci = Math.cos(incidence);
     const si = Math.sin(incidence);
     const outer = Math.max(0, (Math.abs(s) - 0.7) / 0.3);
-    const chord = rig.chord * (1 - 0.3 * outer * outer);
-    const half = 0.7 * (0.2969 * Math.sqrt(c) - 0.126 * c - 0.3516 * c * c + 0.2843 * c ** 3 - 0.1015 * c ** 4);
+    const chord = rig.chord * (1 - 0.3 * outer * outer) * shape.chord;
+    const half = 0.7 * shape.fill * (0.2969 * Math.sqrt(c) - 0.126 * c - 0.3516 * c * c + 0.2843 * c ** 3 - 0.1015 * c ** 4);
     let lift = (top ? half : -0.25 * half) * chord;
     if (c > HINGE) {
       const brake = (s < 0 ? brakeL : brakeR) * (0.5 + Math.abs(s));
@@ -287,7 +335,9 @@ export class RigView {
     );
   }
 
-  private reshape(c: Controls): void {
+  /** `hands`: where the hands have the toggles, which stowed brakes leave short of the canopy's. */
+  private reshape(c: Controls, hands: Controls): void {
+    this.shape = shapeAt(this.inflation);
     const { brakeL, brakeR } = c;
     const p = this.p;
     const position = this.canopy.getAttribute('position') as THREE.BufferAttribute;
@@ -318,8 +368,9 @@ export class RigView {
     this.canopy.computeBoundingSphere();
 
     const [left, right] = [this.sides[0]!, this.sides[1]!];
-    this.rigSide(left, brakeL, c.frontL);
-    this.rigSide(right, brakeR, c.frontR);
+    this.rigSide(left, hands.brakeL, c.frontL);
+    this.rigSide(right, hands.brakeR, c.frontR);
+    this.placeSlider();
 
     const line = this.lines.getAttribute('position') as THREE.BufferAttribute;
     let n = 0;
@@ -330,12 +381,18 @@ export class RigView {
     for (let rib = 0; rib <= CELLS; rib++) {
       const s = (rib / CELLS) * 2 - 1;
       const g = s < 0 ? left : right;
-      // The two front rows of lines go to the front riser, the others to the rear.
+      // The two front rows of lines go to the front riser, the others to the
+      // rear, all through the slider's grommets.
       LINE_CHORDS.forEach((chord, k) => {
-        segment(k < 2 ? g.frontLink : g.rearLink, this.skin(p, s, chord, false, brakeL, brakeR));
+        segment(k < 2 ? g.frontGrommet : g.rearGrommet, this.skin(p, s, chord, false, brakeL, brakeR));
       });
-      // Steering lines fan out to the tail from the ring on the rear riser.
-      segment(g.ring, this.skin(p, s, 1, false, brakeL, brakeR));
+      // Steering lines fan out to the tail from the rear grommet.
+      segment(g.rearGrommet, this.skin(p, s, 1, false, brakeL, brakeR));
+    }
+    for (const g of [left, right]) {
+      segment(g.frontLink, g.frontGrommet);
+      segment(g.rearLink, g.rearGrommet);
+      segment(g.ring, g.rearGrommet);
     }
     // And from the ring down to the toggle in the hand.
     segment(left.grip, left.ring);
@@ -344,18 +401,65 @@ export class RigView {
     this.lines.computeBoundingSphere();
   }
 
+  /**
+   * The slider comes down the lines as the canopy opens. Its grommets sit on
+   * the line bundles, which run from the links up to the canopy, so they
+   * close in on the links as it comes down; the fabric left over billows up.
+   */
+  private placeSlider(): void {
+    const rig = this.rig;
+    const k = this.shape.slider;
+    const up = rig.linksPos.y + 0.9 * rig.lineLength * Math.cos((0.5 * this.shape.spread * rig.span) / (2 * rig.lineLength));
+    for (const g of this.sides) {
+      const top = this.p;
+      top.set(g.sign * SLIDER.x, up, -SLIDER.z);
+      g.frontGrommet.lerpVectors(g.frontLink, top, k);
+      top.set(g.sign * SLIDER.x, up, SLIDER.z);
+      g.rearGrommet.lerpVectors(g.rearLink, top, k);
+    }
+    const [l, r] = [this.sides[0]!, this.sides[1]!];
+    const corners = [l.frontGrommet, r.frontGrommet, r.rearGrommet, l.rearGrommet];
+    const centre = this.centre.set(0, 0, 0);
+    for (const c of corners) centre.add(c);
+    centre.multiplyScalar(0.25);
+    centre.y += 0.04 + SLIDER_BILLOW * (1 - k);
+    const position = this.slider.getAttribute('position') as THREE.BufferAttribute;
+    corners.forEach((a, i) => {
+      const b = corners[(i + 1) % 4]!;
+      position.setXYZ(i * 3, a.x, a.y, a.z);
+      position.setXYZ(i * 3 + 1, b.x, b.y, b.z);
+      position.setXYZ(i * 3 + 2, centre.x, centre.y, centre.z);
+    });
+    position.needsUpdate = true;
+  }
+
   /** Follow the model. `sun` points towards the sun. */
-  update(model: FlightModel, c: Controls, groundAt: (x: number, z: number) => number, sun: THREE.Vector3): void {
+  update(
+    model: FlightModel,
+    c: Controls,
+    groundAt: (x: number, z: number) => number,
+    sun: THREE.Vector3,
+    hands: Controls = c,
+  ): void {
     const { pos, att, pilotAtt } = model.state;
     this.object.position.set(pos.x, pos.y, pos.z);
     this.object.quaternion.set(att.x, att.y, att.z, att.w);
     this.pilot.position.set(pos.x, pos.y, pos.z);
     this.pilot.quaternion.set(pilotAtt.x, pilotAtt.y, pilotAtt.z, pilotAtt.w);
     const last = this.last;
-    const moved = (Object.keys(last) as (keyof typeof last)[]).some((k) => Math.abs(c[k] - last[k]) > 0.002);
-    if (moved) {
-      Object.assign(last, { brakeL: c.brakeL, brakeR: c.brakeR, frontL: c.frontL, frontR: c.frontR });
-      this.reshape(c);
+    const now = {
+      brakeL: c.brakeL,
+      brakeR: c.brakeR,
+      frontL: c.frontL,
+      frontR: c.frontR,
+      handL: hands.brakeL,
+      handR: hands.brakeR,
+      inflation: this.inflation,
+    };
+    const moved = (Object.keys(last) as (keyof typeof last)[]).some((k) => Math.abs(now[k] - last[k]) > 0.002);
+    if (moved && this.object.visible) {
+      Object.assign(last, now);
+      this.reshape(c, hands);
     }
 
     const rig = this.rig;

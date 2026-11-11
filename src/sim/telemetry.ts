@@ -5,7 +5,7 @@ import {
   type Controls,
   type Environment,
 } from './flightModel';
-import type { RigParams } from './rig';
+import { AIR_DENSITY_SEA_LEVEL, type RigParams } from './rig';
 import { DEG, quat, quatFromYaw, rotate, set, vec3, type Quat, type Vec3 } from './vec';
 
 export const SIM_DT = 1 / 240;
@@ -75,31 +75,36 @@ export function simulate(
 }
 
 interface Trim {
-  /** Air-relative velocity when heading north, world frame. */
+  /** Air-relative velocity when heading north, world frame, at sea level. */
   vel: Vec3;
   att: Quat;
   pilotAtt: Quat;
 }
 
-const trimCache = new WeakMap<RigParams, Trim>();
+const trimCache = new WeakMap<RigParams, Map<number, Trim>>();
 
-/** Steady hands-up glide for a rig, found by letting the model settle. */
-function trimFor(rig: RigParams): Trim {
-  let trim = trimCache.get(rig);
+/**
+ * Steady glide of a rig with both toggles at `brake` (0 is hands up), found
+ * by letting the model settle in sea-level air.
+ */
+function trimFor(rig: RigParams, brake = 0): Trim {
+  let byBrake = trimCache.get(rig);
+  if (!byBrake) trimCache.set(rig, (byBrake = new Map()));
+  let trim = byBrake.get(brake);
   if (!trim) {
     const model = new FlightModel(rig);
     set(model.state.vel, 0, -5, -12);
-    simulate(model, 40, neutralControls(), calmAir());
+    simulate(model, 40, { ...neutralControls(), brakeL: brake, brakeR: brake }, calmAir());
     const s = model.state;
     trim = { vel: vec3(s.vel.x, s.vel.y, s.vel.z), att: { ...s.att }, pilotAtt: { ...s.pilotAtt } };
-    trimCache.set(rig, trim);
+    byBrake.set(brake, trim);
   }
   return trim;
 }
 
 /** Speeds of the steady hands-up glide of a rig, m/s. */
-export function trimSpeeds(rig: RigParams): { forward: number; sink: number } {
-  const { vel } = trimFor(rig);
+export function trimSpeeds(rig: RigParams, brake = 0): { forward: number; sink: number } {
+  const { vel } = trimFor(rig, brake);
   return { forward: Math.hypot(vel.x, vel.z), sink: -vel.y };
 }
 
@@ -113,24 +118,49 @@ function yawed(out: Quat, q: Quat): void {
   out.w = yaw.w * q.w - yaw.y * q.y;
 }
 
-/** Place the model in steady full flight at a position and compass heading. */
+/** Velocity and attitudes of steady flight on a compass heading, world frame. */
+export interface Trimmed {
+  vel: Vec3;
+  att: Quat;
+  pilotAtt: Quat;
+}
+
+/**
+ * Steady flight of a rig on a heading with both toggles at `brake`. Thinner
+ * air flies the same attitudes faster: the speed through it goes up as one
+ * over the square root of the density.
+ */
+export function trimmedFlight(
+  rig: RigParams,
+  headingDeg: number,
+  env: Environment,
+  brake = 0,
+  out: Trimmed = { vel: vec3(), att: quat(), pilotAtt: quat() },
+): Trimmed {
+  const trim = trimFor(rig, brake);
+  // Compass headings turn clockwise seen from above; rotation about +Y is
+  // counter-clockwise, hence the sign.
+  quatFromYaw(yaw, -headingDeg * DEG);
+  rotate(out.vel, yaw, trim.vel);
+  const thin = env.airDensity > 0 ? Math.sqrt(AIR_DENSITY_SEA_LEVEL / env.airDensity) : 1;
+  out.vel.x = out.vel.x * thin + env.wind.x;
+  out.vel.y = out.vel.y * thin + env.wind.y;
+  out.vel.z = out.vel.z * thin + env.wind.z;
+  yawed(out.att, trim.att);
+  yawed(out.pilotAtt, trim.pilotAtt);
+  return out;
+}
+
+/** Place the model in steady flight at a position and compass heading, hands up unless `brake` says otherwise. */
 export function initTrimmed(
   model: FlightModel,
   position: Vec3,
   headingDeg: number,
   env: Environment,
+  brake = 0,
 ): void {
-  const trim = trimFor(model.rig);
   const s = model.state;
-  // Compass headings turn clockwise seen from above; rotation about +Y is
-  // counter-clockwise, hence the sign.
-  quatFromYaw(yaw, -headingDeg * DEG);
-  rotate(s.vel, yaw, trim.vel);
-  s.vel.x += env.wind.x;
-  s.vel.y += env.wind.y;
-  s.vel.z += env.wind.z;
-  yawed(s.att, trim.att);
-  yawed(s.pilotAtt, trim.pilotAtt);
+  trimmedFlight(model.rig, headingDeg, env, brake, s);
   set(s.pos, position.x, position.y, position.z);
   set(s.omega, 0, 0, 0);
   set(s.pilotOmega, 0, 0, 0);

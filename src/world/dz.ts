@@ -2,6 +2,8 @@
 // sim needs to fly over it. World axes: +X east, -Z north, +Y up, metres,
 // origin at the landing target. Real drop zones will be more packs like this.
 
+import type { JumpRun } from '../sim/plane';
+
 export interface Rect {
   x: number;
   z: number;
@@ -73,7 +75,7 @@ export interface DzPack {
   cars: Placed[];
   people: Placed[];
   windsock: { x: number; z: number; height: number };
-  spawns: { pattern: Spawn; final: Spawn };
+  spawns: { pattern: Spawn; final: Spawn; plane: JumpRun };
 }
 
 /** Whether the point lies on the rectangle. */
@@ -97,6 +99,63 @@ function seeded(seed: number): () => number {
   };
 }
 
+const WOOD_COLORS = [0x37522a, 0x3f5c2e, 0x324a26];
+const ROOF_COLORS = [0x9c4a33, 0xa65a3c, 0x8a8a86, 0xb7a58a, 0x7a3c2c];
+
+/**
+ * A field cut into one to four parcels side by side, each with its own crop,
+ * with a strip of grass between them.
+ */
+function parcels(field: Rect, random: () => number): Rect[] {
+  const r = random();
+  const n = r < 0.4 ? 1 : r < 0.72 ? 2 : r < 0.9 ? 3 : 4;
+  if (n === 1) return [field];
+  const across = random() < 0.5;
+  const h = (field.headingDeg * Math.PI) / 180;
+  // Unit vectors of the long and the short side.
+  const ax = across ? Math.cos(h) : Math.sin(h);
+  const az = across ? Math.sin(h) : -Math.cos(h);
+  const total = across ? field.width : field.length;
+  const shares = Array.from({ length: n }, () => 0.5 + random());
+  const sum = shares.reduce((a, b) => a + b, 0);
+  const out: Rect[] = [];
+  let at = -total / 2;
+  for (const share of shares) {
+    const size = (total * share) / sum;
+    const mid = at + size / 2;
+    at += size;
+    const color = FIELD_COLORS[Math.floor(random() * FIELD_COLORS.length)]!;
+    const piece: Rect = { ...field, x: field.x + ax * mid, z: field.z + az * mid, color };
+    if (across) piece.width = size - 5;
+    else piece.length = size - 5;
+    out.push(piece);
+  }
+  return out;
+}
+
+/** Houses, roofs seen from above, round a crossroads in the middle of a cell. */
+function village(out: Rect[], cell: Rect, random: () => number): void {
+  const street = { ...cell, length: cell.length * 0.9, width: 6, color: 0x5e6062, layer: 2 };
+  out.push(street, { ...street, headingDeg: cell.headingDeg + 90 });
+  const h = (cell.headingDeg * Math.PI) / 180;
+  for (let k = 0; k < 40; k++) {
+    const along = (random() - 0.5) * cell.length * 0.8;
+    const side = (random() < 0.5 ? -1 : 1) * (10 + random() * 30);
+    const onCross = random() < 0.5;
+    const u = onCross ? side : along;
+    const v = onCross ? along : side;
+    out.push({
+      x: cell.x + Math.sin(h) * u + Math.cos(h) * v,
+      z: cell.z - Math.cos(h) * u + Math.sin(h) * v,
+      length: 9 + random() * 9,
+      width: 7 + random() * 5,
+      headingDeg: cell.headingDeg + (onCross ? 0 : 90),
+      color: ROOF_COLORS[Math.floor(random() * ROOF_COLORS.length)]!,
+      layer: 3,
+    });
+  }
+}
+
 const FIELD_COLORS = [0x6f8f3a, 0x7d9a45, 0x597a32, 0x9aa24a, 0xc2b25a, 0xd4c04a, 0x8a6f4a, 0x9c8458, 0x4f7034, 0x86a04e];
 const CAR_COLORS = [0xd9d9d9, 0x2b2b2e, 0x8a1f1f, 0x1f3f8a, 0x9a9a9a, 0xf2f2f2, 0x30506a];
 const SHIRT_COLORS = [0xd94f30, 0x2f6fd0, 0xf0c020, 0x30a060, 0xe8e8e8, 0x9040b0];
@@ -111,7 +170,9 @@ export function createValbrise(): DzPack {
   const cars: Placed[] = [];
   const people: Placed[] = [];
 
-  // Patchwork of fields all around, leaving the airfield clear.
+  // Patchwork of fields all around, leaving the airfield clear. They are
+  // cut into parcels further down, with numbers of their own.
+  const fields: Rect[] = [];
   const cell = 320;
   for (let i = -14; i <= 14; i++) {
     for (let j = -14; j <= 14; j++) {
@@ -119,7 +180,7 @@ export function createValbrise(): DzPack {
       const z = j * cell + (random() - 0.5) * 40;
       const onAirfield = x > -520 && x < 760 && z > -420 && z < 380;
       if (onAirfield || random() < 0.06) continue;
-      surfaces.push({
+      fields.push({
         x,
         z,
         length: cell - 14 - random() * 30,
@@ -224,6 +285,34 @@ export function createValbrise(): DzPack {
     people.push({ x, z, headingDeg: random() * 360, color: pick(SHIRT_COLORS) });
   }
 
+  // Farmland on out to the haze, for the view from altitude, with woods and
+  // villages. Its own random numbers, so that nothing nearer moves.
+  const far = seeded(4000);
+  const farPick = <T>(list: T[]): T => list[Math.floor(far() * list.length)]!;
+  for (let i = -40; i <= 40; i++) {
+    for (let j = -40; j <= 40; j++) {
+      if (Math.abs(i) <= 14 && Math.abs(j) <= 14) continue;
+      const x = i * cell + (far() - 0.5) * 60;
+      const z = j * cell + (far() - 0.5) * 60;
+      const kind = far();
+      if (kind < 0.04) continue;
+      // Fields of a block of land run the same way; the next block may not.
+      const block = Math.sin(Math.floor(i / 5) * 12.9898 + Math.floor(j / 5) * 78.233) * 43758.5453;
+      const headingDeg = [8, 8, 8, 24, -14, 38][Math.floor((block - Math.floor(block)) * 6)]!;
+      const size = cell - 14 - far() * 40;
+      const rect: Rect = { x, z, length: size, width: cell - 14 - far() * 40, headingDeg, color: farPick(FIELD_COLORS), layer: 1 };
+      if (kind < 0.11) {
+        surfaces.push({ ...rect, color: farPick(WOOD_COLORS) });
+      } else if (kind < 0.125) {
+        village(surfaces, rect, far);
+      } else {
+        fields.push(rect);
+      }
+    }
+  }
+  const split = seeded(4001);
+  for (const field of fields) surfaces.push(...parcels(field, split));
+
   return {
     name: 'Valbrise',
     wind: { fromDeg: 270, speed: 3 },
@@ -246,6 +335,10 @@ export function createValbrise(): DzPack {
     spawns: {
       pattern: { x: -180, z: 160, height: 300, headingDeg: 90 },
       final: { x: 260, z: 0, height: 90, headingDeg: 270 },
+      // Into the wind along the north side, a little short of the spot: out
+      // at once, the canopy opens about over the target; after ten seconds,
+      // well upwind of it.
+      plane: { x: 500, z: -60, height: 4000, headingDeg: 270, indicatedAirspeed: 40 },
     },
   };
 }
