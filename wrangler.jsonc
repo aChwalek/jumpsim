@@ -5,5 +5,7 @@
   "compatibility_date": "2026-11-01",
   "assets": {
     "directory": "./dist"
-  }
+  },
+  // Branches other than main get their own Preview URL (`wrangler preview`).
+  "previews": {}
 }
