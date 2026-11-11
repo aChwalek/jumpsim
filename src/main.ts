@@ -42,7 +42,7 @@ const altisonic = new Altisonic();
 
 /** What the current jump is set up with. */
 let setup = loadSetup();
-let dz: DzPack = dzInfo(setup.dz).pack();
+let dz: DzPack = await dzInfo(setup.dz).load();
 let world: World = buildWorld(dz, light);
 scene.add(world.object);
 
@@ -75,16 +75,16 @@ const cloudWind = vec3();
 
 /** Puts the sun where the hour has it, under the sky chosen, and the wind on the windsock and the clouds. */
 function applyWeather(): void {
-  light.set(daylight(sunPosition(dz.lat, dz.lon, setup.hour), setup.weather.sky));
+  light.set(daylight(sunPosition(dz.lat, dz.lon, setup.hour, dz.utcOffsetH), setup.weather.sky));
   world.setDaylight(light);
   world.setWind(setup.weather.windFromDeg, setup.weather.windKmh / 3.6);
   windAt(cloudWind, { ...setup.weather, gusts: 'none' }, CLOUD_BASE + CLOUD_DEPTH / 2, 0);
 }
 
-/** Moves to another drop zone. */
+/** Moves to another drop zone, which must have been loaded. */
 function applyDz(): void {
-  const next = dzInfo(setup.dz).pack();
-  if (next === dz) return;
+  const next = dzInfo(setup.dz).loaded();
+  if (!next || next === dz) return;
   dz = next;
   scene.remove(world.object);
   world.dispose();
@@ -221,14 +221,22 @@ function fly(): void {
   sound.wake();
   devices.capture();
 }
-menu.onStart = (chosen, start) => {
+/** Counts the menu's requests: one answered after the drop zone has loaded may be stale. */
+let request = 0;
+menu.onStart = async (chosen, start) => {
+  const mine = ++request;
+  await dzInfo(chosen.dz).load();
+  if (mine !== request) return;
   apply(chosen, true);
   spawn(start);
   fly();
 };
 // The scenery follows the menu. Another drop zone puts the jump at its start,
 // to be seen from there, and it can no longer be resumed.
-menu.onPreview = (chosen) => {
+menu.onPreview = async (chosen) => {
+  const mine = ++request;
+  await dzInfo(chosen.dz).load();
+  if (mine !== request) return;
   if (!apply(chosen, false)) {
     spawn(scenario);
     menu.setResumable(false);

@@ -1,0 +1,303 @@
+// Real drop zones built from open data by tools/dz/build.py: the relief, the
+// aerial photos draped on it, the buildings, woods and water of
+// OpenStreetMap, and the aerodrome and landing areas read off the charts and
+// the photos. What the data cannot say (wall colours, how tall the trees
+// grow, where people stand, the pattern) comes with each drop zone's look.
+
+import type { Area, Building, DzPack, Flag, Placed, Rect, Tree } from './dz';
+import { inArea, seeded } from './dz';
+import { gridOf, reliefFrom } from './terrain';
+
+const DEG = Math.PI / 180;
+
+/** x, z, length, width, compass heading of the length. */
+type RectTuple = [number, number, number, number, number];
+
+/** What tools/dz/build.py writes, in local metres: x east, z south, origin at the main landing area. */
+export interface RealDzData {
+  origin: { lat: number; lon: number; elevation: number };
+  /** Local clock time minus UTC, h. */
+  utcOffsetH: number;
+  /** Ground above the plain, m, rows north to south, centred on the origin. */
+  near: { size: number; spacing: number; heights: number[] };
+  far: { size: number; spacing: number; heights: number[] };
+  imagery: { url: string; size: number }[];
+  /** x, z, length, width, heading, height, roof colour (-1: none), wall colour (-1), flat roof, hangar door, greenhouse. */
+  buildings: number[][];
+  /** Kind letter, ring, then holes. */
+  woods: (string | number[])[][];
+  /** Hedge (1) or trees (0), then x, z pairs. */
+  treeRows: number[][];
+  /** x, z pairs. */
+  trees: number[];
+  water: { kind: string; ring: number[]; holes: number[][] }[];
+  dz: {
+    boundary: number[];
+    fieldRect: RectTuple;
+    runways: { ref: string; a: [number, number]; b: [number, number]; width: number; surface: string }[];
+    paved: { name: string; surface: string; points: number[]; rect: RectTuple }[];
+    landing: { name: string; use: string; surface: string; color: string | null; points: number[]; rect: RectTuple }[];
+    /** Where the sport jumpers aim; not drawn if `shown` is false. */
+    target: { x: number; z: number; radius: number; color?: string | null; shown?: boolean } | null;
+    /** People standing about: x, z. */
+    people: [number, number][];
+    pond: number[] | null;
+    windsocks: [number, number][];
+    flags: [number, number, number][];
+  };
+}
+
+/** Kinds of woods in the data: wood, scrub, orchard, vineyard, mangrove or swamp. */
+export type WoodKind = 'w' | 's' | 'o' | 'v' | 'm';
+
+/** What each drop zone adds to its data. */
+export interface RealDzLook {
+  name: string;
+  /** The wind the place usually gets: from, m/s. */
+  wind: { fromDeg: number; speed: number };
+  /** Grass blades round the pilot: on the field, and mown on the landing area. */
+  grass: { rough: number; mown: number };
+  /** Walls of the buildings, picked at random. */
+  walls: number[];
+  /** Roofs, where the photo does not cover them. */
+  roofs: number[];
+  /** How tall the trees of each kind grow, m, and how many a hectare near the field; none if left out. */
+  woods: Partial<Record<WoodKind, { height: [number, number]; perHectare: number; slim?: boolean }>>;
+  /** Trees along the mapped rows, m. */
+  rowHeight: [number, number];
+  slimRows?: boolean;
+  /** Brightness the photos are drawn at. */
+  imageryGain?: number;
+  /** Where the sport jumpers aim, if not the data's target. */
+  target?: { x: number; z: number; radius: number };
+  targetColor?: number;
+  pattern: DzPack['pattern'];
+  landingAxisDeg?: number;
+  patternSideDeg?: number;
+  final: DzPack['final'];
+  jumpRun: DzPack['jumpRun'];
+}
+
+const SHIRT_COLORS = [0xd94f30, 0x2f6fd0, 0xf0c020, 0x30a060, 0xe8e8e8, 0x9040b0];
+const CAR_COLORS = [0xd9d9d9, 0x2b2b2e, 0x8a1f1f, 0x1f3f8a, 0x9a9a9a, 0xf2f2f2, 0x30506a];
+
+const rect = ([x, z, length, width, headingDeg]: RectTuple, color = 0, layer = 0): Rect => ({
+  x,
+  z,
+  length,
+  width,
+  headingDeg,
+  color,
+  layer,
+});
+
+/** A strip of ground from one point to another. */
+function strip(ax: number, az: number, bx: number, bz: number, width: number): Rect {
+  const dx = bx - ax;
+  const dz = bz - az;
+  return { x: (ax + bx) / 2, z: (az + bz) / 2, length: Math.hypot(dx, dz), width, headingDeg: Math.atan2(dx, -dz) / DEG, color: 0, layer: 0 };
+}
+
+const hex = (s: string | null | undefined, fallback: number): number => (s ? parseInt(s.replace('#', ''), 16) : fallback);
+
+function bounds(points: number[]): [number, number, number, number] {
+  let x0 = Infinity;
+  let z0 = Infinity;
+  let x1 = -Infinity;
+  let z1 = -Infinity;
+  for (let i = 0; i < points.length; i += 2) {
+    x0 = Math.min(x0, points[i]!);
+    x1 = Math.max(x1, points[i]!);
+    z0 = Math.min(z0, points[i + 1]!);
+    z1 = Math.max(z1, points[i + 1]!);
+  }
+  return [x0, z0, x1, z1];
+}
+
+function ringArea(points: number[]): number {
+  let s = 0;
+  for (let i = 0, j = points.length - 2; i < points.length; j = i, i += 2) {
+    s += points[j]! * points[i + 1]! - points[i]! * points[j + 1]!;
+  }
+  return Math.abs(s) / 2;
+}
+
+/** The most trees a drop zone gets, to keep the frame rate. */
+const TREE_BUDGET = 40000;
+
+export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
+  const random = seeded(20261112);
+  const pick = <T>(list: T[]): T => list[Math.floor(random() * list.length)]!;
+
+  const groundAt = reliefFrom(gridOf(data.near.size, data.near.spacing, data.near.heights), {
+    plain: 0,
+    flatBelow: 12,
+    blend: 20,
+    far: gridOf(data.far.size, data.far.spacing, data.far.heights),
+  });
+  const onPlain = (x: number, z: number): boolean => groundAt(x, z) < 0.5;
+
+  // --- The field ------------------------------------------------------------------
+  // Grass blades grow round the landing area, mown short on it.
+  const sport = data.dz.landing.find((l) => l.use === 'sport') ?? data.dz.landing[0]!;
+  const mown = rect(sport.rect, look.grass.mown);
+  const field: Rect = { ...mown, length: mown.length + 400, width: mown.width + 300, color: look.grass.rough };
+  const bare: Rect[] = [];
+  for (const r of data.dz.runways) {
+    if (r.surface !== 'grass') bare.push(strip(r.a[0], r.a[1], r.b[0], r.b[1], r.width));
+  }
+  for (const p of data.dz.paved) bare.push(rect(p.rect));
+  const target = look.target ?? (data.dz.target ? { x: data.dz.target.x, z: data.dz.target.z, radius: data.dz.target.radius } : { x: 0, z: 0, radius: 2.5 });
+
+  // --- Water ------------------------------------------------------------------------
+  // Laid flat at the level of the plain: lakes up in the hills are left to the photo.
+  const waterAreas: Area[] = [];
+  for (const w of data.water) {
+    const [x0, z0, x1, z1] = bounds(w.ring);
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    if (w.kind !== 'sea' && !(onPlain(cx, cz) && onPlain(w.ring[0]!, w.ring[1]!))) continue;
+    waterAreas.push({ points: w.ring, holes: w.holes, color: w.kind === 'pool' ? 0x3fa0c0 : 0x2f5560, layer: w.kind === 'sea' ? 1 : 2 });
+  }
+
+  // --- Buildings ----------------------------------------------------------------------
+  const buildings: Building[] = [];
+  for (const [x, z, length, width, heading, height, roof, wall, flatRoof, hangar, greenhouse] of data.buildings as number[][]) {
+    if (greenhouse) {
+      buildings.push({ x: x!, z: z!, length: length!, width: width!, headingDeg: heading!, height: 3.5, color: 0xdfe4e4, roofColor: 0xe9ecec, flatRoof: true, hangar: false });
+      continue;
+    }
+    buildings.push({
+      x: x!,
+      z: z!,
+      length: length!,
+      width: width!,
+      headingDeg: heading!,
+      height: height!,
+      color: wall! >= 0 ? wall! : pick(look.walls),
+      roofColor: roof! >= 0 ? roof! : pick(look.roofs),
+      flatRoof: flatRoof === 1,
+      hangar: hangar === 1 || (height! > 7.5 && length! * width! > 300 && flatRoof !== 1),
+    });
+  }
+
+  // --- Trees --------------------------------------------------------------------------
+  const trees: Tree[] = [];
+  const field2 = { points: data.dz.boundary, color: 0, layer: 0 };
+  const clear = (x: number, z: number): boolean => !inArea(field2, x, z);
+  // Fewer with distance, where only their mass shows over the photo.
+  const thin = (d: number): number => (d < 1500 ? 1 : d < 3000 ? 0.5 : 0.25);
+  const woods = data.woods
+    .map((w) => {
+      const kind = w[0] as WoodKind;
+      const ring = w[1] as number[];
+      const holes = w.slice(2) as number[][];
+      const [x0, z0, x1, z1] = bounds(ring);
+      return { kind, area: { points: ring, holes, color: 0, layer: 0 }, box: [x0, z0, x1, z1], far: Math.hypot((x0 + x1) / 2, (z0 + z1) / 2) };
+    })
+    .sort((a, b) => a.far - b.far);
+  for (const w of woods) {
+    const spec = look.woods[w.kind];
+    if (!spec) continue;
+    const [x0, z0, x1, z1] = w.box as [number, number, number, number];
+    const want = (ringArea(w.area.points) / 10000) * spec.perHectare * thin(w.far);
+    const tries = Math.min(Math.round(want * 1.6), TREE_BUDGET);
+    for (let k = 0, placed = 0; k < tries && placed < want && trees.length < TREE_BUDGET; k++) {
+      const x = x0 + random() * (x1 - x0);
+      const z = z0 + random() * (z1 - z0);
+      if (!inArea(w.area, x, z) || !clear(x, z)) continue;
+      const d = Math.hypot(x, z);
+      const [h0, h1] = spec.height;
+      trees.push({ x, z, height: (h0 + random() * (h1 - h0)) * (d > 3000 ? 1.3 : 1), slim: spec.slim });
+      placed++;
+    }
+  }
+  for (const row of data.treeRows) {
+    const hedge = row[0] === 1;
+    for (let i = 3; i < row.length; i += 2) {
+      const ax = row[i - 2]!;
+      const az = row[i - 1]!;
+      const bx = row[i]!;
+      const bz = row[i + 1]!;
+      const length = Math.hypot(bx - ax, bz - az);
+      const gap = hedge ? 2.5 : look.slimRows ? 3.5 : 7;
+      const n = Math.max(1, Math.floor(length / gap));
+      for (let k = 0; k <= n && trees.length < TREE_BUDGET + 8000; k++) {
+        const t = k / n;
+        const [h0, h1] = look.rowHeight;
+        trees.push({
+          x: ax + (bx - ax) * t + (random() - 0.5),
+          z: az + (bz - az) * t + (random() - 0.5),
+          height: hedge ? 2.5 + random() * 1.5 : h0 + random() * (h1 - h0),
+          slim: !hedge && look.slimRows,
+        });
+      }
+    }
+  }
+  for (let i = 0; i < data.trees.length; i += 2) {
+    const [h0, h1] = look.rowHeight;
+    trees.push({ x: data.trees[i]!, z: data.trees[i + 1]!, height: h0 + random() * (h1 - h0) });
+  }
+
+  // --- Life on the DZ -------------------------------------------------------------------
+  const people: Placed[] = data.dz.people.map(([x, z]) => ({ x, z, headingDeg: random() * 360, color: pick(SHIRT_COLORS) }));
+  // Car parks partly full, in rows along their length.
+  const cars: Placed[] = [];
+  for (const p of data.dz.paved) {
+    if (!/car park|parking|aparcament|aparcamiento/i.test(p.name)) continue;
+    const start = cars.length;
+    const [px, pz, length, width, heading] = p.rect;
+    const h = heading * DEG;
+    const ux = Math.sin(h);
+    const uz = -Math.cos(h);
+    const rows = Math.max(1, Math.floor(width / 7));
+    const per = Math.max(1, Math.floor((length - 4) / 2.8));
+    for (let r = 0; r < rows && cars.length < start + 50; r++) {
+      const across = (r + 0.5) * (width / rows) - width / 2;
+      for (let k = 0; k < per && cars.length < start + 50; k++) {
+        if (random() > 0.4) continue;
+        const along = (k + 0.5) * ((length - 4) / per) - (length - 4) / 2;
+        cars.push({
+          x: px + ux * along - uz * across,
+          z: pz + uz * along + ux * across,
+          headingDeg: heading + 90 + (r % 2) * 180,
+          color: pick(CAR_COLORS),
+        });
+      }
+    }
+  }
+  const flags: Flag[] = data.dz.flags.map(([x, z, height]) => ({ x, z, height, color: 0xe8501e }));
+  const [wx, wz] = data.dz.windsocks[0] ?? [target.x + 40, target.z - 40];
+
+  return {
+    name: look.name,
+    lat: data.origin.lat,
+    lon: data.origin.lon,
+    utcOffsetH: data.utcOffsetH,
+    imagery: data.imagery,
+    imageryGain: look.imageryGain,
+    wind: look.wind,
+    groundAt,
+    target,
+    targetLayer: 6,
+    targetShown: data.dz.target?.shown !== false,
+    targetCentre: false,
+    targetColor: look.targetColor ?? (data.dz.target?.color ? hex(data.dz.target.color, 0xcdbf9a) : undefined),
+    surfaces: [],
+    areas: [],
+    grass: { area: field, mown, bare },
+    water: [],
+    waterAreas,
+    flags,
+    buildings,
+    trees,
+    cars,
+    people,
+    windsock: { x: wx, z: wz, height: 6 },
+    pattern: look.pattern,
+    landingAxisDeg: look.landingAxisDeg,
+    patternSideDeg: look.patternSideDeg,
+    final: look.final,
+    jumpRun: look.jumpRun,
+  };
+}
