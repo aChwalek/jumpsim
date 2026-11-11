@@ -16,6 +16,8 @@ export type Action =
   | 'spawnPlane'
   | 'jump'
   | 'openMenu'
+  /** Start on the gamepad: opens the menu, which then takes the gamepad over. */
+  | 'padMenu'
   | 'cycleQuality';
 
 const ACTIONS: Record<string, Action> = {
@@ -33,6 +35,12 @@ const ACTIONS: Record<string, Action> = {
   Space: 'jump',
   KeyV: 'openMenu',
 };
+
+/** Gamepad buttons, standard mapping, that act once per press (A jumps, see poll). */
+const PAD_ACTIONS: [number, Action][] = [
+  [3, 'reset'], // Y
+  [9, 'padMenu'], // Start
+];
 
 const MOUSE_SENSITIVITY = 0.0022;
 const MAX_YAW = 2.6;
@@ -59,11 +67,17 @@ export class InputDevices {
   lookYaw = 0;
   lookPitch = 0;
   gamepadConnected = false;
+  /** Multiple of the base mouse speed. */
+  sensitivity = 1;
+  /** Mouse forward and stick up look down. */
+  invertLook = false;
   onAction: (action: Action) => void = () => {};
 
   private readonly keys = new Set<string>();
   /** The gamepad's A button was down at the last poll. */
   private padJump = false;
+  /** And the buttons of PAD_ACTIONS. */
+  private readonly padDown = new Set<number>();
   private mouseYaw = 0;
   private mousePitch = 0;
 
@@ -80,9 +94,10 @@ export class InputDevices {
     surface.addEventListener('click', () => this.capture());
     document.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement !== surface) return;
-      this.mouseYaw = clamp(this.mouseYaw + e.movementX * MOUSE_SENSITIVITY, -MAX_YAW, MAX_YAW);
+      const speed = MOUSE_SENSITIVITY * this.sensitivity;
+      this.mouseYaw = clamp(this.mouseYaw + e.movementX * speed, -MAX_YAW, MAX_YAW);
       this.mousePitch = clamp(
-        this.mousePitch - e.movementY * MOUSE_SENSITIVITY,
+        this.mousePitch - e.movementY * speed * (this.invertLook ? -1 : 1),
         -MAX_PITCH_DOWN,
         MAX_PITCH_UP,
       );
@@ -139,7 +154,7 @@ export class InputDevices {
       p.frontL ||= pad.buttons[4]?.pressed ?? false;
       p.frontR ||= pad.buttons[5]?.pressed ?? false;
       stickYaw = deadzone(pad.axes[2] ?? 0) * 1.7;
-      stickPitch = -deadzone(pad.axes[3] ?? 0) * 1.2;
+      stickPitch = -deadzone(pad.axes[3] ?? 0) * 1.2 * (this.invertLook ? -1 : 1);
       // In freefall the triggers turn and the left stick drives.
       b.turn = clamp(b.turn + this.analogBrakeR - this.analogBrakeL, -1, 1);
       b.forward = clamp(b.forward - deadzone(pad.axes[1] ?? 0), -1, 1);
@@ -147,6 +162,12 @@ export class InputDevices {
       const jump = pad.buttons[0]?.pressed ?? false;
       if (jump && !this.padJump) this.onAction('jump');
       this.padJump = jump;
+      for (const [index, action] of PAD_ACTIONS) {
+        const down = pad.buttons[index]?.pressed ?? false;
+        if (down && !this.padDown.has(index)) this.onAction(action);
+        if (down) this.padDown.add(index);
+        else this.padDown.delete(index);
+      }
     }
     this.lookYaw = clamp(this.mouseYaw + stickYaw, -MAX_YAW, MAX_YAW);
     this.lookPitch = clamp(this.mousePitch + stickPitch, -MAX_PITCH_DOWN, MAX_PITCH_UP);

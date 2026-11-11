@@ -1,13 +1,13 @@
 import { expect, test } from 'vitest';
 import { Altisonic, CANOPY_ALARMS } from '../src/audio/altisonic';
 import { daylight, sunPosition } from '../src/render/daylight';
-import { defaultSetup, validSetup } from '../src/setup';
+import { defaultSetup, runHeading, validSetup } from '../src/setup';
 import { FlightModel, calmAir, neutralControls } from '../src/sim/flightModel';
 import { DEFAULT_RIG, deriveRig } from '../src/sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from '../src/sim/telemetry';
 import { vec3 } from '../src/sim/vec';
 import { gustAt, gustPeakKmh, windAt, windGradient, type Weather } from '../src/sim/weather';
-import { createValbrise, spawnsFor } from '../src/world/dz';
+import { createValbrise, runLeadIn, spawnsFor } from '../src/world/dz';
 
 const calm: Weather = { sky: 'clear', windFromDeg: 270, windKmh: 18, gusts: 'none' };
 
@@ -95,6 +95,38 @@ test('the starts are placed with the wind', () => {
   expect(north.pattern.headingDeg).toBe(180);
   expect(north.pattern.z).toBeCloseTo(-180, 6);
   expect(north.pattern.x).toBeCloseTo(-160, 6);
+});
+
+test('jump run goes into the wind by default, or on the heading chosen, beside the target', () => {
+  const dz = createValbrise();
+  // Westerly: the run heads west from 500 m east of the target, the target 60 m off the left door.
+  const west = spawnsFor(dz, 270).plane;
+  expect(west.headingDeg).toBe(270);
+  expect(west.x).toBeCloseTo(500, 6);
+  expect(west.z).toBeCloseTo(-60, 6);
+  expect(west.height).toBe(4000);
+  // Heading north across a westerly at 1500 m: it starts south of the target, the target on the left.
+  const north = spawnsFor(dz, 270, { headingDeg: 0, height: 1500 }).plane;
+  expect(north.headingDeg).toBe(0);
+  expect(north.height).toBe(1500);
+  expect(north.x).toBeCloseTo(60, 6);
+  expect(north.z).toBeCloseTo(500, 6);
+  // Downwind the run starts further out: the jumpers go before the target and drift back.
+  expect(runLeadIn(500, 90, 270)).toBeCloseTo(1500, 6);
+  expect(runLeadIn(500, 0, 270)).toBeCloseTo(500, 6);
+  const tail = spawnsFor(dz, 270, { headingDeg: 90 }).plane;
+  expect(tail.x).toBeCloseTo(-1500, 6);
+});
+
+test('the jump plan is checked when read back, and the run follows the wind until a heading is chosen', () => {
+  const setup = validSetup({ jump: { start: 'final', exitHeight: 9000, runDeg: -45 } });
+  expect(setup.jump).toEqual({ start: 'final', exitHeight: 4500, runDeg: 315 });
+  expect(validSetup({ jump: { start: 'moon', exitHeight: 1234 } }).jump).toEqual({ start: 'plane', exitHeight: 1200, runDeg: null });
+  const plan = defaultSetup();
+  plan.weather.windFromDeg = 200;
+  expect(runHeading(plan)).toBe(200);
+  plan.jump.runDeg = 120;
+  expect(runHeading(plan)).toBe(120);
 });
 
 test('the audible altimeter sounds each circuit height once on the way down', () => {

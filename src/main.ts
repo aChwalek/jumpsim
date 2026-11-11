@@ -10,7 +10,9 @@ import { PlaneView } from './render/planeView';
 import { Posture, type Stance } from './render/posture';
 import { RigView } from './render/rigView';
 import { Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
-import { KIND_NAMES, cloneSetup, loadSetup, loadingLabel, rigFor, sameFlight, type Setup } from './setup';
+import { logJump, type Outcome } from './logbook';
+import { QUALITY_LEVELS, loadSettings, saveSettings } from './settings';
+import { KIND_NAMES, cloneSetup, loadSetup, loadingLabel, rigFor, runHeading, sameFlight, type Setup, type Start } from './setup';
 import { Arrival } from './sim/arrival';
 import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
@@ -23,12 +25,10 @@ import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/teleme
 import { DEG, vec3 } from './sim/vec';
 import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
-import { Menu, type Start } from './ui/menu';
+import { Menu } from './ui/menu';
 import { buildWorld, type World } from './world/build';
 import { isWet, spawnsFor, type DzPack } from './world/dz';
 import { dzInfo } from './world/dzs';
-
-const QUALITY_RATIOS = [1, 1.5, 2, 3];
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
 const renderer = createRenderer(canvas);
@@ -42,6 +42,8 @@ const altisonic = new Altisonic();
 
 /** What the current jump is set up with. */
 let setup = loadSetup();
+/** How the sim runs here: quality, sound, mouse. Shared with the menu, which changes it. */
+const settings = loadSettings();
 let dz: DzPack = dzInfo(setup.dz).pack();
 let world: World = buildWorld(dz, light);
 scene.add(world.object);
@@ -52,7 +54,7 @@ let rigView = new RigView(rig, CANOPY_COLORS[setup.gear.color].cells, light);
 scene.add(rigView.object, rigView.pilot, rigView.shadow);
 const planeView = new PlaneView();
 scene.add(planeView.object);
-const menu = new Menu(setup);
+const menu = new Menu(setup, settings);
 
 const env: Environment = { wind: vec3(), airDensity: AIR_DENSITY_SEA_LEVEL };
 /** Seconds of sim time since the start, which drives the gusts. */
@@ -128,9 +130,22 @@ function apply(next: Setup, withGear: boolean): boolean {
   return setup.dz === before.dz && sameFlight(setup.gear, before.gear);
 }
 
-let quality = Number(localStorage.getItem('quality') ?? 2);
-if (!(quality >= 0 && quality < QUALITY_RATIOS.length)) quality = 2;
-const resolution = new Resolution(renderer, QUALITY_RATIOS[quality]!);
+const resolution = new Resolution(renderer, QUALITY_LEVELS[settings.quality]!.ratio);
+
+/** Puts the settings to work, and keeps them for next time. */
+function applySettings(): void {
+  resolution.setMaxPixelRatio(QUALITY_LEVELS[settings.quality]!.ratio);
+  if (!settings.autoResolution && resolution.scale !== 1) {
+    resolution.scale = 1;
+    resolution.apply();
+  }
+  hud.showFps = settings.showFps;
+  sound.set(settings.sound, settings.volume);
+  devices.sensitivity = settings.mouseSensitivity;
+  devices.invertLook = settings.invertLook;
+  saveSettings(settings);
+}
+applySettings();
 
 const ramped = neutralControls();
 const applied = neutralControls();
@@ -152,11 +167,45 @@ const posture = new Posture();
 const still = noBodyInputs();
 /** Where the hands have the toggles: stowed brakes keep the canopy's short of them. */
 const hands = neutralControls();
+/** Seconds flown under canopy on this jump, for the logbook. */
+let canopyTime = 0;
+
+/** Writes the jump that just ended in the logbook. */
+function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distance?: number, wet?: boolean): void {
+  const { gear, weather } = setup;
+  const log = jump?.log;
+  logJump({
+    time: Date.now(),
+    dz: setup.dz,
+    dzName: dz.name,
+    start: scenario,
+    hour: setup.hour,
+    weather: { ...weather },
+    canopy: { kind: gear.kind, areaFt2: gear.canopyAreaFt2, exitWeightKg: gear.exitWeightKg, wingLoading: rig.wingLoading },
+    freefall:
+      jump && log && jump.phase !== 'plane'
+        ? {
+            exitHeight: log.exitHeight,
+            pullHeight: log.pullHeight,
+            // Until the pull; to the ground when there was none.
+            seconds: jump.opening ? log.freefallSeconds : jump.time,
+            topSpeed: log.topSpeed,
+            aad: log.aad,
+          }
+        : undefined,
+    canopySeconds: canopyTime,
+    outcome,
+    sink,
+    groundSpeed,
+    distance,
+    wet,
+  });
+}
 
 function spawn(kind: Start): void {
   scenario = kind;
   airTime = 0;
-  const spots = spawnsFor(dz, setup.weather.windFromDeg);
+  const spots = spawnsFor(dz, setup.weather.windFromDeg, { headingDeg: runHeading(setup), height: setup.jump.exitHeight });
   if (kind === 'plane') {
     windAt(env.wind, setup.weather, spots.plane.height, airTime);
     jump = new Jump(model, spots.plane, env, dz.groundAt);
@@ -177,6 +226,7 @@ function spawn(kind: Start): void {
   arrival = null;
   verdict = null;
   stepsHeard = 0;
+  canopyTime = 0;
   posture.reset();
   paused = false;
   devices.recentre();
@@ -195,13 +245,17 @@ const actions: Record<Action, () => void> = {
   },
   toggleHud: () => hud.toggle(),
   togglePause: () => (paused = !paused),
-  toggleSound: () => sound.toggleMute(),
+  toggleSound: () => {
+    settings.sound = !settings.sound;
+    applySettings();
+    menu.refresh();
+  },
   recentre: () => devices.recentre(),
   cycleQuality: () => {
-    quality = (quality + 1) % QUALITY_RATIOS.length;
-    localStorage.setItem('quality', String(quality));
+    settings.quality = (settings.quality + 1) % QUALITY_LEVELS.length;
     resolution.scale = 1;
-    resolution.setMaxPixelRatio(QUALITY_RATIOS[quality]!);
+    applySettings();
+    menu.refresh();
   },
   openMenu: () => {
     if (menu.isOpen) return menu.cancel();
@@ -209,6 +263,9 @@ const actions: Record<Action, () => void> = {
     waiting = true;
     devices.release();
     menu.open(true);
+  },
+  padMenu: () => {
+    if (!menu.isOpen) actions.openMenu();
   },
 };
 // Flight keys do nothing while the menu is up, except the one that closes it.
@@ -235,6 +292,12 @@ menu.onPreview = (chosen) => {
   }
 };
 menu.onCancel = fly;
+menu.onSettings = applySettings;
+// Escape opens the menu too; in the menu it goes back, and may close it:
+// that press is spent (the menu takes it first and marks it).
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' && !e.repeat && !e.defaultPrevented && !menu.isOpen) actions.openMenu();
+});
 
 function resize(): void {
   camera.aspect = gearCamera.aspect = window.innerWidth / window.innerHeight;
@@ -279,6 +342,7 @@ function simulate(seconds: number): void {
     Object.assign(hands, applied);
     jump?.holdStows(applied);
     model.step(dt, applied, env);
+    canopyTime += dt;
     touchdown = detectTouchdown(model, dz.groundAt);
     if (touchdown) {
       const landed = touchdown;
@@ -290,6 +354,7 @@ function simulate(seconds: number): void {
       windAt(env.wind, setup.weather, canopyAboveFeet(), airTime);
       arrival = new Arrival(model, landed, { groundAt: dz.groundAt, wet, wind: vec3(env.wind.x, env.wind.y, env.wind.z) });
       verdict = () => hud.showResult(landed, distance, wet, log);
+      logThisJump(landed.rating, landed.sink, landed.groundSpeed, distance, wet);
       sound.land({ sink: landed.sink, groundSpeed: landed.groundSpeed, wet });
       // What is left of the frame is spent on the ground.
       arrival.update(left);
@@ -306,6 +371,7 @@ function hitWithoutCanopy(j: Jump): void {
   s.vel.x = s.vel.y = s.vel.z = 0;
   sound.land({ sink: speed, groundSpeed: 0, wet: false });
   hud.showImpact(j.log, j.phase === 'opening', speed);
+  logThisJump('impact', speed, 0);
 }
 
 const eye = vec3();
@@ -415,9 +481,12 @@ function frame(now: number): void {
   const elapsed = (now - last) / 1000;
   last = now;
   frameAverage += (elapsed - frameAverage) * 0.05;
-  if (elapsed < 0.25) resolution.track(elapsed);
+  if (elapsed < 0.25 && settings.autoResolution) resolution.track(elapsed);
 
   devices.poll();
+  // After the devices: Start may just have opened the menu, which then ignores it until let go.
+  menu.poll();
+  hud.setMenuOpen(menu.isOpen);
   const live = !waiting && !paused;
   if (live) {
     const seconds = Math.min(elapsed, 0.1);
@@ -533,7 +602,7 @@ requestAnimationFrame(frame);
 
 if (import.meta.env.DEV) {
   // The rig can change between jumps: these always give the current one.
-  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, fly, light, apply, resolution };
+  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, fly, light, apply, resolution, settings };
   Object.defineProperties(sim, {
     model: { get: () => model },
     rig: { get: () => rig },

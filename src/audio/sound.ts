@@ -416,7 +416,9 @@ export function playBeeps(ctx: BaseAudioContext, out: AudioNode, b: Beeps): void
 
 /** The sound of the sim in the page. Silent until `wake` is called. */
 export class Sound {
-  muted = localStorage.getItem('muted') === '1';
+  muted = false;
+  /** 0 to 1, under the mute. */
+  private level = 1;
   private ctx: AudioContext | null = null;
   private volume: GainNode | null = null;
   private noise: AudioBuffer | null = null;
@@ -437,7 +439,7 @@ export class Sound {
     if (!this.ctx) {
       this.ctx = new AudioContext({ latencyHint: 'interactive' });
       this.volume = buildOutput(this.ctx);
-      this.volume.gain.value = this.muted ? 0 : 1;
+      this.volume.gain.value = this.gain;
       this.noise = makeNoise(this.ctx, 2);
       this.wind = buildWind(this.ctx, this.noise, this.volume);
       this.engine = buildEngine(this.ctx, this.noise, this.volume);
@@ -445,10 +447,16 @@ export class Sound {
     if (this.ctx.state === 'suspended' && !document.hidden) void this.ctx.resume();
   }
 
-  toggleMute(): void {
-    this.muted = !this.muted;
-    localStorage.setItem('muted', this.muted ? '1' : '0');
-    if (this.ctx && this.volume) this.volume.gain.setTargetAtTime(this.muted ? 0 : 1, this.ctx.currentTime, 0.03);
+  /** Sound on or off, and how loud, 0 to 1. */
+  set(on: boolean, level: number): void {
+    this.muted = !on;
+    this.level = Math.min(1, Math.max(0, level));
+    if (this.ctx && this.volume) this.volume.gain.setTargetAtTime(this.gain, this.ctx.currentTime, 0.03);
+  }
+
+  /** Squared, so that the slider sounds more even: half way is -12 dB. */
+  private get gain(): number {
+    return this.muted ? 0 : this.level * this.level;
   }
 
   /** Call every frame. */

@@ -69,7 +69,7 @@ function jumpRows(log: JumpLog): string {
     <tr><td>${log.openingLoad.toFixed(1)} g</td><td>à l'ouverture</td></tr>`;
 }
 
-const HINT = '<p class="hint">R pour recommencer · 1 circuit · 2 finale · 3 avion · V changer de voile</p>';
+const HINT = '<p class="hint">R ou Y pour recommencer · 1 circuit · 2 finale · 3 avion · V, Échap ou Start pour le menu</p>';
 
 export class Hud {
   private readonly root = el('hud');
@@ -89,9 +89,16 @@ export class Hud {
   private readonly cue = el('cue');
   private lastCue = '';
   private sinceText = 1;
+  /** Frame rate and render scale in the corner. */
+  showFps = true;
 
   toggle(): void {
     this.root.classList.toggle('hidden');
+  }
+
+  /** Nothing of the HUD shows behind the menu. */
+  setMenuOpen(open: boolean): void {
+    this.root.classList.toggle('menu', open);
   }
 
   setAltimeter(kind: AltimeterKind, altitude: number): void {
@@ -156,7 +163,8 @@ export class Hud {
     this.sinceText = 0;
     this.vario.textContent = d.verticalSpeed.toFixed(1);
     this.speed.textContent = (d.groundSpeed * 3.6).toFixed(0);
-    this.perf.textContent = `${d.fps.toFixed(0)} i/s · rendu ${(d.renderScale * 100).toFixed(0)} %${d.muted ? ' · son coupé' : ''}`;
+    const fps = this.showFps ? `${d.fps.toFixed(0)} i/s · rendu ${(d.renderScale * 100).toFixed(0)} %` : '';
+    this.perf.textContent = [fps, d.muted ? 'son coupé' : ''].filter(Boolean).join(' · ');
     const gusts = d.gustKmh > d.windKmh ? `, rafales ${d.gustKmh}` : '';
     this.wind.textContent = `cap ${d.headingDeg.toFixed(0).padStart(3, '0')}° · vent du ${d.windFromDeg
       .toFixed(0)

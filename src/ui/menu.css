@@ -1,0 +1,192 @@
+/* The menu: a panel on the left, the scenery it sets up visible on the right. */
+
+#menu {
+  --accent: #ffd84a;
+  --accent-soft: rgba(255, 216, 74, 0.16);
+  --line: rgba(255, 255, 255, 0.14);
+  --dim: rgba(255, 255, 255, 0.62);
+  --panel: rgba(12, 16, 22, 0.82);
+  position: fixed; inset: 0; display: none; align-items: center; justify-content: flex-start;
+  padding: 16px clamp(16px, 4vw, 56px); box-sizing: border-box;
+  background: linear-gradient(90deg, rgba(8, 12, 18, 0.6), rgba(8, 12, 18, 0.15) 65%, rgba(8, 12, 18, 0));
+  color: #fff; user-select: none;
+  font: 500 14px/1.35 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+#menu *:focus { outline: none; }
+#menu button {
+  font: inherit; color: inherit; cursor: pointer; border-radius: 7px;
+  background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.2);
+}
+#menu button:hover { background: rgba(255, 255, 255, 0.14); }
+#menu .btn {
+  display: inline-block; min-width: 1.5em; padding: 0 5px; box-sizing: border-box; border-radius: 9px;
+  background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.35);
+  font: 650 10.5px/16px -apple-system, BlinkMacSystemFont, sans-serif; font-style: normal; text-align: center;
+  color: #fff; vertical-align: 1px;
+}
+/* Keyboard hints, or gamepad hints once the gamepad is used. */
+#menu .pad { display: none; }
+#menu.pad .pad { display: inline-block; }
+#menu.pad .keys { display: none; }
+#menu.pad span.pad { display: inline; }
+#menu .resume-hint { display: none; }
+#menu.resumable .resume-hint { display: inline; }
+
+#menu .panel {
+  width: 640px; max-width: 100%; max-height: 100%; box-sizing: border-box; display: flex; flex-direction: column;
+  background: var(--panel); border-radius: 16px; backdrop-filter: blur(8px); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+#menu .screen { display: flex; flex-direction: column; min-height: 0; padding: 20px 24px 14px; }
+#menu .screen-home { overflow-y: auto; }
+#menu .screen[hidden] { display: none !important; }
+#menu .screen .body { overflow-y: auto; min-height: 0; margin: 0 -10px; padding: 2px 10px 6px; scrollbar-width: thin; }
+
+/* The focus, wherever it is: the same yellow ring for mouse, keys and pad. */
+#menu [data-nav].focus { box-shadow: 0 0 0 2px var(--accent); }
+#menu [data-nav].disabled { opacity: 0.38; }
+#menu [data-nav].disabled button, #menu [data-nav].disabled input { pointer-events: none; }
+
+/* ------------------------------------------------------------ home */
+
+#menu .title-bar { display: flex; align-items: baseline; gap: 14px; margin-bottom: 16px; padding-right: 0; }
+#menu .title-bar h1 { margin: 0; font-size: 30px; font-weight: 750; letter-spacing: -0.01em; }
+#menu .title-bar p { margin: 0; color: var(--dim); }
+
+#menu .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+#menu .cat-card {
+  display: flex; flex-direction: column; align-items: stretch; text-align: left; gap: 0;
+  padding: 13px 15px 11px; min-height: 132px; border-radius: 12px;
+  background: rgba(255, 255, 255, 0.055); border: 1px solid var(--line);
+}
+#menu .cat-card:hover, #menu .cat-card.focus { background: rgba(255, 255, 255, 0.1); }
+#menu .cat-card .cat { font-size: 12px; font-weight: 700; letter-spacing: 0.16em; color: var(--accent); margin-bottom: 7px; }
+#menu .cat-card .sum { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+#menu .cat-card .sum > span { display: block; font-size: 13px; color: rgba(255, 255, 255, 0.88); }
+#menu .cat-card .sum .big { font-size: 19px; font-weight: 650; color: #fff; display: flex; align-items: center; gap: 7px; margin-bottom: 2px; }
+#menu .cat-card .sum .big small { font-size: 13px; font-weight: 500; color: var(--dim); }
+#menu .cat-card .sum .big .swatch { margin-left: auto; width: 54px; flex: none; }
+#menu .cat-card .sum .dim { font-size: 12px; color: var(--dim); }
+#menu .cat-card .sum .wind { display: flex; align-items: center; gap: 6px; }
+#menu .cat-card .arrow { width: 16px; height: 16px; flex: none; }
+#menu .cat-card .arrow path { stroke: var(--accent); stroke-width: 3.4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+#menu .cat-card .more { align-self: flex-end; margin-top: 6px; font-size: 11.5px; color: var(--dim); }
+#menu .cat-card.focus .more, #menu .cat-card:hover .more { color: var(--accent); }
+
+#menu .go { display: flex; gap: 10px; margin-top: 16px; }
+#menu .go button { padding: 12px 0; font-size: 16px; font-weight: 650; border-radius: 10px; }
+#menu .go .resume { display: none; flex: 1; }
+#menu.resumable .go .resume { display: block; }
+#menu .go .jump { flex: 2; background: var(--accent); border-color: var(--accent); color: #111; }
+#menu .go .jump:hover { background: #ffe37a; }
+#menu .go .jump span { font-weight: 500; opacity: 0.65; margin-left: 8px; }
+#menu .go .jump.focus { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--accent); }
+
+#menu .hints { margin: 12px 0 0; font-size: 11.5px; text-align: center; color: var(--dim); line-height: 1.8; }
+
+/* Corner buttons: settings and logbook. */
+#menu .menu-corner { position: fixed; top: 14px; right: 14px; display: flex; gap: 8px; }
+#menu .corner-btn {
+  display: flex; align-items: center; gap: 7px; padding: 8px 13px 8px 10px; border-radius: 22px;
+  background: rgba(12, 16, 22, 0.72); border-color: rgba(255, 255, 255, 0.22); backdrop-filter: blur(6px);
+}
+#menu .corner-btn:hover { background: rgba(30, 36, 46, 0.85); }
+#menu .corner-btn.on { border-color: var(--accent); color: var(--accent); }
+#menu .corner-btn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; stroke-linecap: round; }
+
+/* ------------------------------------------------------------ category screens */
+
+#menu .screen-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+#menu .back { padding: 6px 12px; flex: none; }
+#menu .screen-bar .title { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: 0.16em; color: var(--accent); }
+#menu .tabs { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+#menu .tabs button { padding: 6px 11px; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; background: none; border-color: transparent; color: var(--dim); }
+#menu .tabs button:hover { color: #fff; }
+#menu .tabs button.on { color: var(--accent); border-color: rgba(255, 216, 74, 0.5); background: var(--accent-soft); }
+
+#menu .row { padding: 10px 12px 11px; margin: 2px 0; border-radius: 10px; }
+#menu .row.focus { background: rgba(255, 255, 255, 0.07); }
+#menu .row .head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+#menu .row .label { font-size: 11px; letter-spacing: 0.13em; color: rgba(255, 255, 255, 0.78); white-space: nowrap; }
+#menu .row .hint { font-size: 11.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#menu .row .value { margin-left: auto; font-size: 15px; font-weight: 650; white-space: nowrap; }
+#menu .row .note { margin: 7px 0 0; font-size: 12px; color: var(--dim); }
+#menu .row .note[hidden] { display: none; }
+#menu .row.action-row .head { display: none; }
+#menu .action { width: 100%; padding: 9px 0; }
+#menu .action.danger { color: #ff8a7a; border-color: rgba(255, 120, 100, 0.45); }
+
+#menu .choices { display: flex; gap: 5px; }
+#menu .choices button { flex: 1; min-width: 0; padding: 7px 0; }
+#menu .choices button.on { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 650; }
+#menu .choices.sizes { gap: 3px; }
+#menu .choices.sizes button { font-size: 13px; padding: 7px 0; }
+#menu .choices.colors { display: grid; grid-template-columns: repeat(8, 1fr); }
+#menu .choices.colors button { padding: 5px; }
+#menu .choices.colors button.on { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+#menu .swatch { display: flex; height: 16px; border-radius: 3px 3px 8px 8px; overflow: hidden; }
+#menu .swatch i { flex: 1; }
+
+#menu input[type='range'] { width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; }
+#menu .beside { display: flex; align-items: center; gap: 14px; }
+#menu .compass { width: 54px; height: 54px; flex: none; }
+#menu .compass svg { width: 100%; height: 100%; display: block; overflow: visible; }
+#menu .compass .ring { fill: rgba(255, 255, 255, 0.06); stroke: rgba(255, 255, 255, 0.35); }
+#menu .compass text { fill: rgba(255, 255, 255, 0.7); font-size: 8.5px; }
+#menu .compass .wind path { stroke: var(--accent); stroke-width: 3.2; }
+#menu .compass .run path { stroke: rgba(255, 255, 255, 0.92); stroke-width: 1.4; fill: rgba(255, 255, 255, 0.92); stroke-linejoin: round; }
+#menu .compass .run .track { fill: none; stroke-width: 1.8; stroke-dasharray: 3.2 2.6; }
+
+#menu .dzs { display: grid; gap: 8px; }
+#menu .dz { position: relative; display: block; text-align: left; padding: 12px 40px 12px 14px; border-radius: 10px; }
+#menu .dz b { display: block; font-size: 17px; }
+#menu .dz span { display: block; margin-top: 2px; font-size: 12.5px; color: var(--dim); }
+#menu .dz .check { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-style: normal; font-size: 18px; color: var(--accent); display: none; }
+#menu .dz.on { border-color: var(--accent); background: var(--accent-soft); }
+#menu .dz.on .check { display: block; }
+#menu .screen-dz .body > .note { margin: 12px 4px 0; font-size: 12px; color: var(--dim); }
+
+/* ------------------------------------------------------------ settings */
+
+#menu .section { margin: 16px 12px 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; color: var(--accent); }
+#menu .section:first-child { margin-top: 4px; }
+#menu .table-row { padding: 6px 12px; }
+#menu table.controls { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+#menu .controls th { text-align: left; font-size: 10.5px; letter-spacing: 0.12em; color: var(--dim); font-weight: 600; padding: 0 6px 4px; }
+#menu .controls td { padding: 4px 6px; border-top: 1px solid var(--line); color: rgba(255, 255, 255, 0.85); }
+#menu .controls td:first-child { color: #fff; }
+#menu .controls td + td { white-space: nowrap; }
+
+/* ------------------------------------------------------------ logbook */
+
+#menu .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 2px 0 10px; }
+#menu .tile { padding: 10px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.055); border: 1px solid var(--line); }
+#menu .tile b { display: block; font-size: 21px; font-weight: 700; }
+#menu .tile span { display: block; font-size: 12px; color: rgba(255, 255, 255, 0.82); }
+#menu .tile small { display: block; margin-top: 3px; font-size: 11px; color: var(--dim); }
+#menu .outcomes { margin: 4px 2px 6px; }
+#menu .outcomes .stack { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; }
+#menu .outcomes .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 7px; font-size: 12px; color: rgba(255, 255, 255, 0.82); }
+#menu .outcomes .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+#menu .outcomes .o0 { background: #6ad08a; }
+#menu .outcomes .o1 { background: #b5d96a; }
+#menu .outcomes .o2 { background: #f0c24a; }
+#menu .outcomes .o3 { background: #f08a4a; }
+#menu .outcomes .o4 { background: #e8493c; }
+#menu .empty { margin: 8px 12px; color: var(--dim); font-size: 13px; }
+#menu .row.entry { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--line); border-radius: 0; margin: 0; }
+#menu .row.entry.focus { border-radius: 8px; }
+#menu .entry .n { font-size: 12px; color: var(--dim); }
+#menu .entry small { display: block; font-size: 11.5px; color: var(--dim); margin-top: 1px; }
+#menu .entry .res { text-align: right; }
+#menu .entry .res b { color: #8fe0a6; font-weight: 650; }
+#menu .entry .res.bad b { color: #ff8a7a; }
+
+@media (max-width: 720px) {
+  #menu { align-items: flex-end; padding: 64px 10px 10px; }
+  #menu .cards { grid-template-columns: 1fr; }
+  #menu .tiles { grid-template-columns: 1fr 1fr; }
+  #menu .tabs .pad { display: none !important; }
+  #menu .screen { padding: 16px 14px 10px; }
+  #menu .corner-btn span { display: none; }
+}

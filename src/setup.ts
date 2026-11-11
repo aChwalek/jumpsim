@@ -1,5 +1,6 @@
 // Everything chosen before a jump: the drop zone, the hour and the weather,
-// the gear and the weight under it. Remembered from one visit to the next.
+// the gear and the weight under it, and how the jump starts. Remembered from
+// one visit to the next.
 
 import { HOUR_MAX, HOUR_MIN } from './render/daylight';
 import { isCanopyColor, type CanopyColorId } from './render/canopyColors';
@@ -30,12 +31,30 @@ export interface Gear {
   audible: boolean;
 }
 
+/** Where the jump starts: in the plane, or already under canopy, on downwind or on final. */
+export type Start = 'plane' | 'pattern' | 'final';
+export const STARTS: readonly Start[] = ['plane', 'pattern', 'final'];
+
+/** Exit heights on offer, above the drop zone, m: from a hop and pop to a high one. */
+export const EXIT_HEIGHT_MIN = 1000;
+export const EXIT_HEIGHT_MAX = 4500;
+export const EXIT_HEIGHT_STEP = 100;
+
+export interface JumpPlan {
+  start: Start;
+  /** Exit height above the drop zone, m. */
+  exitHeight: number;
+  /** Compass heading of jump run, degrees, or null to fly it into the wind. */
+  runDeg: number | null;
+}
+
 export interface Setup {
   dz: DzId;
   /** Clock time, French summer time, hours. */
   hour: number;
   weather: Weather;
   gear: Gear;
+  jump: JumpPlan;
 }
 
 export const rigFor = (gear: Gear): RigParams =>
@@ -49,6 +68,15 @@ export const nearestSize = (kind: CanopyKind, area: number): number =>
   CANOPY_SIZES[kind].reduce((best, size) => (Math.abs(size - area) < Math.abs(best - area) ? size : best));
 
 export const validWeight = (kg: number): number => Math.min(WEIGHT_MAX, Math.max(WEIGHT_MIN, Math.round(kg)));
+
+export const validExitHeight = (m: number): number =>
+  Math.min(EXIT_HEIGHT_MAX, Math.max(EXIT_HEIGHT_MIN, Math.round(m / EXIT_HEIGHT_STEP) * EXIT_HEIGHT_STEP));
+
+/** A compass heading in whole degrees, 0 to 359. */
+export const validHeading = (deg: number): number => ((Math.round(deg) % 360) + 360) % 360;
+
+/** Heading jump run is flown on: the one chosen, or into the wind. */
+export const runHeading = (setup: Setup): number => setup.jump.runDeg ?? setup.weather.windFromDeg;
 
 /** Who usually flies a canopy loaded like this, lb/ft². */
 export function loadingLabel(wingLoading: number): string {
@@ -80,6 +108,7 @@ export function defaultSetup(): Setup {
       altimeter: 'digital',
       audible: false,
     },
+    jump: { start: 'plane', exitHeight: 4000, runDeg: null },
   };
 }
 
@@ -116,6 +145,10 @@ export function validSetup(saved: unknown): Setup {
   if (isCanopyColor(g.color)) gear.color = g.color;
   if (oneOf(g.altimeter, ['none', 'analog', 'digital'] as const)) gear.altimeter = g.altimeter;
   if (typeof g.audible === 'boolean') gear.audible = g.audible;
+  const j = (s.jump ?? {}) as Partial<Record<keyof JumpPlan, unknown>>;
+  if (oneOf(j.start, STARTS)) setup.jump.start = j.start;
+  if (finite(j.exitHeight)) setup.jump.exitHeight = validExitHeight(j.exitHeight);
+  if (finite(j.runDeg)) setup.jump.runDeg = validHeading(j.runDeg);
   return setup;
 }
 
@@ -141,4 +174,4 @@ export function saveSetup(setup: Setup): void {
   }
 }
 
-export const cloneSetup = (s: Setup): Setup => ({ ...s, weather: { ...s.weather }, gear: { ...s.gear } });
+export const cloneSetup = (s: Setup): Setup => ({ ...s, weather: { ...s.weather }, gear: { ...s.gear }, jump: { ...s.jump } });

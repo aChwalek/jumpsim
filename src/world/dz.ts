@@ -116,8 +116,25 @@ export interface DzPack {
   jumpRun: { downwind: number; right: number; height: number; indicatedAirspeed: number };
 }
 
-/** Where the jumps start with the wind from this direction. */
-export function spawnsFor(dz: DzPack, windFromDeg: number): { pattern: Spawn; final: Spawn; plane: JumpRun } {
+/**
+ * How far before the target jump run starts, m: the drop zone's distance
+ * into the wind, more as the run turns downwind, since the jumpers then go
+ * out before the target and drift back over it.
+ */
+export function runLeadIn(downwind: number, headingDeg: number, windFromDeg: number): number {
+  const into = Math.cos(((headingDeg - windFromDeg) * Math.PI) / 180);
+  return downwind + Math.max(0, -into) * 1000;
+}
+
+/**
+ * Where the jumps start with the wind from this direction. Jump run is flown
+ * into the wind at the drop zone's height unless `run` says otherwise.
+ */
+export function spawnsFor(
+  dz: DzPack,
+  windFromDeg: number,
+  run: { headingDeg?: number; height?: number } = {},
+): { pattern: Spawn; final: Spawn; plane: JumpRun } {
   const to = ((windFromDeg + 180) * Math.PI) / 180;
   // Downwind, and to its right, in world axes (+X east, +Z south).
   const dx = Math.sin(to);
@@ -127,7 +144,13 @@ export function spawnsFor(dz: DzPack, windFromDeg: number): { pattern: Spawn; fi
   const { x, z } = dz.target;
   const p = dz.pattern;
   const f = dz.final;
-  const run = dz.jumpRun;
+  const jr = dz.jumpRun;
+  // Jump run: ahead along its heading, and to the plane's right.
+  const heading = ((run.headingDeg ?? windFromDeg) % 360 + 360) % 360;
+  const h = (heading * Math.PI) / 180;
+  const ahead = { x: Math.sin(h), z: -Math.cos(h) };
+  const right = { x: Math.cos(h), z: Math.sin(h) };
+  const back = runLeadIn(jr.downwind, heading, windFromDeg);
   return {
     pattern: {
       x: x - p.upwind * dx + p.side * rx,
@@ -136,13 +159,12 @@ export function spawnsFor(dz: DzPack, windFromDeg: number): { pattern: Spawn; fi
       headingDeg: (windFromDeg + 180) % 360,
     },
     final: { x: x + f.downwind * dx, z: z + f.downwind * dz_, height: f.height, headingDeg: windFromDeg % 360 },
-    // Flying upwind, the plane's right is the left of the downwind track.
     plane: {
-      x: x + run.downwind * dx - run.right * rx,
-      z: z + run.downwind * dz_ - run.right * rz,
-      height: run.height,
-      headingDeg: windFromDeg % 360,
-      indicatedAirspeed: run.indicatedAirspeed,
+      x: x - back * ahead.x + jr.right * right.x,
+      z: z - back * ahead.z + jr.right * right.z,
+      height: run.height ?? jr.height,
+      headingDeg: heading,
+      indicatedAirspeed: jr.indicatedAirspeed,
     },
   };
 }
