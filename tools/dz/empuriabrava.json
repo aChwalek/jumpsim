@@ -1,0 +1,1549 @@
+{
+ "id": "empuriabrava",
+ "displayName": "Empuriabrava",
+ "menuNote": "Costa Brava : canaux, plage et brise de mer l'après-midi",
+ "operator": "Skydive Empuriabrava (La Tierra del Cielo / La Terra del Cel)",
+ "aerodrome": {
+  "name": "Aeròdrom d'Empuriabrava",
+  "icao": "LEAP",
+  "elevation_m": 2,
+  "lat": 42.26,
+  "lon": 3.109722
+ },
+ "utcOffsetSummer_h": 2,
+ "origin": {
+  "lat": 42.2597,
+  "lon": 3.110845,
+  "what": "centroid of the main sport landing area (southern half of the mowed grass east of the runway)"
+ },
+ "boundary": [
+  [
+   42.262902,
+   3.109734
+  ],
+  [
+   42.26099,
+   3.110867
+  ],
+  [
+   42.258713,
+   3.112302
+  ],
+  [
+   42.258677,
+   3.112114
+  ],
+  [
+   42.258848,
+   3.110911
+  ],
+  [
+   42.258744,
+   3.110878
+  ],
+  [
+   42.256906,
+   3.111883
+  ],
+  [
+   42.256056,
+   3.109544
+  ],
+  [
+   42.258062,
+   3.107622
+  ],
+  [
+   42.258403,
+   3.107232
+  ],
+  [
+   42.259383,
+   3.107558
+  ],
+  [
+   42.259498,
+   3.107052
+  ],
+  [
+   42.259641,
+   3.107106
+  ],
+  [
+   42.259749,
+   3.106697
+  ],
+  [
+   42.260198,
+   3.107033
+  ],
+  [
+   42.260067,
+   3.10784
+  ],
+  [
+   42.260454,
+   3.107881
+  ],
+  [
+   42.2606,
+   3.108638
+  ],
+  [
+   42.261486,
+   3.108261
+  ],
+  [
+   42.261532,
+   3.10849
+  ],
+  [
+   42.263772,
+   3.107568
+  ],
+  [
+   42.264221,
+   3.109269
+  ],
+  [
+   42.26343,
+   3.109909
+  ],
+  [
+   42.263154,
+   3.109766
+  ],
+  [
+   42.262994,
+   3.109716
+  ]
+ ],
+ "runways": [
+  {
+   "ref": "17/35",
+   "ends": [
+    [
+     42.263395,
+     3.108393
+    ],
+    [
+     42.25685,
+     3.111036
+    ]
+   ],
+   "width_m": 21,
+   "surface": "asphalt",
+   "evidence": "IDEE/IGN INSPIRE runwayarea (3 parts) + OSM way 409134707. Paved strip 759 m from the S end of the turning pad ([42.25685, 3.111036]) to the N end ([42.263395, 3.108393]), true bearing 343.4/163.4 deg, 21 m wide (IDEE polygon, matches the pavement edges on PNOA z20). Declared runway between thresholds is only 498 m (IDEE length): threshold 35 displaced 199 m north of the S end at [42.25857, 3.110344] (white piano-key bars + \"35\", the pedestrian crossing \"in front of the terrace\"), threshold 17 at [42.262868, 3.108614]; the displaced part south of threshold 35 carries white arrows (usable for take-off and roll-out, not for touchdown). North of the N end the pavement continues as the concrete apron. Grey asphalt on Esri 2025; looks pale on PNOA."
+  }
+ ],
+ "paved": [
+  {
+   "name": "North apron (concrete plates, with the giant \"SKYDIVE EMPURIABRAVA\" lettering)",
+   "polygon": [
+    [
+     42.259747,
+     3.109185
+    ],
+    [
+     42.259798,
+     3.109165
+    ],
+    [
+     42.259968,
+     3.109095
+    ],
+    [
+     42.260197,
+     3.108982
+    ],
+    [
+     42.260211,
+     3.109061
+    ],
+    [
+     42.260232,
+     3.109096
+    ],
+    [
+     42.260263,
+     3.109108
+    ],
+    [
+     42.260321,
+     3.109094
+    ],
+    [
+     42.261048,
+     3.108802
+    ],
+    [
+     42.261069,
+     3.108778
+    ],
+    [
+     42.261098,
+     3.108745
+    ],
+    [
+     42.261126,
+     3.108692
+    ],
+    [
+     42.261145,
+     3.108644
+    ],
+    [
+     42.26111,
+     3.108459
+    ],
+    [
+     42.261472,
+     3.108315
+    ],
+    [
+     42.261508,
+     3.108497
+    ],
+    [
+     42.261563,
+     3.108543
+    ],
+    [
+     42.261661,
+     3.108555
+    ],
+    [
+     42.263739,
+     3.10771
+    ],
+    [
+     42.263898,
+     3.108315
+    ],
+    [
+     42.26342,
+     3.108503
+    ],
+    [
+     42.263398,
+     3.108402
+    ],
+    [
+     42.263369,
+     3.108272
+    ],
+    [
+     42.263342,
+     3.108154
+    ],
+    [
+     42.263315,
+     3.10812
+    ],
+    [
+     42.263242,
+     3.108132
+    ],
+    [
+     42.263077,
+     3.1082
+    ],
+    [
+     42.263066,
+     3.108118
+    ],
+    [
+     42.259452,
+     3.109568
+    ],
+    [
+     42.259432,
+     3.109577
+    ],
+    [
+     42.259418,
+     3.109526
+    ],
+    [
+     42.259421,
+     3.109317
+    ]
+   ],
+   "surface": "concrete",
+   "evidence": "OSM aeroway=apron surface=concrete:plates way 308587211; white on PNOA/Esri, black letters ~8 m high painted along it."
+  },
+  {
+   "name": "DZ apron in front of the aircraft hangars (aircraft parking, boarding)",
+   "polygon": [
+    [
+     42.259115,
+     3.109739
+    ],
+    [
+     42.259078,
+     3.10961
+    ],
+    [
+     42.258985,
+     3.10943
+    ],
+    [
+     42.258932,
+     3.10933
+    ],
+    [
+     42.258989,
+     3.109284
+    ],
+    [
+     42.259018,
+     3.109185
+    ],
+    [
+     42.25907,
+     3.109159
+    ],
+    [
+     42.259127,
+     3.108958
+    ],
+    [
+     42.259154,
+     3.108946
+    ],
+    [
+     42.259324,
+     3.108869
+    ],
+    [
+     42.259346,
+     3.108855
+    ],
+    [
+     42.259359,
+     3.108833
+    ],
+    [
+     42.259376,
+     3.108771
+    ],
+    [
+     42.259451,
+     3.108386
+    ],
+    [
+     42.259786,
+     3.108493
+    ],
+    [
+     42.259805,
+     3.108498
+    ],
+    [
+     42.259801,
+     3.108522
+    ],
+    [
+     42.259746,
+     3.108895
+    ],
+    [
+     42.259726,
+     3.108901
+    ],
+    [
+     42.259729,
+     3.108932
+    ],
+    [
+     42.259712,
+     3.10894
+    ],
+    [
+     42.25972,
+     3.108985
+    ],
+    [
+     42.259704,
+     3.108992
+    ],
+    [
+     42.259747,
+     3.109185
+    ],
+    [
+     42.259421,
+     3.109317
+    ],
+    [
+     42.259418,
+     3.109526
+    ],
+    [
+     42.259432,
+     3.109577
+    ],
+    [
+     42.259438,
+     3.1096
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "OSM aeroway=apron surface=asphalt way 308587223; Esri shows parked Porter/Otter-size aircraft and a painted helipad square."
+  },
+  {
+   "name": "Gravel apron west of the hangars",
+   "polygon": [
+    [
+     42.259451,
+     3.108386
+    ],
+    [
+     42.259474,
+     3.108268
+    ],
+    [
+     42.259435,
+     3.108251
+    ],
+    [
+     42.259523,
+     3.107899
+    ],
+    [
+     42.259505,
+     3.10789
+    ],
+    [
+     42.259555,
+     3.107694
+    ],
+    [
+     42.259924,
+     3.107804
+    ],
+    [
+     42.259812,
+     3.108459
+    ],
+    [
+     42.259805,
+     3.108498
+    ],
+    [
+     42.259786,
+     3.108493
+    ]
+   ],
+   "surface": "gravel",
+   "evidence": "OSM way 308587225."
+  },
+  {
+   "name": "North-end asphalt apron",
+   "polygon": [
+    [
+     42.262965,
+     3.108435
+    ],
+    [
+     42.263077,
+     3.1082
+    ],
+    [
+     42.263242,
+     3.108132
+    ],
+    [
+     42.263315,
+     3.10812
+    ],
+    [
+     42.263342,
+     3.108154
+    ],
+    [
+     42.263369,
+     3.108272
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "OSM way 308587218."
+  },
+  {
+   "name": "South turning pad of the runway",
+   "polygon": [
+    [
+     42.256823,
+     3.110914
+    ],
+    [
+     42.256808,
+     3.110843
+    ],
+    [
+     42.256809,
+     3.110811
+    ],
+    [
+     42.256828,
+     3.110738
+    ],
+    [
+     42.256855,
+     3.110658
+    ],
+    [
+     42.256934,
+     3.110574
+    ],
+    [
+     42.25698,
+     3.110537
+    ],
+    [
+     42.25704,
+     3.110518
+    ],
+    [
+     42.257102,
+     3.110514
+    ],
+    [
+     42.257168,
+     3.110525
+    ],
+    [
+     42.257268,
+     3.110567
+    ],
+    [
+     42.257475,
+     3.110651
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "OSM way 308587232; part of the IDEE runway polygon, the widened \"paddle\" at the south end."
+  },
+  {
+   "name": "DZ car park (tree-lined, west of the main building)",
+   "polygon": [
+    [
+     42.25775,
+     3.107957
+    ],
+    [
+     42.257971,
+     3.108395
+    ],
+    [
+     42.257979,
+     3.108387
+    ],
+    [
+     42.258205,
+     3.108814
+    ],
+    [
+     42.258246,
+     3.108893
+    ],
+    [
+     42.258314,
+     3.108864
+    ],
+    [
+     42.258513,
+     3.108782
+    ],
+    [
+     42.25861,
+     3.108739
+    ],
+    [
+     42.258552,
+     3.108629
+    ],
+    [
+     42.258447,
+     3.108431
+    ],
+    [
+     42.258358,
+     3.108263
+    ],
+    [
+     42.25827,
+     3.108096
+    ],
+    [
+     42.25818,
+     3.107925
+    ],
+    [
+     42.258092,
+     3.107759
+    ],
+    [
+     42.258048,
+     3.107677
+    ]
+   ],
+   "surface": "concrete",
+   "evidence": "OSM amenity=parking surface=concrete access=private way 974949777; rows of trees between the bays on PNOA."
+  },
+  {
+   "name": "Large unpaved car park / open lot west of the DZ",
+   "polygon": [
+    [
+     42.259052,
+     3.108141
+    ],
+    [
+     42.259014,
+     3.108098
+    ],
+    [
+     42.258939,
+     3.108072
+    ],
+    [
+     42.25882,
+     3.10803
+    ],
+    [
+     42.258707,
+     3.107991
+    ],
+    [
+     42.258228,
+     3.107756
+    ],
+    [
+     42.258266,
+     3.107868
+    ],
+    [
+     42.258676,
+     3.108698
+    ],
+    [
+     42.258794,
+     3.108923
+    ],
+    [
+     42.25891,
+     3.108815
+    ],
+    [
+     42.258944,
+     3.108701
+    ],
+    [
+     42.259023,
+     3.108372
+    ],
+    [
+     42.259035,
+     3.10832
+    ],
+    [
+     42.259048,
+     3.108265
+    ],
+    [
+     42.259064,
+     3.108199
+    ]
+   ],
+   "surface": "gravel",
+   "evidence": "OSM amenity=parking way 308267294; bare sandy ground on imagery (no surface tag)."
+  },
+  {
+   "name": "Car park beside the hangars",
+   "polygon": [
+    [
+     42.259136,
+     3.108025
+    ],
+    [
+     42.258225,
+     3.107683
+    ],
+    [
+     42.258198,
+     3.107512
+    ],
+    [
+     42.258391,
+     3.107251
+    ],
+    [
+     42.259205,
+     3.107568
+    ],
+    [
+     42.25924,
+     3.107675
+    ]
+   ],
+   "surface": "gravel",
+   "evidence": "OSM amenity=parking way 974949781 (surface not tagged; looks unpaved)."
+  }
+ ],
+ "landingAreas": [
+  {
+   "name": "Main landing area, east of the runway (south half)",
+   "use": "sport",
+   "polygon": [
+    [
+     42.258683,
+     3.110615
+    ],
+    [
+     42.260537,
+     3.109868
+    ],
+    [
+     42.260746,
+     3.110809
+    ],
+    [
+     42.260023,
+     3.111277
+    ],
+    [
+     42.258852,
+     3.112014
+    ],
+    [
+     42.258894,
+     3.110846
+    ]
+   ],
+   "surface": "grass",
+   "colorHex": "#7d6346",
+   "evidence": "DZ rules: \"descent must be made to the east of the runway\", \"do not cross the runway below 1000 ft\". PNOA shows 3 canopies and people on the ground at 42.25953,3.11062 / 42.25932,3.11061 / 42.25939,3.11075 (50 m east of the centreline, 75-95 m north of threshold 35). Mowed brown-olive grass with dark blotches, bounded east by a tree hedge and an unmowed strip, south by a dense thicket; a mowed path leads SW to the runway crossing at the 35 bars. West edge set 15 m outside the runway edge. Area ~20628 m2."
+  },
+  {
+   "name": "Same field, north half (long spots / overflow)",
+   "use": "sport",
+   "polygon": [
+    [
+     42.260537,
+     3.109868
+    ],
+    [
+     42.26209,
+     3.109243
+    ],
+    [
+     42.262195,
+     3.109719
+    ],
+    [
+     42.260746,
+     3.110809
+    ]
+   ],
+   "surface": "grass",
+   "colorHex": "#786247",
+   "evidence": "Continuation of the same mowed field up to ~400 m north of the threshold; no canopies seen there on imagery. Area ~10952 m2."
+  },
+  {
+   "name": "Grass west of the runway in front of the terrace and packing hangar (tandems, probably students)",
+   "use": "tandem",
+   "polygon": [
+    [
+     42.257192,
+     3.110671
+    ],
+    [
+     42.258874,
+     3.109994
+    ],
+    [
+     42.258807,
+     3.109692
+    ],
+    [
+     42.258396,
+     3.109958
+    ],
+    [
+     42.258014,
+     3.1101
+    ],
+    [
+     42.257872,
+     3.109714
+    ],
+    [
+     42.257037,
+     3.109974
+    ]
+   ],
+   "surface": "grass",
+   "colorHex": "#767551",
+   "evidence": "Inferred. DZ rules ask to check \"that there are no tandems about to land\" and no planes taxiing \"on the grass in front of the hangar or terrace\" before crossing the runway, so tandems land there. Canopies on the ground there on PNOA (42.25781,3.11005; 42.25783,3.11029) and Esri 26-05-2025 (orange + blue canopies at ~42.25845,3.11001). The landing \"T\" stands at its north end. Area ~7533 m2."
+  }
+ ],
+ "target": {
+  "lat": 42.25943,
+  "lon": 3.110631,
+  "radius_m": 0,
+  "shown": false,
+  "surface": "grass",
+  "colorHex": null,
+  "evidence": "No target on the ground (research): where sport jumpers are seen on the imagery, ~50 m east of the runway centreline and 85 m north of threshold 35."
+ },
+ "pond": null,
+ "buildings": [
+  {
+   "name": "Skydive Empuriabrava main building (reception/manifest, office, shop, bar-restaurant; terrace on its east side facing the runway)",
+   "osmWay": 177516410,
+   "polygon": [
+    [
+     42.258755,
+     3.109018
+    ],
+    [
+     42.258665,
+     3.109054
+    ],
+    [
+     42.258689,
+     3.109169
+    ],
+    [
+     42.258567,
+     3.109216
+    ],
+    [
+     42.258594,
+     3.109339
+    ],
+    [
+     42.258616,
+     3.109445
+    ],
+    [
+     42.258802,
+     3.109372
+    ],
+    [
+     42.258872,
+     3.109345
+    ],
+    [
+     42.258836,
+     3.109176
+    ],
+    [
+     42.258792,
+     3.109193
+    ]
+   ],
+   "height_m": 7,
+   "wallHex": "#ece8e0",
+   "roofHex": "#d9d4c8",
+   "flatRoof": true,
+   "hangarDoor": false,
+   "evidence": "OSM way 177516410 (tagged with the DZ contacts), footprint matches the white flat roof on PNOA. Uses inferred from the DZ rules (crossing \"at the white lines in front of the terrace\") and its position facing the 35 threshold. Height guessed (2 storeys); the Esri 2025 shadow is ~2 m wide at sun elevation ~65 deg, consistent with 5-7 m."
+  },
+  {
+   "name": "DZ building south-west of the main building (part of the same complex; use unknown, maybe team rooms/offices)",
+   "osmWay": 1433780420,
+   "polygon": [
+    [
+     42.258539,
+     3.108812
+    ],
+    [
+     42.258521,
+     3.108819
+    ],
+    [
+     42.258448,
+     3.10885
+    ],
+    [
+     42.258489,
+     3.109028
+    ],
+    [
+     42.258528,
+     3.109197
+    ],
+    [
+     42.258658,
+     3.109142
+    ],
+    [
+     42.258632,
+     3.10903
+    ],
+    [
+     42.258674,
+     3.109012
+    ],
+    [
+     42.258649,
+     3.108905
+    ],
+    [
+     42.258615,
+     3.10892
+    ],
+    [
+     42.258602,
+     3.108864
+    ],
+    [
+     42.258556,
+     3.108883
+    ]
+   ],
+   "height_m": 6,
+   "wallHex": "#ece8e0",
+   "roofHex": "#f0eae1",
+   "flatRoof": true,
+   "hangarDoor": false,
+   "evidence": "OSM way 1433780420, white flat roof with a pink-edged upper block on PNOA. Height guessed."
+  },
+  {
+   "name": "Packing hangar (\"500 m2 packing hangar\" on the DZ website)",
+   "osmWay": 188281424,
+   "polygon": [
+    [
+     42.258166,
+     3.10956
+    ],
+    [
+     42.25809,
+     3.109589
+    ],
+    [
+     42.257944,
+     3.109649
+    ],
+    [
+     42.257996,
+     3.109883
+    ],
+    [
+     42.258218,
+     3.109793
+    ],
+    [
+     42.258213,
+     3.109768
+    ],
+    [
+     42.258189,
+     3.109668
+    ]
+   ],
+   "height_m": 8,
+   "wallHex": "#e9e4da",
+   "roofHex": "#eadbd0",
+   "flatRoof": false,
+   "hangarDoor": true,
+   "evidence": "OSM aeroway=hangar 188281424, ~600 m2, the largest DZ building facing the runway south of the main building; white roof with a salmon-pink half (Esri 2025 #e5c9b3). Identification as the packing hangar inferred from size/position. Height guessed."
+  },
+  {
+   "name": "Packing hangar east bay / open shed on the runway side (not in OSM)",
+   "osmWay": null,
+   "polygon": [
+    [
+     42.258331,
+     3.109752
+    ],
+    [
+     42.258365,
+     3.109926
+    ],
+    [
+     42.258018,
+     3.11002
+    ],
+    [
+     42.257993,
+     3.109859
+    ]
+   ],
+   "height_m": 6,
+   "wallHex": "#e6dfd0",
+   "roofHex": "#eee5cf",
+   "flatRoof": true,
+   "hangarDoor": false,
+   "evidence": "Digitised from PNOA (white flat roof east of the OSM hangar, grey panelled roof on Esri 2025). Height guessed."
+  },
+  {
+   "name": "Building between the main building and the packing hangar",
+   "osmWay": 893692142,
+   "polygon": [
+    [
+     42.258288,
+     3.109479
+    ],
+    [
+     42.258165,
+     3.109527
+    ],
+    [
+     42.25819,
+     3.109644
+    ],
+    [
+     42.258313,
+     3.109597
+    ]
+   ],
+   "height_m": 6,
+   "wallHex": "#e2dace",
+   "roofHex": "#d1bea8",
+   "flatRoof": true,
+   "hangarDoor": false,
+   "evidence": "OSM way 893692142, beige-grey roof on PNOA. Height guessed."
+  },
+  {
+   "name": "Blue shade sails over the courtyard north of the packing hangar (open, on poles)",
+   "osmWay": 893692146,
+   "polygon": [
+    [
+     42.258342,
+     3.109735
+    ],
+    [
+     42.258283,
+     3.109759
+    ],
+    [
+     42.258266,
+     3.109681
+    ],
+    [
+     42.258206,
+     3.109704
+    ],
+    [
+     42.258195,
+     3.109654
+    ],
+    [
+     42.258314,
+     3.109606
+    ]
+   ],
+   "height_m": 4,
+   "wallHex": "#4b69ab",
+   "roofHex": "#4b69ab",
+   "flatRoof": true,
+   "hangarDoor": false,
+   "evidence": "OSM building=roof layer=1 way 893692146; two bright blue fabric sails clearly visible on PNOA and Esri. No walls: render as a raised blue canopy."
+  },
+  {
+   "name": "Ground control booth (\"Ground\")",
+   "osmWay": 893692143,
+   "polygon": [
+    [
+     42.258234,
+     3.109758
+    ],
+    [
+     42.258213,
+     3.109768
+    ],
+    [
+     42.258222,
+     3.109804
+    ],
+    [
+     42.258243,
+     3.109795
+    ]
+   ],
+   "height_m": 5,
+   "wallHex": "#e9e4da",
+   "roofHex": "#d9d4c8",
+   "flatRoof": true,
+   "hangarDoor": false,
+   "evidence": "OSM aeroway=tower name=Ground (2x3 m) at the NE corner of the packing hangar. Height guessed."
+  },
+  {
+   "name": "Windoor Realfly vertical wind tunnel",
+   "osmWay": 238353839,
+   "polygon": [
+    [
+     42.257614,
+     3.108161
+    ],
+    [
+     42.25774,
+     3.108413
+    ],
+    [
+     42.257835,
+     3.108325
+    ],
+    [
+     42.25771,
+     3.108071
+    ]
+   ],
+   "height_m": 25,
+   "wallHex": "#4a4f52",
+   "roofHex": "#a39b91",
+   "flatRoof": true,
+   "hangarDoor": false,
+   "evidence": "OSM way 238353839. Flight chamber 4 m diameter, 15 m high (ABB case study). Building height estimated from the Esri 26-05-2025 shadow: ~15 m of dark band NNW of the roof edge with the sun at ~65 deg elevation -> 20-32 m (part of the band may be the shaded facade seen obliquely). Roof grey (#a39b91 PNOA, #556762 Esri). Wall colour is a guess (anthracite)."
+  },
+  {
+   "name": "Aircraft hangar (large, on the main apron)",
+   "osmWay": 188281418,
+   "polygon": [
+    [
+     42.259942,
+     3.108566
+    ],
+    [
+     42.259801,
+     3.108522
+    ],
+    [
+     42.259805,
+     3.108498
+    ],
+    [
+     42.259924,
+     3.107804
+    ],
+    [
+     42.260066,
+     3.107839
+    ],
+    [
+     42.260056,
+     3.107896
+    ]
+   ],
+   "height_m": 7,
+   "wallHex": "#d8dcdb",
+   "roofHex": "#d0d6d4",
+   "flatRoof": false,
+   "hangarDoor": true,
+   "evidence": "OSM aeroway=hangar 188281418, ~57 x 13 m, roof of light grey/white/blue-grey panels on PNOA. Height guessed."
+  },
+  {
+   "name": "Aircraft hangar (south of the large one)",
+   "osmWay": 188281421,
+   "polygon": [
+    [
+     42.259555,
+     3.107694
+    ],
+    [
+     42.259475,
+     3.107657
+    ],
+    [
+     42.259337,
+     3.108206
+    ],
+    [
+     42.259413,
+     3.108241
+    ],
+    [
+     42.259435,
+     3.108251
+    ],
+    [
+     42.259523,
+     3.107899
+    ],
+    [
+     42.259505,
+     3.10789
+    ]
+   ],
+   "height_m": 6,
+   "wallHex": "#e5e2d8",
+   "roofHex": "#f1eee1",
+   "flatRoof": false,
+   "hangarDoor": true,
+   "evidence": "OSM aeroway=hangar 188281421, white roof. Height guessed."
+  },
+  {
+   "name": "Small hangar (north-west)",
+   "osmWay": 188281422,
+   "polygon": [
+    [
+     42.260416,
+     3.107918
+    ],
+    [
+     42.260305,
+     3.107909
+    ],
+    [
+     42.260299,
+     3.108056
+    ],
+    [
+     42.260436,
+     3.108067
+    ],
+    [
+     42.260439,
+     3.107992
+    ],
+    [
+     42.260413,
+     3.10799
+    ]
+   ],
+   "height_m": 5,
+   "wallHex": "#e5e2d8",
+   "roofHex": "#eeeee5",
+   "flatRoof": false,
+   "hangarDoor": true,
+   "evidence": "OSM aeroway=hangar 188281422, white roof. Height guessed."
+  },
+  {
+   "name": "Small hangar (green roof, north)",
+   "osmWay": 188281417,
+   "polygon": [
+    [
+     42.260559,
+     3.108482
+    ],
+    [
+     42.260598,
+     3.108634
+    ],
+    [
+     42.260485,
+     3.108687
+    ],
+    [
+     42.260446,
+     3.108535
+    ]
+   ],
+   "height_m": 5,
+   "wallHex": "#e5e2d8",
+   "roofHex": "#8fbf98",
+   "flatRoof": false,
+   "hangarDoor": true,
+   "evidence": "OSM aeroway=hangar 188281417, green roof on PNOA (#b0d3b5 washed out; darker in Esri). Height guessed."
+  }
+ ],
+ "windsocks": [
+  {
+   "lat": 42.26006,
+   "lon": 3.109044
+  }
+ ],
+ "flags": [],
+ "pattern": {
+  "circuitSide": "depends",
+  "description": "DZ rule: with a southerly wind the circuit is LEFT-hand, with a northerly wind RIGHT-hand. Both put the downwind and base legs EAST of the landing area (over the hedge, the karting and the fields), so canopies never cross the runway low. Spiralling over the landing area is forbidden; the lowest canopy has right of way. Under canopy after opening: fly parallel to the beach and do not fly north until the next group has opened.",
+  "noOverfly": "Runway and its extensions (aircraft approach zones N and S); never cross the runway below 1000 ft (300 m); the town of Empuriabrava (canals, houses) south and west of the field and the C-260 road north are out-landing hazards; skysurfers may never exit over the town. East and north-east lie the strip fields and ditches of the Aiguamolls de l'Empordà wetlands (water channels).",
+  "landingDirection": "Into the wind; in calm or light variable wind land in the direction shown by the landing \"T\" at 42.258881,3.109638 (white T on a green base, west of the runway opposite threshold 35). The field is long N-S and only ~90-120 m wide, so finals are in practice flown roughly along it: with the usual S-SE sea breeze final heads S-SSE (~150-165 deg), with tramontana N-NNW (~345 deg). The along-the-field part is inferred.",
+  "holdingArea": "Not published. Inferred: east of the landing area over the karting and the strip fields (42.2600,3.1140), above 1000 ft until joining downwind; never over the town to the south."
+ },
+ "jumpRun": {
+  "exitAltitudeAgl_m": 4000,
+  "aircraft": "Super (Twin) Otter, 22 jumpers, and Super Pilatus Porter, 8 jumpers, both based on site (DZ website); a Beech 99 (17) was also used in the past.",
+  "description": "\"Up to 4000 m every day\" (DZ website); AFF starts from 12,500 ft. Pass and exit point are set by the pilot (lights), at least 5 s between groups, track 90 deg off the jump run. Direction not published: inferred into the wind along the coast/runway axis, i.e. usually northbound (NNW-N) with the afternoon S-SE sea breeze, starting over the beach/canal town and passing over the airfield (the rule \"don't fly north until the next group has opened\" fits a northbound run). Openings above 4000 ft need Ground Control approval; minimum opening 2500 ft."
+ },
+ "wind": {
+  "station": "Meteocat XEMA U2 Sant Pere Pescador (42.17716 N, 3.09680 E, 3 m, 10 m mast), 9.2 km S of the DZ on the same coastal plain, ~3 km from the beach",
+  "period": "June-September 2015-2024, 09:00-19:00 local (07-17 UTC), half-hourly scalar means",
+  "usual": {
+   "fromDeg": 120,
+   "kmh": 15
+  },
+  "sectors": [
+   {
+    "fromDeg": 0.0,
+    "share": 0.031,
+    "medianKmh": 13.0
+   },
+   {
+    "fromDeg": 22.5,
+    "share": 0.019,
+    "medianKmh": 13.0
+   },
+   {
+    "fromDeg": 45.0,
+    "share": 0.043,
+    "medianKmh": 14.0
+   },
+   {
+    "fromDeg": 67.5,
+    "share": 0.054,
+    "medianKmh": 10.8
+   },
+   {
+    "fromDeg": 90.0,
+    "share": 0.172,
+    "medianKmh": 14.0
+   },
+   {
+    "fromDeg": 112.5,
+    "share": 0.264,
+    "medianKmh": 14.0
+   },
+   {
+    "fromDeg": 135.0,
+    "share": 0.1,
+    "medianKmh": 13.0
+   },
+   {
+    "fromDeg": 157.5,
+    "share": 0.034,
+    "medianKmh": 15.8
+   },
+   {
+    "fromDeg": 180.0,
+    "share": 0.035,
+    "medianKmh": 16.6
+   },
+   {
+    "fromDeg": 202.5,
+    "share": 0.014,
+    "medianKmh": 10.8
+   },
+   {
+    "fromDeg": 225.0,
+    "share": 0.009,
+    "medianKmh": 6.8
+   },
+   {
+    "fromDeg": 247.5,
+    "share": 0.008,
+    "medianKmh": 6.1
+   },
+   {
+    "fromDeg": 270.0,
+    "share": 0.013,
+    "medianKmh": 5.4
+   },
+   {
+    "fromDeg": 292.5,
+    "share": 0.018,
+    "medianKmh": 6.5
+   },
+   {
+    "fromDeg": 315.0,
+    "share": 0.054,
+    "medianKmh": 10.6
+   },
+   {
+    "fromDeg": 337.5,
+    "share": 0.066,
+    "medianKmh": 13.0
+   }
+  ],
+  "notes": "share = fraction of all observations in the window (calm or <2 kt = 0.068 not in the sectors); medianKmh = median 10 m speed in that sector. Afternoon (14-19 h) at U2: 78% sea breeze E-SE (mean from 116 deg, median 15 km/h, IQR 12-17), 13% tramontana N-NNW (mean from 345, median 14 km/h), mornings calm or light N. Roses (Meteocat D4, 6 km E, on the hillside under the Serra de Rodes) sees more tramontana: 34% of afternoons from N-NNE (median 18 km/h, 90th pct 26), sea breeze from 130 deg median 13 km/h. The DZ lies between the two, so expect the SE breeze most afternoons and tramontana days (N-NW, 20-50 km/h, gusty, often no jumping) about 1 day in 10 in summer, more in spring/autumn. METAR stations are not representative: LEGE (Girona, 40 km inland) shows the inland S valley breeze (35% from S, 18 km/h) and almost no tramontana; LFMP (Perpignan, north of the Pyrenees) shows 39% NW tramontane at 26 km/h. Default 120 deg / 15 km/h = the typical afternoon sea breeze."
+ },
+ "colors": {
+  "aerodromeGrass": "#7a6748",
+  "landingAreaGrass": "#7d6346",
+  "fields": [
+   "#b99267",
+   "#ac8b66",
+   "#876142",
+   "#9a805c",
+   "#46512b",
+   "#55522b"
+  ],
+  "hills": "#3a3524",
+  "beach": "#e8d3a6",
+  "seaShallow": "#12322d",
+  "seaDeep": "#111a24",
+  "wetland": "#3d4a2c",
+  "notes": "Sentinel-2 cloudless 2023 (summer composite, z14) means over 30-60 m squares: east landing grass #786247/#826444 (dry olive-brown), runway shoulder greener, aerodrome grass west #574425 (mixed with trees). PNOA (summer) gives the same grass a bit lighter (#937f60, #89785e) with a greener mown strip along the runway (#8a8d6f); Esri 26-05-2025 (spring) shows it green (#3e4e35). Fields: stubble/dry #b99267 #ac8b66, ploughed #876142, Aiguamolls strip fields #9a805c, irrigated green #46512b #55522b. Hills (Serra de Rodes maquis/pines) #2e2a18-#473e2d. Beach S2 #f6dda7-#fcdca9 (S2 is saturated), Esri #c1b396-#ccbea3; #e8d3a6 is between. Sea: S2 is very dark (near shore #0c2627-#12322d, offshore #111521-#121c26); Esri gives turquoise-grey near shore #4f736f and #092530 offshore, closer to what the eye sees from altitude. Wetland: reed beds and lagoons of the Aiguamolls vary from #203016 (reeds) to #9d9266 (dry salt meadows); #3d4a2c is a mid value. Canal town roofs average #6f5f44 at 7 m/px."
+ },
+ "landmarks": [
+  {
+   "name": "Empuriabrava canal town (residential marina, ~24 km of canals)",
+   "lat": 42.247008,
+   "lon": 3.120687,
+   "why": "Grid of dark canals and red roofs filling the plain between the airfield and the beach; the dominant view south and SE of the DZ."
+  },
+  {
+   "name": "Port d'Empuriabrava (marina entrance and breakwater)",
+   "lat": 42.24631,
+   "lon": 3.135653,
+   "why": "Where the main canal meets the sea; jetty visible from altitude."
+  },
+  {
+   "name": "Platja d'Empuriabrava (beach)",
+   "lat": 42.240926,
+   "lon": 3.129731,
+   "why": "Sand beach 2.5-3 km SE of the landing area; \"fly parallel to the beach\" after opening."
+  },
+  {
+   "name": "Mouth of the river Muga",
+   "lat": 42.237414,
+   "lon": 3.124924,
+   "why": "Straight channelled river along the SW edge of the canal town."
+  },
+  {
+   "name": "Badia de Roses (Bay of Roses)",
+   "lat": 42.259208,
+   "lon": 3.164166,
+   "why": "The whole bay from Roses to l'Escala is the view east from 4000 m."
+  },
+  {
+   "name": "Roses (town and Ciutadella)",
+   "lat": 42.264956,
+   "lon": 3.171579,
+   "why": "Town and marina at the NE corner of the bay, 5 km east."
+  },
+  {
+   "name": "Aiguamolls de l'Empordà - strip fields NE of the airfield",
+   "lat": 42.262701,
+   "lon": 3.127756,
+   "why": "Long narrow parallel fields and ditches between the airfield and Roses; out-landing area with water channels."
+  },
+  {
+   "name": "Aiguamolls de l'Empordà - Estany del Cortalet (natural park centre)",
+   "lat": 42.223127,
+   "lon": 3.096094,
+   "why": "Lagoons and reed beds 4 km south, between the Muga and the Fluvià."
+  },
+  {
+   "name": "Castelló d'Empúries (old town, basilica bell tower)",
+   "lat": 42.259107,
+   "lon": 3.074643,
+   "why": "Medieval village 3 km west on the C-260."
+  },
+  {
+   "name": "Sant Pere Pescador",
+   "lat": 42.189984,
+   "lon": 3.083748,
+   "why": "Village on the Fluvià 8 km south; windsurf beaches."
+  },
+  {
+   "name": "Mouth of the river Fluvià",
+   "lat": 42.201819,
+   "lon": 3.109474,
+   "why": "River mouth in the middle of the bay, 6.5 km south."
+  },
+  {
+   "name": "L'Escala",
+   "lat": 42.113535,
+   "lon": 3.138742,
+   "why": "Town at the southern end of the bay, 16 km south."
+  },
+  {
+   "name": "Montgrí (castle on the massif, 303 m)",
+   "lat": 42.051952,
+   "lon": 3.131636,
+   "why": "Isolated limestone massif with the square castle, 23 km south; closes the plain on the south."
+  },
+  {
+   "name": "Sant Salvador de Verdera (Serra de Rodes, 682 m)",
+   "lat": 42.319958,
+   "lon": 3.167834,
+   "why": "Highest point of the hills that rise 7 km NE of the DZ; the monastery of Sant Pere de Rodes sits just below."
+  },
+  {
+   "name": "Sant Pere de Rodes monastery",
+   "lat": 42.323384,
+   "lon": 3.165207,
+   "why": "Large Romanesque monastery on the Serra de Rodes, 500 m up."
+  },
+  {
+   "name": "Cap de Creus lighthouse",
+   "lat": 42.318913,
+   "lon": 3.315917,
+   "why": "Easternmost point of the Iberian peninsula, 17 km ENE; rocky cape seen from 4000 m."
+  },
+  {
+   "name": "Figueres",
+   "lat": 42.266631,
+   "lon": 2.963843,
+   "why": "Main town of the Alt Empordà, 12 km west."
+  },
+  {
+   "name": "Puig Neulós (Albères, 1257 m)",
+   "lat": 42.482115,
+   "lon": 2.947179,
+   "why": "Eastern Pyrenees ridge (French border) 28 km NNW, origin of the tramontana gap."
+  },
+  {
+   "name": "Canigó / Canigou (2785 m)",
+   "lat": 42.518905,
+   "lon": 2.45656,
+   "why": "Snow-capped sacred peak of the Pyrenees, 60 km WNW, visible from altitude in clear tramontana air."
+  }
+ ],
+ "invented": [
+  "Target: none visible on PNOA or Esri (no gravel pit, sand circle or marked cross); target is null. Sport jumpers seen on the ground cluster ~50 m east of the runway centreline, 75-95 m north of threshold 35.",
+  "Landing-area limits: the mowed east grass is real; the 15 m set-back from the runway edge, the split into south/north halves and the exact west edge are my choice.",
+  "Tandem/student area west of the runway: inferred from the DZ rules and a few canopies on the imagery, not from a published map; students are not mentioned in the rules.",
+  "Landing direction along the field and holding area: inferred, not published.",
+  "Jump run direction and position: inferred (pilot sets it each load).",
+  "All building heights except the wind tunnel chamber; the Windoor building height (25 m) is a shadow estimate with a 20-32 m range; Windoor wall colour.",
+  "Building uses other than the OSM-tagged DZ building and the hangars.",
+  "Usual wind: Sant Pere Pescador is 9 km from the DZ; the DZ itself has no published wind record."
+ ],
+ "sources": [
+  "https://skydiveempuriabrava.com/en/?p=8765 (and /es/): DZ rules - descent east of the runway, left/right circuit by wind, the \"T\", runway crossing at the white lines in front of the terrace, no crossing below 1000 ft, beach/north rule, openings, tandems",
+  "https://skydiveempuriabrava.com/en/the-center/: fleet (1 Super Otter, 1 Super Pilatus Porter), \"up to 4000 m\", 500 m2 packing hangar, bar-restaurant",
+  "https://en.wikipedia.org/wiki/Skydive_Empuriabrava and https://en.wikipedia.org/wiki/Empuriabrava_Aerodrome: history, aircraft types, runway 17/35 asphalt",
+  "https://api-features.idee.es/collections/aerodromearea/items/AEROD_A170470000025 + collections runwayarea, aerodromenode (IGN Spain INSPIRE transport networks): aerodrome outline, runway parts and 498 m length, elevation 7 ft",
+  "https://overpass-api.de (OpenStreetMap, ODbL): aerodrome relation 5928656 (ele 2 m), runway 409134707/308587216, aprons, taxiways, windsock node 3138481679, buildings incl. Windoor 238353839 and the DZ building 177516410, landmarks",
+  "https://www.ign.es/wmts/pnoa-ma (PNOA maxima actualidad orthophoto, z17-z20): canopies on the ground, the landing T, windsock, building footprints, colours",
+  "https://geoserveis.icgc.cat/icc_mapesmultibase/noutm/wmts/orto (ICGC orthophoto): same flight as PNOA here, cross-check",
+  "https://server.arcgisonline.com World_Imagery (Vantor Legion-2, 26 May 2025, 0.34 m): imagery_dz.jpg, Windoor shadow, canopies west of the runway",
+  "https://tiles.maps.eox.at s2cloudless-2023: imagery_wide_s2.jpg and summer colours",
+  "https://analisi.transparenciacatalunya.cat (Meteocat XEMA open data, datasets nzvn-apee and yqwd-vj5e): 10 summers of half-hourly wind at Sant Pere Pescador (U2) and Roses (D4)",
+  "https://mesonet.agron.iastate.edu ASOS/METAR archive: LEGE and LFMP 2015-2024 for comparison",
+  "https://new.abb.com/drives/media/windoor-realfly and indoorskydiving.world: Windoor chamber 4-4.3 m diameter, 15 m high"
+ ],
+ "imagery": "pnoa",
+ "people": [
+  [
+   42.258164,
+   3.10991
+  ],
+  [
+   42.258148,
+   3.10994
+  ],
+  [
+   42.258104,
+   3.109895
+  ],
+  [
+   42.258215,
+   3.109933
+  ],
+  [
+   42.259364,
+   3.110341
+  ],
+  [
+   42.259307,
+   3.110175
+  ],
+  [
+   42.259329,
+   3.110581
+  ],
+  [
+   42.259304,
+   3.110631
+  ],
+  [
+   42.259688,
+   3.110525
+  ]
+ ]
+}

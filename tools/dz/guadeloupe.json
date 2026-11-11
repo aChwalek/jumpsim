@@ -1,0 +1,1090 @@
+{
+ "id": "guadeloupe",
+ "displayName": "Guadeloupe",
+ "menuNote": "Saint-François : alizés d'est, lagon et Désirade",
+ "operator": "Caraïbe Parachutisme",
+ "aerodrome": {
+  "name": "Saint-François",
+  "icao": "TFFC",
+  "elevation_m": 3,
+  "lat": 16.257778,
+  "lon": -61.2625
+ },
+ "utcOffsetSummer_h": -4,
+ "origin": {
+  "lat": 16.258018,
+  "lon": -61.266291,
+  "what": "centroid of the main sport landing area (mown zone W of the taxiway loop, 0.79 ha)"
+ },
+ "boundary": [
+  [
+   16.258696,
+   -61.26819
+  ],
+  [
+   16.25872,
+   -61.268207
+  ],
+  [
+   16.258758,
+   -61.268211
+  ],
+  [
+   16.258783,
+   -61.268209
+  ],
+  [
+   16.258801,
+   -61.268195
+  ],
+  [
+   16.258819,
+   -61.268181
+  ],
+  [
+   16.259055,
+   -61.267938
+  ],
+  [
+   16.259168,
+   -61.267789
+  ],
+  [
+   16.259239,
+   -61.267595
+  ],
+  [
+   16.259256,
+   -61.267181
+  ],
+  [
+   16.259248,
+   -61.266195
+  ],
+  [
+   16.259187,
+   -61.26566
+  ],
+  [
+   16.258854,
+   -61.263922
+  ],
+  [
+   16.258642,
+   -61.262815
+  ],
+  [
+   16.258416,
+   -61.26169
+  ],
+  [
+   16.258232,
+   -61.260778
+  ],
+  [
+   16.257855,
+   -61.258904
+  ],
+  [
+   16.256801,
+   -61.259085
+  ],
+  [
+   16.257064,
+   -61.260737
+  ],
+  [
+   16.257079,
+   -61.260828
+  ],
+  [
+   16.257473,
+   -61.263297
+  ],
+  [
+   16.256814,
+   -61.263404
+  ],
+  [
+   16.2567,
+   -61.263423
+  ],
+  [
+   16.256987,
+   -61.264911
+  ],
+  [
+   16.257117,
+   -61.265536
+  ],
+  [
+   16.257162,
+   -61.265651
+  ],
+  [
+   16.257199,
+   -61.265744
+  ],
+  [
+   16.257569,
+   -61.266342
+  ],
+  [
+   16.257613,
+   -61.266413
+  ],
+  [
+   16.25768,
+   -61.26659
+  ],
+  [
+   16.257722,
+   -61.266829
+  ],
+  [
+   16.257752,
+   -61.266985
+  ],
+  [
+   16.25789,
+   -61.267233
+  ],
+  [
+   16.258325,
+   -61.26775
+  ],
+  [
+   16.258689,
+   -61.268181
+  ]
+ ],
+ "runways": [
+  {
+   "ref": "11/29",
+   "ends": [
+    [
+     16.258208,
+     -61.265025
+    ],
+    [
+     16.257339,
+     -61.259606
+    ]
+   ],
+   "width_m": 18,
+   "surface": "asphalt",
+   "evidence": "SIA eAIP CAR-SAM-NAM AD 2.TFFC (AIRAC 2026-10-01) AD 2.12: THR 11 16°15'29.55\"N 061°15'54.09\"W, THR 29 16°15'26.42\"N 061°15'34.58\"W, 584 x 18 m paved, true 099/279 (QFU 114/294 mag). Both THR points fall on the painted thresholds of the IGN 2024 orthophoto within ~5 m; designators 11 and 29 painted. OSM way 51203850 (asphalt, width 18) agrees."
+  }
+ ],
+ "paved": [
+  {
+   "name": "Taxiway loop (turn-around at the west end, curved part)",
+   "polygon": [
+    [
+     16.257289,
+     -61.265249
+    ],
+    [
+     16.257337,
+     -61.26539
+    ],
+    [
+     16.257408,
+     -61.265494
+    ],
+    [
+     16.257491,
+     -61.265576
+    ],
+    [
+     16.257611,
+     -61.265649
+    ],
+    [
+     16.25776,
+     -61.265686
+    ],
+    [
+     16.257904,
+     -61.265666
+    ],
+    [
+     16.258054,
+     -61.265595
+    ],
+    [
+     16.258127,
+     -61.265524
+    ],
+    [
+     16.258191,
+     -61.265432
+    ],
+    [
+     16.258248,
+     -61.265321
+    ],
+    [
+     16.25827,
+     -61.265193
+    ],
+    [
+     16.258271,
+     -61.265114
+    ],
+    [
+     16.258181,
+     -61.265112
+    ],
+    [
+     16.25818,
+     -61.265183
+    ],
+    [
+     16.258162,
+     -61.265291
+    ],
+    [
+     16.258115,
+     -61.265382
+    ],
+    [
+     16.258059,
+     -61.265462
+    ],
+    [
+     16.258006,
+     -61.265515
+    ],
+    [
+     16.257878,
+     -61.265576
+    ],
+    [
+     16.257764,
+     -61.265592
+    ],
+    [
+     16.257645,
+     -61.265563
+    ],
+    [
+     16.257545,
+     -61.2655
+    ],
+    [
+     16.257476,
+     -61.265432
+    ],
+    [
+     16.257417,
+     -61.265348
+    ],
+    [
+     16.257375,
+     -61.265219
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "OSM taxiway 51499240 centreline (cadastre 2010) buffered to 10 m; width measured ~10 m on IGN 2024 z19; centreline matches imagery within 2 m."
+  },
+  {
+   "name": "South taxiway along the hangars (loop, straight part)",
+   "polygon": [
+    [
+     16.257428,
+     -61.265234
+    ],
+    [
+     16.257368,
+     -61.264851
+    ],
+    [
+     16.25731,
+     -61.264314
+    ],
+    [
+     16.257278,
+     -61.263912
+    ],
+    [
+     16.257153,
+     -61.263912
+    ],
+    [
+     16.257168,
+     -61.26418
+    ],
+    [
+     16.257181,
+     -61.264449
+    ],
+    [
+     16.257201,
+     -61.264717
+    ],
+    [
+     16.257252,
+     -61.264985
+    ],
+    [
+     16.257297,
+     -61.265234
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "Digitized on IGN 2024 orthophoto z19 (0.29 m/px): asphalt band 14-17 m wide between the loop and the hangars; OSM centreline 51499240 runs along its southern edge at the east end."
+  },
+  {
+   "name": "Apron (east, in front of the terminal)",
+   "polygon": [
+    [
+     16.257133,
+     -61.263905
+    ],
+    [
+     16.257057,
+     -61.263916
+    ],
+    [
+     16.256877,
+     -61.263943
+    ],
+    [
+     16.256802,
+     -61.263466
+    ],
+    [
+     16.257286,
+     -61.263382
+    ],
+    [
+     16.257288,
+     -61.26343
+    ],
+    [
+     16.257296,
+     -61.263497
+    ],
+    [
+     16.257341,
+     -61.263875
+    ],
+    [
+     16.257185,
+     -61.263897
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "OSM aeroway=apron 51499241 (cadastre 2010); matches IGN 2024 within ~2 m; light aircraft parked on it."
+  },
+  {
+   "name": "Connector taxiway apron - runway",
+   "polygon": [
+    [
+     16.257296,
+     -61.263476
+    ],
+    [
+     16.257499,
+     -61.263438
+    ],
+    [
+     16.257908,
+     -61.263366
+    ],
+    [
+     16.257892,
+     -61.263274
+    ],
+    [
+     16.257483,
+     -61.263346
+    ],
+    [
+     16.25728,
+     -61.263384
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "OSM taxiway 51499242 (+1297216303/04 Y into the runway) buffered to 10 m; width ~10 m on IGN 2024."
+  },
+  {
+   "name": "Hangar apron in front of the middle hangars",
+   "polygon": [
+    [
+     16.257199,
+     -61.26473
+    ],
+    [
+     16.25715,
+     -61.26414
+    ],
+    [
+     16.257109,
+     -61.26414
+    ],
+    [
+     16.257114,
+     -61.264462
+    ],
+    [
+     16.257058,
+     -61.264508
+    ],
+    [
+     16.257076,
+     -61.264711
+    ]
+   ],
+   "surface": "concrete",
+   "evidence": "Digitized on IGN 2024 z19: pale grey slab with light aircraft parked between the south taxiway and hangars H/D; surface guessed concrete from its colour."
+  },
+  {
+   "name": "Access road / parking strip south of the west hangars (DZ side)",
+   "polygon": [
+    [
+     16.257099,
+     -61.265546
+    ],
+    [
+     16.257042,
+     -61.265285
+    ],
+    [
+     16.257058,
+     -61.265025
+    ],
+    [
+     16.25695,
+     -61.265012
+    ],
+    [
+     16.256986,
+     -61.265535
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "Digitized on IGN 2024 z19: grey strip along the Route de l'Aérodrome behind hangars B/C with parked cars; road continues in OSM (fetched separately)."
+  },
+  {
+   "name": "Car park by the terminal",
+   "polygon": [
+    [
+     16.256859,
+     -61.263738
+    ],
+    [
+     16.256826,
+     -61.26355
+    ],
+    [
+     16.256731,
+     -61.26355
+    ],
+    [
+     16.256756,
+     -61.263738
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "Digitized on IGN 2024 z19: paved forecourt between the terminal and building G with parked cars."
+  }
+ ],
+ "landingAreas": [
+  {
+   "name": "Zone de poser principale (mown grass W of the taxiway loop)",
+   "use": "sport",
+   "polygon": [
+    [
+     16.258485,
+     -61.266364
+    ],
+    [
+     16.258485,
+     -61.265951
+    ],
+    [
+     16.258245,
+     -61.265871
+    ],
+    [
+     16.257988,
+     -61.26579
+    ],
+    [
+     16.2578,
+     -61.265755
+    ],
+    [
+     16.257645,
+     -61.265721
+    ],
+    [
+     16.257558,
+     -61.26579
+    ],
+    [
+     16.257558,
+     -61.265951
+    ],
+    [
+     16.25773,
+     -61.266203
+    ],
+    [
+     16.2578,
+     -61.266399
+    ],
+    [
+     16.257851,
+     -61.266667
+    ],
+    [
+     16.257903,
+     -61.267024
+    ],
+    [
+     16.257918,
+     -61.267204
+    ],
+    [
+     16.258117,
+     -61.267204
+    ],
+    [
+     16.258124,
+     -61.26707
+    ],
+    [
+     16.258124,
+     -61.266364
+    ]
+   ],
+   "surface": "grass",
+   "colorHex": "#938b66",
+   "evidence": "Mown zone clearly visible on IGN orthophotos 2022 (mown square ~64x48 m with a ~27 m ring and letters mown in the grass) and 2024 (L-shaped mown zone with a ~20 m disc and a mown lane running SE toward the hangars). ENR 5.5 drop zone 9715 reference point 16°15'28\"N 061°15'58\"W lies 25 m from the disc; VAC TFFC ATT 01 (AMDT 11/19, 'CHG: cible para') shows the parachute target symbol SW of THR 11. Only mown area on the field, so assumed to serve tandems and students too. Colour = dry-season mown grass (Esri, dry) ; wet season it is grey-green (#5a5955 on IGN 2024)."
+  }
+ ],
+ "target": {
+  "lat": 16.25799,
+  "lon": -61.266167,
+  "radius_m": 10,
+  "surface": "grass (mown disc, shorter than the rest of the zone)",
+  "colorHex": "#9b936e",
+  "evidence": "IGN 2024 z19: lighter disc ~20 m across at this point with a mown lane leaving it to the SE; IGN 2022 shows a ~27 m ring 23 m SE of it (16.257846,-61.26601), so the disc moves between seasons. No pea-gravel or sand pit visible on any imagery.",
+  "shown": true
+ },
+ "pond": null,
+ "buildings": [
+  {
+   "name": "Caraïbe Parachutisme hangar (DZ: manifest, packing, briefing - per OSM name)",
+   "osmWay": 125024530,
+   "polygon": [
+    [
+     16.257228,
+     -61.265525
+    ],
+    [
+     16.257172,
+     -61.26526
+    ],
+    [
+     16.257056,
+     -61.265287
+    ],
+    [
+     16.257123,
+     -61.265545
+    ]
+   ],
+   "height_m": 5,
+   "wallHex": "#dcdcd6",
+   "roofHex": "#eef0ee",
+   "flatRoof": false,
+   "hangarDoor": false,
+   "evidence": "OSM way 125024530 named 'Caraibe Parachutisme' (cadastre 2010, tagged wall=no = light/open structure) covers the west ~75% of this white roof; full footprint ~29 x 13 m digitized on IGN 2024. Height guessed (shadows too short on the near-zenith 2024 photo); walls not visible from above, colour guessed."
+  },
+  {
+   "name": "Small building at the west end (snack / club house, probably the 'Tiki Burger Club' of Google Maps)",
+   "osmWay": null,
+   "polygon": [
+    [
+     16.257264,
+     -61.265615
+    ],
+    [
+     16.257242,
+     -61.265542
+    ],
+    [
+     16.257146,
+     -61.265572
+    ],
+    [
+     16.257165,
+     -61.265642
+    ]
+   ],
+   "height_m": 4,
+   "wallHex": "#ece6d8",
+   "roofHex": "#eef0ee",
+   "flatRoof": false,
+   "hangarDoor": false,
+   "evidence": "IGN 2024 z19, ~8 x 11 m white roof in a fenced plot at the west end of the hangar row; OSM has only two small pieces (125025672, 125031500). Function from the user's Google Maps pin; height/walls guessed."
+  },
+  {
+   "name": "Hangar C (aircraft hangar, door on the taxiway side)",
+   "osmWay": null,
+   "polygon": [
+    [
+     16.257233,
+     -61.265234
+    ],
+    [
+     16.257194,
+     -61.265015
+    ],
+    [
+     16.257069,
+     -61.265031
+    ],
+    [
+     16.257105,
+     -61.265259
+    ]
+   ],
+   "height_m": 6.5,
+   "wallHex": "#dcdcd6",
+   "roofHex": "#ecefed",
+   "flatRoof": false,
+   "hangarDoor": true,
+   "evidence": "IGN 2024 z19, ~24 x 14 m white roof immediately E of the DZ hangar, opening onto the south taxiway (door side inferred from layout). Not in OSM. Height guessed."
+  },
+  {
+   "name": "Hangar H",
+   "osmWay": 125027597,
+   "polygon": [
+    [
+     16.257072,
+     -61.264711
+    ],
+    [
+     16.257053,
+     -61.264508
+    ],
+    [
+     16.256935,
+     -61.264524
+    ],
+    [
+     16.256957,
+     -61.2647
+    ]
+   ],
+   "height_m": 6,
+   "wallHex": "#dcdcd6",
+   "roofHex": "#eef0ee",
+   "flatRoof": false,
+   "hangarDoor": true,
+   "evidence": "OSM 125027597 + 125028026 (cadastre 2010); ~22 x 13 m on IGN 2024, aircraft parked on the concrete in front (north). Height guessed."
+  },
+  {
+   "name": "Long hangar / workshop D",
+   "osmWay": null,
+   "polygon": [
+    [
+     16.257107,
+     -61.264461
+    ],
+    [
+     16.257064,
+     -61.264229
+    ],
+    [
+     16.257011,
+     -61.264241
+    ],
+    [
+     16.25702,
+     -61.264467
+    ]
+   ],
+   "height_m": 5,
+   "wallHex": "#dcdcd6",
+   "roofHex": "#e9ecea",
+   "flatRoof": false,
+   "hangarDoor": true,
+   "evidence": "IGN 2024 z19, ~25 x 10 m white roof facing the hangar apron. Not in OSM. Height guessed."
+  },
+  {
+   "name": "Small white building E (aero-club / ULM office?)",
+   "osmWay": null,
+   "polygon": [
+    [
+     16.257037,
+     -61.264116
+    ],
+    [
+     16.257037,
+     -61.264046
+    ],
+    [
+     16.256908,
+     -61.264046
+    ],
+    [
+     16.256908,
+     -61.264116
+    ]
+   ],
+   "height_m": 4,
+   "wallHex": "#ece6d8",
+   "roofHex": "#f0f2f0",
+   "flatRoof": true,
+   "hangarDoor": false,
+   "evidence": "IGN 2024 z19, two white blocks ~7.5 x 14 m with a round water tank beside them, at the west edge of the apron. Use and height guessed."
+  },
+  {
+   "name": "Terminal",
+   "osmWay": 125025914,
+   "polygon": [
+    [
+     16.256891,
+     -61.263961
+    ],
+    [
+     16.256852,
+     -61.263734
+    ],
+    [
+     16.256768,
+     -61.26375
+    ],
+    [
+     16.256801,
+     -61.263976
+    ]
+   ],
+   "height_m": 4,
+   "wallHex": "#ece6d8",
+   "roofHex": "#d9dad6",
+   "flatRoof": true,
+   "hangarDoor": false,
+   "evidence": "OSM aeroway=terminal ways 125025914, 125032067, 125033933 (union used); VAC labels 'Terminal' here. IGN 2024: half white roof, half dark grey. Height guessed."
+  },
+  {
+   "name": "Building G (SE of apron)",
+   "osmWay": 125032554,
+   "polygon": [
+    [
+     16.256821,
+     -61.26354
+    ],
+    [
+     16.256796,
+     -61.263416
+    ],
+    [
+     16.256718,
+     -61.263419
+    ],
+    [
+     16.256731,
+     -61.263543
+    ]
+   ],
+   "height_m": 4,
+   "wallHex": "#ece6d8",
+   "roofHex": "#d4d8cf",
+   "flatRoof": false,
+   "hangarDoor": false,
+   "evidence": "OSM 125032554 (cadastre 2010) is narrower than the roof seen on IGN 2024 (~14 x 9 m digitized). Height guessed."
+  }
+ ],
+ "windsocks": [
+  {
+   "lat": 16.257768,
+   "lon": -61.264789
+  }
+ ],
+ "flags": [],
+ "pattern": {
+  "circuitSide": "left",
+  "description": "NOT PUBLISHED - inferred. Trade wind from E-ESE almost every day, so final heading ~100° (parallel to RWY 11) from the west onto the mown zone. Suggested left-hand pattern: downwind at ~300 m AGL heading ~280° along the north side of the runway's west half and the rough grass between the runway and the D118; base turning south at the west end over the field near the D118/Route de l'Aérodrome junction (~250 m W of the target); final ~150 m long over the west arm of the zone. Mirror image (final heading ~280° over the loop) on the ~10% of days without trade wind. The runway, taxiway loop and ULM parking are just east of the zone: they are the long-landing hazard.",
+  "noOverfly": "VAC TFFC ATT 01 no-overfly areas (for aircraft, also sensible under canopy): Saint-François town + marina (SW; ellipse centred ~16.2532,-61.2707, ~2.3 x 1.0 km), Résidence du Golf (NW; ~16.2590,-61.2703), La Coulée houses (E; ~16.2610,-61.2557). The marina basin and the lagoon start ~650 m S-SSW of the target: no outs there. Hangar roofs and the D118 road (with overhead lines, assumed) border the zone.",
+  "landingDirection": "Into the wind: final heading ~100° with the usual E-ESE trade wind (E/ESE/SE/ENE = 84% of daytime METAR at TFFR); runway 11 is the aircraft runway in use for the same reason.",
+  "holdingArea": "Upwind (east) of the landing area over the aerodrome: above the runway / airfield grass between the hangars and the D118, around 16.2580,-61.2620 (~450 m E of the target), down to ~300 m AGL. Stay north of the shoreline (Avenue de l'Europe) and west of La Coulée."
+ },
+ "jumpRun": {
+  "exitAltitudeAgl_m": 3200,
+  "aircraft": "Cessna 206 (club-owned, up to 5 jumpers; F-GERB in the 2022 BEA report)",
+  "description": "Drop zone 9715 (AIP ENR 5.5): SFC-FL165, centred 16°15'28\"N 061°15'58\"W, contact Raizet APP 121.3 MHz (class D TMA above 2500 ft AMSL) and A/A 123.5. Licensed jumpers' seats are sold for 3200 m, tandems exit at 3000 m (open ~1500 m), climb 20-25 min. With the trade wind the run heads east (~100°) from about overhead the field along the runway line and the south coast toward Pointe des Châteaux, exits upwind; in the BEA 2022 case (ESE 10-15 kt) groups exited between overhead the aerodrome and Plage de la Douche (16.2531,-61.2307, 3.8 km E of the target) at FL100 and canopies flew west back to the field. Exact run length and spot are guessed."
+ },
+ "wind": {
+  "station": "TFFR Pointe-à-Pitre Le Raizet METAR (10 m anemometer, ~28 km W of the DZ; no METAR exists for TFFC, TFFA or TFFM in the IEM archive)",
+  "period": "2015-01-01 to 2024-12-31, 09:00-18:00 local (13-22 UTC), all months",
+  "usual": {
+   "fromDeg": 100,
+   "kmh": 20
+  },
+  "sectors": [
+   {
+    "fromDeg": 0.0,
+    "share": 0.0049,
+    "medianKmh": 11.1
+   },
+   {
+    "fromDeg": 22.5,
+    "share": 0.0067,
+    "medianKmh": 13.0
+   },
+   {
+    "fromDeg": 45.0,
+    "share": 0.0234,
+    "medianKmh": 16.7
+   },
+   {
+    "fromDeg": 67.5,
+    "share": 0.1218,
+    "medianKmh": 20.4
+   },
+   {
+    "fromDeg": 90.0,
+    "share": 0.281,
+    "medianKmh": 20.4
+   },
+   {
+    "fromDeg": 112.5,
+    "share": 0.2781,
+    "medianKmh": 22.2
+   },
+   {
+    "fromDeg": 135.0,
+    "share": 0.1614,
+    "medianKmh": 20.4
+   },
+   {
+    "fromDeg": 157.5,
+    "share": 0.0515,
+    "medianKmh": 16.7
+   },
+   {
+    "fromDeg": 180.0,
+    "share": 0.0273,
+    "medianKmh": 16.7
+   },
+   {
+    "fromDeg": 202.5,
+    "share": 0.0037,
+    "medianKmh": 11.1
+   },
+   {
+    "fromDeg": 225.0,
+    "share": 0.002,
+    "medianKmh": 11.1
+   },
+   {
+    "fromDeg": 247.5,
+    "share": 0.0019,
+    "medianKmh": 9.3
+   },
+   {
+    "fromDeg": 270.0,
+    "share": 0.0027,
+    "medianKmh": 9.3
+   },
+   {
+    "fromDeg": 292.5,
+    "share": 0.0023,
+    "medianKmh": 9.3
+   },
+   {
+    "fromDeg": 315.0,
+    "share": 0.0037,
+    "medianKmh": 11.1
+   },
+   {
+    "fromDeg": 337.5,
+    "share": 0.0068,
+    "medianKmh": 14.8
+   }
+  ],
+  "notes": "Trade wind (alizé): E 28%, ESE 28%, SE 16%, ENE 12% of daytime reports; calm 0.1%, variable 2%. Median 20 km/h (p25 17, p75 24, p90 28). Main season Dec-Apr (carême, dry): 0°:0.6%@11.1, 22.5°:0.8%@13.0, 45°:2.7%@18.5, 67.5°:15.8%@22.2, 90°:32.3%@20.4, 112.5°:23.8%@22.2, 135°:13.4%@20.4, 157.5°:4.3%@18.5, 180°:2.1%@16.7, 337.5°:1.0%@14.8; median 20 km/h. Jun-Nov (hivernage): 0°:0.5%@9.3, 22.5°:0.7%@11.1, 45°:2.3%@16.7, 67.5°:10.7%@20.4, 90°:26.3%@20.4, 112.5°:28.5%@20.4, 135°:16.4%@20.4, 157.5°:6.0%@16.7, 180°:3.5%@16.7, 202.5°:0.5%@12.0, 337.5°:0.5%@13.0; median 18 km/h, weakest Sep-Nov (17 km/h, more S-SE, the club closes ~28/09-10/11). Diurnal: median 18 km/h at 09h, 22 km/h 11-14h, 17 km/h at 17h. Saint-François is the exposed eastern tip of Grande-Terre, so the real wind there is probably a little stronger and more easterly than at Le Raizet (inland, sheltered); BEA notes TFFR runway 30 is used only ~30 days/year, when the trade wind fails."
+ },
+ "colors": {
+  "aerodromeGrass": "#76704e",
+  "landingAreaGrass": "#938b66",
+  "fields": [
+   "#5f7a3a",
+   "#7c8a4c",
+   "#8a6a4f"
+  ],
+  "scrub": "#4b5a36",
+  "mangrove": "#2f4a2e",
+  "beach": "#e6dfcf",
+  "lagoon": "#3faaa2",
+  "seaDeep": "#0f2944",
+  "notes": "Imagery seasons differ: Esri World Imagery (z17 max here) is a dry-season scene - airfield and landing zone tan/olive (#726d50, mown zone #988e6f), golf #80805a-#979373, bunkers #cfc59c. IGN 2024 (and 2022) are wet-season and greener/greyer (airfield #4f4b4a-#615554, loop grass #3f4a3e). Suggested hexes are a dry-season (Dec-Apr, the jumping high season) compromise. Fields = cane (green), young cane/pasture, ploughed red-brown soil (the long strip N of the D118). Scrub = dense dry coastal forest/bush of the Pointe des Châteaux peninsula and La Coulée. No mangrove is mapped near the DZ (small wetland W of town at 16.2512,-61.2811); colour is generic. Beach = white coral sand (IGN #e7e3de at Raisins Clairs). Lagoon = turquoise over sand/reef inside the barrier reef (S2 #3da299); deep sea = S2 navy (#0b182c) lightened; the shelf between reef and deep water is mid blue (~#1d5a70) with dark seagrass patches."
+ },
+ "landmarks": [
+  {
+   "name": "Mown target disc / ENR 5.5 drop zone point",
+   "lat": 16.25799,
+   "lon": -61.266167,
+   "why": "Where to land; 9715 reference point 16.257778,-61.266111"
+  },
+  {
+   "name": "Runway 11/29 and taxiway loop",
+   "lat": 16.257773,
+   "lon": -61.262316,
+   "why": "Dark asphalt strip with a white-marked loop at the west end, the clearest marker of the DZ from altitude"
+  },
+  {
+   "name": "Golf International de Saint-François",
+   "lat": 16.2553,
+   "lon": -61.263,
+   "why": "Bright green fairways, white bunkers and three ponds directly S of the airfield"
+  },
+  {
+   "name": "Marina de Saint-François",
+   "lat": 16.252247,
+   "lon": -61.267288,
+   "why": "Dense rows of white boats ~650 m SSW of the target, edge of the no-overfly zone"
+  },
+  {
+   "name": "Saint-François town centre",
+   "lat": 16.2532,
+   "lon": -61.275071,
+   "why": "Red/white roofs W and SW of the DZ"
+  },
+  {
+   "name": "Plage d'Anse Champagne / lagoon",
+   "lat": 16.253281,
+   "lon": -61.261861,
+   "why": "White beach and turquoise lagoon ~500 m S of the runway, 700 m SE of the target"
+  },
+  {
+   "name": "Barrier reef crest",
+   "lat": 16.24796,
+   "lon": -61.26209,
+   "why": "Line of breaking waves ~1 km offshore separating turquoise lagoon from dark blue sea (OSM natural=reef)"
+  },
+  {
+   "name": "Plage de la Douche",
+   "lat": 16.253103,
+   "lon": -61.230669,
+   "why": "Exit point on windy days (BEA 2022), 3.8 km E"
+  },
+  {
+   "name": "Pointe des Châteaux (cross on Pointe des Colibris)",
+   "lat": 16.244852,
+   "lon": -61.173722,
+   "why": "Rocky tip of Grande-Terre 9.5 km E; jumpers face it in freefall"
+  },
+  {
+   "name": "La Désirade",
+   "lat": 16.320042,
+   "lon": -61.050021,
+   "why": "Long table-top island (~275 m) 23 km ENE, seen from the plane and under canopy"
+  },
+  {
+   "name": "Petite-Terre (lighthouse)",
+   "lat": 16.170638,
+   "lon": -61.109218,
+   "why": "Two low islets with a lagoon 19 km ESE"
+  },
+  {
+   "name": "Marie-Galante",
+   "lat": 15.936944,
+   "lon": -61.26606,
+   "why": "Flat round island 36 km S across the channel"
+  },
+  {
+   "name": "La Soufrière (Basse-Terre)",
+   "lat": 16.043244,
+   "lon": -61.663721,
+   "why": "1467 m volcano 49 km WSW, often in cloud; Basse-Terre mountains fill the western horizon"
+  },
+  {
+   "name": "Pointe-à-Pitre Le Raizet airport (TFFR)",
+   "lat": 16.2653,
+   "lon": -61.5318,
+   "why": "Main airport 28 km W; METAR station; RNP 30 approach passes E of the DZ"
+  },
+  {
+   "name": "Le Moule",
+   "lat": 16.331431,
+   "lon": -61.344015,
+   "why": "Town on the Atlantic coast 12 km NW"
+  },
+  {
+   "name": "Sainte-Anne",
+   "lat": 16.225685,
+   "lon": -61.385913,
+   "why": "Town on the south coast 13 km W"
+  }
+ ],
+ "invented": [
+  "Canopy pattern side, legs and holding area: nothing published; inferred from the trade wind and the layout (left-hand, final ~100°).",
+  "Landing area use: one mown zone seen; assumed shared by sport jumpers, tandems and students; no separate student or swoop area found.",
+  "Target: a mown grass disc (radius ~10 m) whose exact place changes between photos; no pea-gravel pit seen.",
+  "Building heights (shadows unusable on the near-zenith 2024 photo) and all wall colours.",
+  "Functions of buildings other than the OSM-named Caraïbe Parachutisme hangar and the terminal (A = snack per Google Maps pin, C/H/D hangars, E office).",
+  "Jump run length/spot (only one documented case, BEA 2022) and exit altitude for licensed jumpers (3200 m from the price list, tandems 3000 m).",
+  "Wind at the DZ itself (TFFR 28 km W is the only METAR); mangrove colour (no mangrove near the DZ)."
+ ],
+ "sources": [
+  "https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_29_OCT_2026/CAR-SAM-NAM/AIRAC-2026-10-01/html/eAIP/FR-AD-2.TFFC-fr-FR.html: TFFC ARP, elevation 10 ft, RWY 11/29 584x18 paved, THR coordinates, PJE over AD (9715) FL165 1300-SS, A/A 123.5, departure rules (avoid La Coulée, Résidence du Golf)",
+  "https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_29_OCT_2026/CAR-SAM-NAM/AIRAC-2026-10-01/html/eAIP/Cartes/TFFC/AD_2_TFFC_ATT_01.pdf: VAC (10 OCT 19, AMDT 11/19 'cible para'): parachute target symbol SW of THR 11, hangars, terminal, no-overfly ellipses, arrivals",
+  "https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_29_OCT_2026/CAR-SAM-NAM/AIRAC-2026-10-01/html/eAIP/FR-ENR-5.5-fr-FR.html: drop zone 9715 Saint-François, SFC-FL165, 16°15'28\"N 061°15'58\"W; the only parachuting zone in Guadeloupe",
+  "https://bea.aero/fileadmin/user_upload/F-OMYR_EN.pdf: BEA2022-0151, Cessna 206 F-GERB of Caraïbe Parachutisme dropping at FL100, exits offset east to Plage de la Douche in ESE 10-15 kt, canopies flying west to the field; trade wind; TMA floor 2500 ft",
+  "https://caraibeparachutisme.com/f-a-q/ and /pratiquants/: exit 3000 m (tandem), seats at 3200 m for licensed jumpers, PAC courses, closed Tue/Wed, annual closure 28/09-10/11, 'unique en Guadeloupe'",
+  "https://www.ewag.fr/articles/caraibe-parachutisme-osez-le-grand-saut/: club-owned Cessna 206 (5 passengers), 25 min climb, founded 2007, >5000 jumps/year",
+  "https://helloguadeloupe.fr/que-faire/saut-en-parachute/: Caraïbe Parachutisme is the only skydiving operator in Guadeloupe; Pointe des Châteaux, Petite-Terre, La Désirade, Marie-Galante in view",
+  "https://data.geopf.fr/wmts (IGN ORTHOIMAGERY.ORTHOPHOTOS = 2024, also ORTHOPHOTOS2022): landing zone, target disc, buildings, taxiways, windsock (z18-19)",
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer (z17 max here): dry-season colours",
+  "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2023_3857: wide view, lagoon/reef/sea colours",
+  "https://overpass-api.de/api/interpreter: OSM aerodrome 51203849, runway 51203850, taxiways 51499240/51499242, apron 51499241, buildings (cadastre 2010) incl. 'Caraibe Parachutisme' 125024530, windsock node 14320019246, landmarks",
+  "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=TFFR (2015-2024): wind statistics; TFFC/TFFA/TFFM return no data"
+ ],
+ "imagery": "ign",
+ "people": [
+  [
+   16.257855,
+   -61.266218
+  ],
+  [
+   16.257858,
+   -61.266264
+  ],
+  [
+   16.258099,
+   -61.266233
+  ],
+  [
+   16.257779,
+   -61.266087
+  ],
+  [
+   16.257235,
+   -61.265404
+  ],
+  [
+   16.257238,
+   -61.265369
+  ],
+  [
+   16.257246,
+   -61.265443
+  ],
+  [
+   16.257064,
+   -61.265404
+  ],
+  [
+   16.257035,
+   -61.265446
+  ]
+ ]
+}

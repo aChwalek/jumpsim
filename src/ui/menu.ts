@@ -22,6 +22,7 @@ import {
 import type { CanopyKind } from '../sim/rig';
 import { trimSpeeds } from '../sim/telemetry';
 import { WIND_MAX_KMH, compassPoint, gustPeakKmh, type GustLevel, type SkyKind, type Weather } from '../sim/weather';
+import { landingHeading } from '../world/dz';
 import { DZS, dzInfo, type DzId } from '../world/dzs';
 
 export type Start = 'pattern' | 'final' | 'plane';
@@ -89,9 +90,9 @@ const swatch = (id: CanopyColorId): string =>
     .map((c) => `<i style="background:#${c.toString(16).padStart(6, '0')}"></i>`)
     .join('')}</span>`;
 
-/** Where the sun is seen from final, flying into the wind. */
-function sunOnFinal(azimuthDeg: number, windFromDeg: number): string {
-  const off = ((azimuthDeg - windFromDeg + 540) % 360) - 180;
+/** Where the sun is seen from final, flying this heading. */
+function sunOnFinal(azimuthDeg: number, finalDeg: number): string {
+  const off = ((azimuthDeg - finalDeg + 540) % 360) - 180;
   if (Math.abs(off) < 50) return 'face à toi en finale';
   if (Math.abs(off) > 130) return 'dans le dos en finale';
   return off > 0 ? 'à droite en finale' : 'à gauche en finale';
@@ -110,6 +111,7 @@ export class Menu {
   private readonly hour = el<HTMLInputElement>('menuHour');
   private readonly hourValue = el('menuHourValue');
   private readonly sun = el('menuSun');
+  private readonly dzCredit = el('menuDzCredit');
   private readonly windDir = el<HTMLInputElement>('menuWindDir');
   private readonly windSpeed = el<HTMLInputElement>('menuWindSpeed');
   private readonly windValue = el('menuWindValue');
@@ -309,6 +311,11 @@ export class Menu {
   private show(): void {
     const { dz, hour, weather, gear } = this.setup;
     this.dzs.show(dz);
+    this.dzCredit.textContent = dzInfo(dz).credit ?? '';
+    const starts = dzInfo(dz).starts;
+    el('menuPatternHeight').textContent = `${starts.pattern} m`;
+    el('menuFinalHeight').textContent = `${starts.final} m`;
+    el('menuPlaneHeight').textContent = `${starts.plane} m`;
     this.skies.show(weather.sky);
     this.gusts.show(weather.gusts);
     this.kinds.show(gear.kind);
@@ -320,10 +327,10 @@ export class Menu {
 
     this.hour.value = String(hour);
     this.hourValue.textContent = formatHour(hour);
-    const pack = dzInfo(dz).pack();
-    const sun = sunPosition(pack.lat, pack.lon, hour);
+    const info = dzInfo(dz);
+    const sun = sunPosition(info.lat, info.lon, hour, info.utcOffsetH);
     const sky = weather.sky === 'overcast' ? ' (derrière les nuages)' : '';
-    this.sun.textContent = `Soleil à ${Math.max(0, sun.elevationDeg).toFixed(0)}° au-dessus de l'horizon, ${sunOnFinal(sun.azimuthDeg, weather.windFromDeg)}${sky}`;
+    this.sun.textContent = `Soleil à ${Math.max(0, sun.elevationDeg).toFixed(0)}° au-dessus de l'horizon, ${sunOnFinal(sun.azimuthDeg, landingHeading(info, weather.windFromDeg))}${sky}`;
 
     this.windDir.value = String(weather.windFromDeg);
     this.windSpeed.value = String(weather.windKmh);
