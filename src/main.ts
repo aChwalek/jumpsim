@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Sound } from './audio/sound';
 import { InputDevices, type Action } from './input/devices';
 import { rampControls } from './input/ramp';
+import { PlaneView } from './render/planeView';
 import { RigView } from './render/rigView';
 import {
   GROUND_LIGHT,
@@ -14,7 +15,9 @@ import {
   createScene,
 } from './render/scene';
 import { Arrival, LEGS_HANGING } from './sim/arrival';
+import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
+import { Jump } from './sim/jump';
 import { detectTouchdown, feetHeight, type Touchdown } from './sim/landing';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
@@ -44,6 +47,8 @@ let rig = rigFor(gear);
 let model = new FlightModel(rig);
 let rigView = new RigView(rig);
 scene.add(rigView.object, rigView.pilot, rigView.shadow);
+const planeView = new PlaneView();
+scene.add(planeView.object);
 const menu = new Menu(gear);
 
 function showGear(): void {
@@ -89,13 +94,29 @@ let verdict: (() => void) | null = null;
 let stepsHeard = 0;
 let waiting = true;
 let paused = false;
+/** The jump from the plane, until the landing; null when starting under canopy. */
+let jump: Jump | null = null;
+/** Hit the ground with no canopy flying. */
+let impact = false;
+/** Where the hands have the toggles: stowed brakes keep the canopy's short of them. */
+const hands = neutralControls();
 
 function spawn(kind: Start): void {
   scenario = kind;
-  const s = dz.spawns[kind];
-  const y = dz.groundAt(s.x, s.z) + s.height - rig.feetPos.y;
-  initTrimmed(model, vec3(s.x, y, s.z), s.headingDeg, env);
+  if (kind === 'plane') {
+    jump = new Jump(model, dz.spawns.plane, env, dz.groundAt);
+  } else {
+    jump = null;
+    const s = dz.spawns[kind];
+    const y = dz.groundAt(s.x, s.z) + s.height - rig.feetPos.y;
+    env.airDensity = airDensityAt(y);
+    initTrimmed(model, vec3(s.x, y, s.z), s.headingDeg, env);
+  }
+  planeView.object.visible = jump !== null;
+  impact = false;
   Object.assign(ramped, neutralControls());
+  Object.assign(applied, ramped);
+  Object.assign(hands, ramped);
   touchdown = null;
   arrival = null;
   verdict = null;
@@ -111,6 +132,10 @@ const actions: Record<Action, () => void> = {
   reset: () => spawn(scenario),
   spawnPattern: () => spawn('pattern'),
   spawnFinal: () => spawn('final'),
+  spawnPlane: () => spawn('plane'),
+  jump: () => {
+    if (!paused) jump?.act();
+  },
   toggleHud: () => hud.toggle(),
   togglePause: () => (paused = !paused),
   toggleSound: () => sound.toggleMute(),
@@ -157,15 +182,35 @@ resize();
 
 function simulate(seconds: number): void {
   let left = seconds;
-  while (left > 1e-5 && !touchdown) {
+  while (left > 1e-5 && !touchdown && !impact) {
     // Whole steps, then one short step so the sim lands exactly on the frame.
     const dt = Math.min(SIM_DT, left);
     left -= dt;
+    env.airDensity = airDensityAt(model.state.pos.y);
+    const flying = !jump || jump.phase === 'canopy';
+    if (jump) {
+      jump.step(dt, devices.body, env);
+      if (jump.impact) {
+        hitWithoutCanopy(jump);
+        return;
+      }
+    }
+    if (!flying && jump) {
+      // The same keys move the body in freefall: the toggles wait, and the
+      // canopy comes out on its stowed brakes.
+      Object.assign(ramped, neutralControls());
+      Object.assign(applied, ramped);
+      Object.assign(hands, ramped);
+      jump.holdStows(applied);
+      continue;
+    }
     rampControls(ramped, devices.pulls, dt);
     applied.brakeL = Math.max(ramped.brakeL, devices.analogBrakeL);
     applied.brakeR = Math.max(ramped.brakeR, devices.analogBrakeR);
     applied.frontL = ramped.frontL;
     applied.frontR = ramped.frontR;
+    Object.assign(hands, applied);
+    jump?.holdStows(applied);
     model.step(dt, applied, env);
     touchdown = detectTouchdown(model, dz.groundAt);
     if (touchdown) {
@@ -173,8 +218,9 @@ function simulate(seconds: number): void {
       const feet = model.pilotPoint(vec3(), rig.feetPos);
       const wet = dz.water.some((pond) => inRect(pond, feet.x, feet.z));
       const distance = Math.hypot(feet.x - dz.target.x, feet.z - dz.target.z);
+      const log = jump?.log ?? null;
       arrival = new Arrival(model, landed, { groundAt: dz.groundAt, wet, wind: env.wind });
-      verdict = () => hud.showResult(landed, distance, wet);
+      verdict = () => hud.showResult(landed, distance, wet, log);
       sound.land({ sink: landed.sink, groundSpeed: landed.groundSpeed, wet });
       // What is left of the frame is spent on the ground.
       arrival.update(left);
@@ -182,13 +228,28 @@ function simulate(seconds: number): void {
   }
 }
 
+/** The ground came first. The pilot stays where they hit, no lower than it. */
+function hitWithoutCanopy(j: Jump): void {
+  impact = true;
+  const s = model.state;
+  const speed = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
+  s.pos.y -= Math.min(0, j.height()) - 0.05;
+  s.vel.x = s.vel.y = s.vel.z = 0;
+  sound.land({ sink: speed, groundSpeed: 0, wet: false });
+  hud.showImpact(j.log, j.phase === 'opening', speed);
+}
+
 const eye = vec3();
 const eyeVel = vec3();
 const air = new THREE.Vector3();
 const unlook = new THREE.Quaternion();
 const look = new THREE.Quaternion();
+const turn = new THREE.Quaternion();
+const flatView = new THREE.Quaternion();
 const lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 const head = new THREE.Euler(0, 0, 0, 'YXZ');
+const face = new THREE.Vector3();
+const AXIS_X = new THREE.Vector3(1, 0, 0);
 /** Resting line of sight below the horizon. */
 const HEAD_PITCH = -8 * DEG;
 /**
@@ -200,6 +261,64 @@ const HEAD_PITCH_FOLLOW = 0.35;
 const NECK_RANGE = 25 * DEG;
 const headPitch = (bodyPitch: number): number =>
   bodyPitch - (1 - HEAD_PITCH_FOLLOW) * NECK_RANGE * Math.tanh(bodyPitch / NECK_RANGE);
+/**
+ * Flat on the air the head comes up, eyes on the horizon as students are
+ * taught, as far as the neck goes; in the door they look out and down.
+ */
+const FREEFALL_GAZE = -20 * DEG;
+const DOOR_GAZE = -12 * DEG;
+const NECK_UP = 75 * DEG;
+const NECK_DOWN = -40 * DEG;
+/** How far up the eyes go to check the canopy as it opens. */
+const GLANCE = 62 * DEG;
+const MAX_PITCH = 85 * DEG;
+
+/** Where the pilot's eyes look, from the body's attitude and the mouse. */
+function aimCamera(): void {
+  const att = model.state.pilotAtt;
+  look.set(att.x, att.y, att.z, att.w);
+  const hang = jump ? jump.hang : 1;
+  if (hang > 0) {
+    // Hanging: the head turns and banks with the harness but steadies its
+    // own pitch, so the eyes stay on the ground ahead in the flare. The
+    // resting pitch goes after the look yaw, so that glancing sideways in
+    // level flight does not tilt the horizon.
+    head.setFromQuaternion(look, 'YXZ');
+    head.x = headPitch(head.x);
+    camera.quaternion.setFromEuler(head);
+    const pitch = HEAD_PITCH + (jump ? jump.glance * GLANCE : 0) + devices.lookPitch;
+    lookEuler.set(Math.min(pitch, MAX_PITCH), -devices.lookYaw, 0);
+    camera.quaternion.multiply(turn.setFromEuler(lookEuler));
+  }
+  if (hang < 1) {
+    // Flat on the air: the face looks at the ground and the neck lifts it
+    // towards the horizon ahead of the head.
+    face.set(0, 0, -1).applyQuaternion(look);
+    const facePitch = Math.asin(Math.max(-1, Math.min(1, face.y)));
+    const out = jump && jump.phase !== 'plane' ? Math.min(1, jump.time / 1.5) : 0;
+    const gaze = DOOR_GAZE + (FREEFALL_GAZE - DOOR_GAZE) * out;
+    const neck = Math.max(NECK_DOWN, Math.min(NECK_UP, gaze - facePitch));
+    flatView.copy(look).multiply(turn.setFromAxisAngle(AXIS_X, neck));
+    lookEuler.set(devices.lookPitch, -devices.lookYaw, 0);
+    flatView.multiply(turn.setFromEuler(lookEuler));
+    if (hang <= 0) camera.quaternion.copy(flatView);
+    else camera.quaternion.slerpQuaternions(flatView, camera.quaternion, hang);
+  }
+}
+
+/** What the HUD says to do next. */
+function cue(): string {
+  if (!jump || impact) return '';
+  if (jump.phase === 'plane') return 'FEU VERT<small>Espace pour sauter</small>';
+  if (jump.phase === 'freefall' && jump.time > 1.5) return '<small>Espace pour ouvrir</small>';
+  if (jump.stowed && !touchdown) {
+    const both = jump.stowedL && jump.stowedR;
+    const which = both ? 'FREINS' : jump.stowedL ? 'FREIN GAUCHE' : 'FREIN DROIT';
+    return `${which} ENCORE CALÉ${both ? 'S' : ''}<small>tire un peu la commande pour libérer</small>`;
+  }
+  return '';
+}
+
 let last = performance.now();
 let frameAverage = 1 / 60;
 
@@ -226,19 +345,16 @@ function frame(now: number): void {
     }
   }
 
-  rigView.update(model, applied, dz.groundAt, SUN);
+  const inflation = jump ? jump.inflation : 1;
+  rigView.setInflation(inflation);
+  if (!arrival) rigView.setArms(inflation === 1);
+  // Crouched in the door the legs would hang through the floor.
+  rigView.pilot.visible = !jump || jump.phase !== 'plane';
+  rigView.update(model, applied, dz.groundAt, SUN, hands);
+  if (jump) planeView.update(jump.plane);
   model.pilotPoint(eye, rig.eyePos);
   camera.position.set(eye.x, eye.y, eye.z);
-  // The head turns and banks with the harness but steadies its own pitch:
-  // eyes stay on the ground ahead when the pilot swings forward in the flare.
-  const att = model.state.pilotAtt;
-  head.setFromQuaternion(look.set(att.x, att.y, att.z, att.w), 'YXZ');
-  head.x = headPitch(head.x);
-  camera.quaternion.setFromEuler(head);
-  // The resting pitch goes after the look yaw, so that glancing sideways
-  // in level flight does not tilt the horizon.
-  lookEuler.set(HEAD_PITCH + devices.lookPitch, -devices.lookYaw, 0);
-  camera.quaternion.multiply(look.setFromEuler(lookEuler));
+  aimCamera();
   sky.position.copy(camera.position);
   world.update(camera.position, now / 1000);
   renderer.render(scene, camera);
@@ -256,15 +372,22 @@ function frame(now: number): void {
   air.set(env.wind.x - eyeVel.x, env.wind.y - eyeVel.y, env.wind.z - eyeVel.z);
   const airspeed = air.length();
   air.applyQuaternion(unlook.copy(camera.quaternion).invert());
-  sound.update({ airspeed, fromRight: airspeed > 0.1 ? -air.x / airspeed : 0, live: !waiting && !paused });
+  sound.update({
+    airspeed: impact ? 0 : airspeed,
+    fromRight: airspeed > 0.1 ? -air.x / airspeed : 0,
+    live: !waiting && !paused,
+    canopy: inflation ?? 0,
+  });
 
   readTelemetry(model, env, telemetry);
+  const height = Math.max(0, feetHeight(model, dz.groundAt));
+  const falling = jump !== null && jump.phase !== 'canopy';
   hud.update(
     {
-      height: Math.max(0, feetHeight(model, dz.groundAt)),
+      height,
       verticalSpeed: telemetry.verticalSpeed,
       groundSpeed: telemetry.groundSpeed,
-      headingDeg: telemetry.headingDeg,
+      headingDeg: jump && falling && jump.phase !== 'plane' ? jump.body.headingDeg() : telemetry.headingDeg,
       controls: applied,
       held: devices.pulls.hold,
       fps: 1 / frameAverage,
@@ -272,6 +395,9 @@ function frame(now: number): void {
       windFromDeg: dz.wind.fromDeg,
       windSpeed: dz.wind.speed,
       muted: sound.muted,
+      freefall: falling,
+      cue: cue(),
+      heightAlert: !jump || !falling || jump.phase === 'plane' ? 'none' : height < 1000 ? 'danger' : height < 1500 ? 'warn' : 'none',
     },
     elapsed,
   );
@@ -284,7 +410,12 @@ requestAnimationFrame(frame);
 
 if (import.meta.env.DEV) {
   // The rig can change between jumps: these always give the current one.
-  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, equip, fly };
-  Object.defineProperties(sim, { model: { get: () => model }, rig: { get: () => rig }, gear: { get: () => gear } });
+  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, equip, fly, env };
+  Object.defineProperties(sim, {
+    model: { get: () => model },
+    rig: { get: () => rig },
+    gear: { get: () => gear },
+    jump: { get: () => jump },
+  });
   Object.assign(window, { sim });
 }

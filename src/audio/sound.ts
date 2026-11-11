@@ -10,6 +10,8 @@ const FULL_FLIGHT = 14;
 /** Loudness at full flight of the rush in the ears, the hiss and the flapping. */
 export const MIX = { rush: 0.25, hiss: 0.07, flap: 0.2 };
 const NOISE_SECONDS = 6;
+/** Airspeed above which the wind gets no louder, m/s. */
+const LOUDEST = 36;
 
 export interface Hearing {
   /** Speed of the air past the pilot's head, m/s. */
@@ -18,6 +20,8 @@ export interface Hearing {
   fromRight: number;
   /** False while the sim is stopped: silence. */
   live: boolean;
+  /** How much canopy there is overhead to flap, 0 (none yet, in freefall) to 1. */
+  canopy: number;
 }
 
 export interface Landing {
@@ -159,7 +163,10 @@ export function buildWind(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioN
   return (h) => {
     const now = ctx.currentTime;
     const v = h.live ? h.airspeed : 0;
-    const x = v / FULL_FLIGHT;
+    // Freefall and the open door are far louder than any dive under canopy;
+    // past this the level stops climbing, for the ears' sake, and only the
+    // colour of the noise says how fast.
+    const x = Math.min(v, LOUDEST) / FULL_FLIGHT;
     const settle = 0.06;
     rush.forEach(({ tone, level }, ear) => {
       // The ear in the lee of the head sits in its wake and gets the most of it.
@@ -171,9 +178,9 @@ export function buildWind(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioN
     });
     hiss.gain.setTargetAtTime(MIX.hiss * x ** 4, now, settle);
     hissTone.frequency.setTargetAtTime(Math.min(400 + 180 * v, 9000), now, settle);
-    flap.gain.setTargetAtTime(MIX.flap * x ** 2, now, settle);
-    flapTone.frequency.setTargetAtTime(500 + 25 * v, now, settle);
-    beat.frequency.setTargetAtTime(Math.max(1, 1.4 * v * (0.85 + 0.3 * wander(now * 0.9 + 5))), now, 0.1);
+    flap.gain.setTargetAtTime(MIX.flap * x ** 2 * h.canopy, now, settle);
+    flapTone.frequency.setTargetAtTime(500 + 25 * Math.min(v, LOUDEST), now, settle);
+    beat.frequency.setTargetAtTime(Math.max(1, 1.4 * Math.min(v, LOUDEST) * (0.85 + 0.3 * wander(now * 0.9 + 5))), now, 0.1);
   };
 }
 
