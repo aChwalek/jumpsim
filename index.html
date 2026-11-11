@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>jumpsim</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+      canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+      #hud {
+        position: fixed; inset: 0; pointer-events: none; user-select: none;
+        font: 500 14px/1.3 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+        font-variant-numeric: tabular-nums;
+      }
+      #hud.hidden .flight { display: none; }
+      .corner { position: absolute; padding: 14px 18px; }
+      #perf { top: 0; left: 0; font-size: 12px; opacity: 0.8; }
+      #topRight { top: 0; right: 0; text-align: right; }
+      #gear { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+      .gauge { position: absolute; bottom: 26px; text-align: center; min-width: 150px; }
+      .gauge .value { font-size: 44px; font-weight: 650; line-height: 1; }
+      .gauge .unit { font-size: 16px; opacity: 0.85; margin-left: 4px; }
+      .gauge .label { font-size: 11px; letter-spacing: 0.12em; opacity: 0.75; margin-top: 4px; }
+      #height { left: 26px; text-align: left; }
+      #speeds { right: 26px; text-align: right; }
+      #speeds .value { font-size: 30px; }
+      #speeds .row + .row { margin-top: 8px; }
+      #brakes { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; gap: 86px; }
+      .bar { width: 12px; height: 110px; border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 3px; position: relative; background: rgba(0, 0, 0, 0.25); }
+      .bar .fill { position: absolute; top: 0; left: 0; right: 0; background: #ffd84a; border-radius: 2px; }
+      .bar .front { position: absolute; top: -9px; left: -4px; right: -4px; height: 5px; background: #6fd0ff; border-radius: 2px; opacity: 0; }
+      #held { position: absolute; left: 50%; bottom: 144px; transform: translateX(-50%); font-size: 11px; letter-spacing: 0.12em; opacity: 0; }
+      .card {
+        position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
+        background: rgba(12, 16, 22, 0.72); border-radius: 12px; padding: 22px 30px; text-align: center;
+        text-shadow: none; backdrop-filter: blur(6px); display: none; max-width: 520px;
+      }
+      .card h1 { margin: 0 0 8px; font-size: 26px; font-weight: 650; }
+      .card p { margin: 6px 0; opacity: 0.9; }
+      .card table { margin: 10px auto 4px; border-collapse: collapse; text-align: left; }
+      .card td { padding: 3px 10px; }
+      .card td:first-child { font-weight: 650; white-space: nowrap; }
+      .card .hint { margin-top: 12px; font-size: 12px; opacity: 0.7; }
+      #menu {
+        position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+        background: rgba(8, 12, 18, 0.35); color: #fff; user-select: none;
+        font: 500 14px/1.3 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-variant-numeric: tabular-nums;
+      }
+      #menu .panel {
+        background: rgba(12, 16, 22, 0.8); border-radius: 12px; padding: 22px 30px 20px; backdrop-filter: blur(6px);
+        width: 640px; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px); overflow: auto; box-sizing: border-box;
+      }
+      #menu h1 { margin: 0 0 6px; font-size: 26px; font-weight: 650; text-align: center; }
+      #menu .name {
+        display: flex; align-items: baseline; gap: 8px; margin: 16px 0 7px;
+        font-size: 11px; letter-spacing: 0.12em; color: rgba(255, 255, 255, 0.75);
+      }
+      #menu .name span { letter-spacing: 0; color: rgba(255, 255, 255, 0.55); }
+      #menu .name b { margin-left: auto; font-size: 18px; letter-spacing: 0; color: #fff; }
+      #menu button {
+        font: inherit; color: #fff; cursor: pointer; border-radius: 6px;
+        background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.25);
+      }
+      #menu button:hover { background: rgba(255, 255, 255, 0.18); }
+      #menuSizes { display: flex; gap: 5px; }
+      #menuSizes button { flex: 1; padding: 8px 0; }
+      #menuKinds { display: flex; gap: 5px; margin-left: auto; font-size: 13px; letter-spacing: 0; }
+      #menuKinds button { padding: 5px 12px; }
+      #menu button.on, #menu .starts button { background: #ffd84a; border-color: #ffd84a; color: #111; font-weight: 650; }
+      #menuWeight { width: 100%; margin: 0; accent-color: #ffd84a; }
+      #menuLoading { margin: 16px 0 2px; font-size: 16px; font-weight: 650; }
+      #menuFlight { margin: 0; color: rgba(255, 255, 255, 0.85); }
+      #menu .starts { display: flex; gap: 10px; margin-top: 18px; }
+      #menu .starts button { flex: 1; padding: 11px 0; font-size: 15px; }
+      #menu .starts button:hover { background: #ffe37a; }
+      #menu .starts span { font-weight: 500; opacity: 0.65; margin-left: 6px; }
+      #menu .hint { margin: 10px 0 0; font-size: 12px; text-align: center; color: rgba(255, 255, 255, 0.7); }
+      #menu .resume { display: none; }
+      #menu.resumable .resume { display: inline; }
+      #menu table { margin: 16px auto 0; border-collapse: collapse; font-size: 12.5px; color: rgba(255, 255, 255, 0.85); }
+      #menu td { padding: 2px 10px; }
+      #menu td:first-child { font-weight: 650; white-space: nowrap; }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="hud">
+      <div id="perf" class="corner flight"></div>
+      <div id="topRight" class="corner flight"><div id="wind"></div><div id="gear"></div></div>
+      <div id="height" class="gauge flight">
+        <div><span class="value" id="heightValue">0</span><span class="unit">m</span></div>
+        <div class="label">HAUTEUR</div>
+      </div>
+      <div id="speeds" class="gauge flight">
+        <div class="row"><span class="value" id="varioValue">0</span><span class="unit">m/s</span><div class="label">VARIO</div></div>
+        <div class="row"><span class="value" id="speedValue">0</span><span class="unit">km/h</span><div class="label">VITESSE SOL</div></div>
+      </div>
+      <div id="held" class="flight">MAINTIEN</div>
+      <div id="brakes" class="flight">
+        <div class="bar"><div class="front" id="frontL"></div><div class="fill" id="brakeL"></div></div>
+        <div class="bar"><div class="front" id="frontR"></div><div class="fill" id="brakeR"></div></div>
+      </div>
+      <div class="card" id="result"></div>
+    </div>
+    <div id="menu">
+      <div class="panel">
+        <h1>jumpsim</h1>
+        <div class="name">VOILE <span>ft²</span><div id="menuKinds"></div></div>
+        <div id="menuSizes"></div>
+        <div class="name">POIDS ÉQUIPÉ <span>toi et tout le matériel</span><b id="menuWeightValue"></b></div>
+        <input id="menuWeight" type="range" step="1" />
+        <p id="menuLoading"></p>
+        <p id="menuFlight"></p>
+        <div class="starts">
+          <button id="menuPattern" type="button">Départ en circuit<span>300 m</span></button>
+          <button id="menuFinal" type="button">Départ en finale<span>90 m</span></button>
+        </div>
+        <p class="hint">← → taille · T classique ou tri-cell · ↑ ↓ poids · Entrée, 1 ou 2 pour sauter<span class="resume"> · Échap pour reprendre le saut</span></p>
+        <table>
+          <tr><td>Q / D</td><td>commande gauche / droite</td></tr>
+          <tr><td>S</td><td>les deux commandes (frein, arrondi)</td></tr>
+          <tr><td>A / E</td><td>élévateur avant gauche / droit</td></tr>
+          <tr><td>Z</td><td>les deux élévateurs avant</td></tr>
+          <tr><td>Maj</td><td>maintenir la position des commandes</td></tr>
+          <tr><td>Souris</td><td>regarder (C pour recentrer)</td></tr>
+          <tr><td>R / 1 / 2</td><td>recommencer / départ en circuit / en finale</td></tr>
+          <tr><td>V</td><td>changer de voile ou de poids</td></tr>
+          <tr><td>H / P / G / M</td><td>masquer l'affichage / pause / qualité / son</td></tr>
+        </table>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
