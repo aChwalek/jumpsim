@@ -159,12 +159,29 @@ export function landingHeading(dz: Pick<DzPack, 'landingAxisDeg'>, windFromDeg: 
   return off(a) <= off(b) ? a : b;
 }
 
-/** Where the jumps start with the wind from this direction. */
-export function spawnsFor(dz: DzPack, windFromDeg: number): { pattern: Spawn; final: Spawn; plane: JumpRun } {
+/**
+ * How far before the target jump run starts, m: the drop zone's distance
+ * into the wind, more as the run turns downwind, since the jumpers then go
+ * out before the target and drift back over it.
+ */
+export function runLeadIn(downwind: number, headingDeg: number, windFromDeg: number): number {
+  const into = Math.cos(((headingDeg - windFromDeg) * Math.PI) / 180);
+  return downwind + Math.max(0, -into) * 1000;
+}
+
+/**
+ * Where the jumps start with the wind from this direction. Jump run is flown
+ * into the wind at the drop zone's height unless `run` says otherwise.
+ */
+export function spawnsFor(
+  dz: DzPack,
+  windFromDeg: number,
+  run: { headingDeg?: number; height?: number } = {},
+): { pattern: Spawn; final: Spawn; plane: JumpRun } {
   const { x, z } = dz.target;
   const p = dz.pattern;
   const f = dz.final;
-  const run = dz.jumpRun;
+  const jr = dz.jumpRun;
   // Under canopy: along the landing direction. Downwind, and to its right,
   // in world axes (+X east, +Z south).
   const land = landingHeading(dz, windFromDeg);
@@ -178,12 +195,12 @@ export function spawnsFor(dz: DzPack, windFromDeg: number): { pattern: Spawn; fi
     const s = (dz.patternSideDeg * Math.PI) / 180;
     side = Math.abs(p.side) * Math.sign(rx * Math.sin(s) - rz * Math.cos(s) || 1);
   }
-  // The plane: straight into the wind.
-  const wto = ((windFromDeg + 180) * Math.PI) / 180;
-  const wx = Math.sin(wto);
-  const wz = -Math.cos(wto);
-  const wrx = Math.cos(wto);
-  const wrz = Math.sin(wto);
+  // Jump run: ahead along its heading, and to the plane's right.
+  const heading = (((run.headingDeg ?? windFromDeg) % 360) + 360) % 360;
+  const h = (heading * Math.PI) / 180;
+  const ahead = { x: Math.sin(h), z: -Math.cos(h) };
+  const right = { x: Math.cos(h), z: Math.sin(h) };
+  const back = runLeadIn(jr.downwind, heading, windFromDeg);
   return {
     pattern: {
       x: x - p.upwind * dx + side * rx,
@@ -192,13 +209,12 @@ export function spawnsFor(dz: DzPack, windFromDeg: number): { pattern: Spawn; fi
       headingDeg: (land + 180) % 360,
     },
     final: { x: x + f.downwind * dx, z: z + f.downwind * dz_, height: f.height, headingDeg: land },
-    // Flying upwind, the plane's right is the left of the downwind track.
     plane: {
-      x: x + run.downwind * wx - run.right * wrx,
-      z: z + run.downwind * wz - run.right * wrz,
-      height: run.height,
-      headingDeg: windFromDeg % 360,
-      indicatedAirspeed: run.indicatedAirspeed,
+      x: x - back * ahead.x + jr.right * right.x,
+      z: z - back * ahead.z + jr.right * right.z,
+      height: run.height ?? jr.height,
+      headingDeg: heading,
+      indicatedAirspeed: jr.indicatedAirspeed,
     },
   };
 }

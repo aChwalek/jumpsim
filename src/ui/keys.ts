@@ -10,7 +10,7 @@ export type InputKind = 'keyboard' | 'gamepad';
 export type PadKind = 'xbox' | 'playstation';
 
 /** A gamepad control, drawn rather than spelt out. */
-type PadControl = 'a' | 'lb' | 'rb' | 'lt' | 'rt' | 'ls' | 'rs' | 'cross' | 'up' | 'down' | 'left' | 'right';
+type PadControl = 'a' | 'y' | 'start' | 'lb' | 'rb' | 'lt' | 'rt' | 'ls' | 'rs' | 'cross' | 'up' | 'down' | 'left' | 'right';
 
 /** Keyboard keys as written on the caps, or gamepad controls; and what they do. */
 type Row = [keys: string[], what: string];
@@ -63,8 +63,10 @@ const GAMEPAD: Record<KeysPhase, [PadControl[], string][] | null> = {
     [['lb', 'rb'], 'avant gauche / droit'],
     [['rs'], 'regarder'],
   ],
-  // The gamepad has nothing for these: the keyboard does it.
-  ground: null,
+  ground: [
+    [['y'], 'recommencer'],
+    [['start'], 'menu'],
+  ],
 };
 
 const NAMES: Record<PadKind, Record<'lb' | 'rb' | 'lt' | 'rt', string>> = {
@@ -108,6 +110,21 @@ function padIcon(c: PadControl, kind: PadKind): string {
             `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><path d="M8.5 8.5 L17.5 17.5 M17.5 8.5 L8.5 17.5" stroke="#8fb4ff" stroke-width="2.4" stroke-linecap="round"/>`,
             'croix',
           );
+    case 'y':
+      // Xbox: the yellow Y. PlayStation: the green triangle.
+      return kind === 'xbox'
+        ? svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="#c99a06" stroke="${LINE}"/><text x="13" y="18" font-size="14" ${FONT}>Y</text>`, 'Y')
+        : svg(
+            26,
+            26,
+            `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><path d="M13 7.5 L18.5 17 H7.5 Z" fill="none" stroke="#5fd6a4" stroke-width="2" stroke-linejoin="round"/>`,
+            'triangle',
+          );
+    case 'start': {
+      // The small button in the middle: Menu on an Xbox pad, Options on a PlayStation one.
+      const name = kind === 'xbox' ? 'Menu' : 'Options';
+      return svg(46, 20, `<rect x="1.5" y="2.5" width="43" height="15" rx="7.5" fill="${BODY}" stroke="${LINE}"/><text x="23" y="14" font-size="9.5" ${FONT}>${name}</text>`, name);
+    }
     case 'lb':
     case 'rb': {
       // A bumper: wide, flat, rounded towards the top.
@@ -146,5 +163,6 @@ export function keysHtml(phase: KeysPhase, input: InputKind, pad: PadKind = 'xbo
   const body = padRows
     ? padRows.map(([controls, what]) => `<span>${controls.map((c) => padIcon(c, pad)).join('')}</span><span>${what}</span>`).join('')
     : KEYBOARD[phase].map(([keys, what]) => `<span>${caps(keys)}</span><span>${what}</span>`).join('');
-  return `${body}<span class="foot">${caps(['V'])} menu · ${caps(['K'])} masquer</span>`;
+  const foot = padRows ? `${padIcon('start', pad)} menu` : `${caps(['V'])} menu · ${caps(['K'])} masquer`;
+  return `${body}<span class="foot">${foot}</span>`;
 }
