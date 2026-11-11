@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Lighting } from '../render/scene';
 import type { DzPack } from './dz';
 import { buildGrass } from './grass';
-import { buildDisc, buildSurfaces, buildTerrain, buildWater } from './ground';
+import { buildDisc, buildSurfaces, buildTerrain, buildWater, loadPhotos } from './ground';
 import { buildBuildings, buildCars, buildFlags, buildPeople, buildTrees, buildWindsock } from './objects';
 
 export interface World {
@@ -25,14 +25,14 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
   // The grass round the eye takes the light where the eye is: sun or cloud shadow.
   const grassLight = new THREE.Color().copy(light.ground);
   const grass = buildGrass({ ...dz.grass, target: dz.target }, grassLight);
-  const water = buildWater(dz.water, light.horizon, dz.waterAreas);
+  // Aerial photos, where the drop zone has some: they show as they come in.
+  const photos = dz.imagery ? loadPhotos(dz.imagery, dz.grass.area.color, dz.imageryGain) : undefined;
+  const water = buildWater(dz.water, light.horizon, dz.waterAreas, photos);
   const flags = buildFlags(dz.flags, light.fabric, groundAt);
   const trees = buildTrees(dz.trees, groundAt);
   object.add(
-    buildTerrain(dz.grass.area.color, groundAt, dz.landColor),
+    buildTerrain(dz.grass.area.color, groundAt, dz.landColor, photos),
     buildSurfaces(dz.surfaces, dz.areas),
-    buildDisc(dz.target.x, dz.target.z, dz.target.radius, 0xcdbf9a, dz.targetLayer ?? 4),
-    buildDisc(dz.target.x, dz.target.z, 0.6, 0xe0452a, (dz.targetLayer ?? 4) + 1),
     buildBuildings(dz.buildings, groundAt),
     trees.object,
     buildCars(dz.cars, groundAt),
@@ -42,6 +42,10 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     water.object,
     flags.object,
   );
+  if (dz.targetShown !== false) {
+    object.add(buildDisc(dz.target.x, dz.target.z, dz.target.radius, dz.targetColor ?? 0xcdbf9a, dz.targetLayer ?? 4));
+    if (dz.targetCentre !== false) object.add(buildDisc(dz.target.x, dz.target.z, 0.6, 0xe0452a, (dz.targetLayer ?? 4) + 1));
+  }
   // Whatever the sun lights loses it under a cloud, and cast shadows fade there.
   const shaded = new Set<THREE.Material>();
   object.traverse((node) => {
@@ -69,6 +73,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
       flags.update(seconds);
     },
     dispose() {
+      photos?.dispose();
       object.traverse((node) => {
         const { geometry, material } = node as THREE.Mesh;
         geometry?.dispose();

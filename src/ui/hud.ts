@@ -3,6 +3,7 @@ import type { Controls } from '../sim/flightModel';
 import type { JumpLog } from '../sim/jump';
 import type { LandingRating, Touchdown } from '../sim/landing';
 import { Altimeter } from './altimeter';
+import { keysHtml, type InputKind, type KeysPhase, type PadKind } from './keys';
 
 const TITLES: Record<LandingRating, string> = {
   standUp: 'Posé debout',
@@ -88,6 +89,8 @@ export class Hud {
   private readonly gear = el('gear');
   private readonly cue = el('cue');
   private lastCue = '';
+  private readonly keys = el('keys');
+  private lastKeys = '';
   private sinceText = 1;
   /** Frame rate and render scale in the corner. */
   showFps = true;
@@ -99,6 +102,19 @@ export class Hud {
   /** Nothing of the HUD shows behind the menu. */
   setMenuOpen(open: boolean): void {
     this.root.classList.toggle('menu', open);
+  }
+
+  /** Shows or hides the keys down the side, whatever the rest does. */
+  showKeys(visible: boolean): void {
+    this.keys.classList.toggle('off', !visible);
+  }
+
+  /** The keys for this moment and this device; null for none (behind the menu). */
+  setKeys(phase: KeysPhase | null, input: InputKind, pad: PadKind): void {
+    const html = phase ? keysHtml(phase, input, pad) : '';
+    if (html === this.lastKeys) return;
+    this.keys.innerHTML = this.lastKeys = html;
+    this.keys.classList.toggle('gamepad', input === 'gamepad');
   }
 
   setAltimeter(kind: AltimeterKind, altitude: number): void {

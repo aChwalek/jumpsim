@@ -44,6 +44,8 @@ export interface Tree {
 export interface Area {
   /** Corners in turn: x, z, x, z... */
   points: number[];
+  /** Holes cut in it, the same way: islands in a lake or the sea. */
+  holes?: number[][];
   color: number;
   /** Draw order for overlapping flat surfaces: higher is on top. */
   layer: number;
@@ -73,11 +75,24 @@ export interface Spawn {
   headingDeg: number;
 }
 
+/** An aerial photo draped on the ground: a square centred on the origin. */
+export interface Imagery {
+  url: string;
+  /** Metres a side. */
+  size: number;
+}
+
 export interface DzPack {
   name: string;
   /** Where it is on the globe, degrees: the sun depends on it. */
   lat: number;
   lon: number;
+  /** Local clock time in July minus UTC, h. French summer time (2) if not given. */
+  utcOffsetH?: number;
+  /** Photos of the ground, finest first, each covering more than the one before. */
+  imagery?: Imagery[];
+  /** Brightness the photos are drawn at, 1 as they are. */
+  imageryGain?: number;
   /** Wind the place usually gets: where it comes from, and speed in m/s. */
   wind: { fromDeg: number; speed: number };
   groundAt(x: number, z: number): number;
@@ -89,6 +104,12 @@ export interface DzPack {
   landColor?(x: number, z: number): number;
   /** Draw order of the target disc and its centre. */
   targetLayer?: number;
+  /** Colour of the target disc: pea gravel by default. */
+  targetColor?: number;
+  /** False where nothing marks the target on the ground: it is only where people aim. */
+  targetShown?: boolean;
+  /** The red disc in the middle of the target, which only the made-up drop zones have. */
+  targetCentre?: boolean;
   /** Grass drawn blade by blade: all over `area` except on `bare`, cut short on `mown`. */
   grass: { area: Rect; mown: Rect; bare: Rect[] };
   /** Ponds, level with the ground. */
@@ -107,6 +128,18 @@ export interface DzPack {
    * for a right-hand circuit).
    */
   pattern: { upwind: number; side: number; height: number };
+  /**
+   * Where the landing area is long and narrow, finals are flown along it:
+   * its compass axis, flown whichever way is nearer into the wind. Straight
+   * into the wind if not given.
+   */
+  landingAxisDeg?: number;
+  /**
+   * The side of the landing area the pattern is always flown on, compass
+   * degrees: left-hand or right-hand depending on the wind. If not given,
+   * `pattern.side` says which.
+   */
+  patternSideDeg?: number;
   /** Start on final: metres downwind of the target, flying into the wind. */
   final: { downwind: number; height: number };
   /**
@@ -114,6 +147,16 @@ export interface DzPack {
    * target and to the plane's right; height above the ground, airspeed.
    */
   jumpRun: { downwind: number; right: number; height: number; indicatedAirspeed: number };
+}
+
+/** Which way finals are flown with the wind from this direction, compass degrees. */
+export function landingHeading(dz: Pick<DzPack, 'landingAxisDeg'>, windFromDeg: number): number {
+  const wind = ((windFromDeg % 360) + 360) % 360;
+  if (dz.landingAxisDeg === undefined) return wind;
+  const a = ((dz.landingAxisDeg % 360) + 360) % 360;
+  const b = (a + 180) % 360;
+  const off = (h: number): number => Math.abs((((h - wind) % 360) + 540) % 360 - 180);
+  return off(a) <= off(b) ? a : b;
 }
 
 /**
@@ -135,30 +178,37 @@ export function spawnsFor(
   windFromDeg: number,
   run: { headingDeg?: number; height?: number } = {},
 ): { pattern: Spawn; final: Spawn; plane: JumpRun } {
-  const to = ((windFromDeg + 180) * Math.PI) / 180;
-  // Downwind, and to its right, in world axes (+X east, +Z south).
-  const dx = Math.sin(to);
-  const dz_ = -Math.cos(to);
-  const rx = Math.cos(to);
-  const rz = Math.sin(to);
   const { x, z } = dz.target;
   const p = dz.pattern;
   const f = dz.final;
   const jr = dz.jumpRun;
+  // Under canopy: along the landing direction. Downwind, and to its right,
+  // in world axes (+X east, +Z south).
+  const land = landingHeading(dz, windFromDeg);
+  const to = ((land + 180) * Math.PI) / 180;
+  const dx = Math.sin(to);
+  const dz_ = -Math.cos(to);
+  const rx = Math.cos(to);
+  const rz = Math.sin(to);
+  let side = p.side;
+  if (dz.patternSideDeg !== undefined) {
+    const s = (dz.patternSideDeg * Math.PI) / 180;
+    side = Math.abs(p.side) * Math.sign(rx * Math.sin(s) - rz * Math.cos(s) || 1);
+  }
   // Jump run: ahead along its heading, and to the plane's right.
-  const heading = ((run.headingDeg ?? windFromDeg) % 360 + 360) % 360;
+  const heading = (((run.headingDeg ?? windFromDeg) % 360) + 360) % 360;
   const h = (heading * Math.PI) / 180;
   const ahead = { x: Math.sin(h), z: -Math.cos(h) };
   const right = { x: Math.cos(h), z: Math.sin(h) };
   const back = runLeadIn(jr.downwind, heading, windFromDeg);
   return {
     pattern: {
-      x: x - p.upwind * dx + p.side * rx,
-      z: z - p.upwind * dz_ + p.side * rz,
+      x: x - p.upwind * dx + side * rx,
+      z: z - p.upwind * dz_ + side * rz,
       height: p.height,
-      headingDeg: (windFromDeg + 180) % 360,
+      headingDeg: (land + 180) % 360,
     },
-    final: { x: x + f.downwind * dx, z: z + f.downwind * dz_, height: f.height, headingDeg: windFromDeg % 360 },
+    final: { x: x + f.downwind * dx, z: z + f.downwind * dz_, height: f.height, headingDeg: land },
     plane: {
       x: x - back * ahead.x + jr.right * right.x,
       z: z - back * ahead.z + jr.right * right.z,
@@ -171,7 +221,10 @@ export function spawnsFor(
 
 /** Whether the point lies in the polygon. */
 export function inArea(a: Area, x: number, z: number): boolean {
-  const p = a.points;
+  return inRing(a.points, x, z) && !(a.holes ?? []).some((h) => inRing(h, x, z));
+}
+
+function inRing(p: number[], x: number, z: number): boolean {
   let hit = false;
   for (let i = 0, j = p.length - 2; i < p.length; j = i, i += 2) {
     const xi = p[i]!;

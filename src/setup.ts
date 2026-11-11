@@ -50,7 +50,7 @@ export interface JumpPlan {
 
 export interface Setup {
   dz: DzId;
-  /** Clock time, French summer time, hours. */
+  /** Local clock time at the drop zone, hours. */
   hour: number;
   weather: Weather;
   gear: Gear;
@@ -90,7 +90,7 @@ export function loadingLabel(wingLoading: number): string {
 
 /** The usual wind of a drop zone, as the weather of a first visit. */
 export function usualWeather(dz: DzId, sky: SkyKind = 'clear'): Weather {
-  const { wind } = dzInfo(dz).pack();
+  const { wind } = dzInfo(dz);
   return { sky, windFromDeg: wind.fromDeg, windKmh: Math.round(wind.speed * 3.6), gusts: 'none' };
 }
 

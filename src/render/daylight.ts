@@ -9,7 +9,7 @@ const DEG = Math.PI / 180;
 
 /** The jumps happen in the season: early July. */
 const DAY_OF_YEAR = 185;
-/** French summer time, UTC+2. */
+/** French summer time, UTC+2, unless the drop zone keeps another clock. */
 const UTC_OFFSET_H = 2;
 
 export interface SunPosition {
@@ -20,11 +20,17 @@ export interface SunPosition {
 }
 
 /**
- * Position of the sun at a clock time (French summer time) and place, from
- * NOAA's approximate formulas: good to a fraction of a degree.
+ * Position of the sun at a local clock time and place, from NOAA's
+ * approximate formulas: good to a fraction of a degree.
  */
-export function sunPosition(latDeg: number, lonDeg: number, clockHour: number, dayOfYear = DAY_OF_YEAR): SunPosition {
-  const utc = clockHour - UTC_OFFSET_H;
+export function sunPosition(
+  latDeg: number,
+  lonDeg: number,
+  clockHour: number,
+  utcOffsetH = UTC_OFFSET_H,
+  dayOfYear = DAY_OF_YEAR,
+): SunPosition {
+  const utc = clockHour - utcOffsetH;
   const g = ((2 * Math.PI) / 365) * (dayOfYear - 1 + (utc - 12) / 24);
   const eqTimeMin =
     229.18 *

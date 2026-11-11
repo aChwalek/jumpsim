@@ -145,6 +145,8 @@
 #menu .dz.on { border-color: var(--accent); background: var(--accent-soft); }
 #menu .dz.on .check { display: block; }
 #menu .screen-dz .body > .note { margin: 12px 4px 0; font-size: 12px; color: var(--dim); }
+#menu .screen-dz .body > .credit { margin-top: 6px; font-size: 10.5px; color: rgba(255, 255, 255, 0.45); }
+#menu .dz.loading .check { font-size: 12px; color: var(--dim); }
 
 /* ------------------------------------------------------------ settings */
 

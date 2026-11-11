@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { Area, Rect } from './dz';
+import type { Area, Imagery, Rect } from './dz';
 
 const DEG = Math.PI / 180;
 
@@ -128,8 +128,83 @@ function makeGrainTexture(): THREE.Texture {
 let noise: THREE.Texture | undefined;
 let grain: THREE.Texture | undefined;
 
-/** Lambert material whose colour carries world-space ground detail. */
-export function groundMaterial(params: THREE.MeshLambertMaterialParameters, layer: number): THREE.MeshLambertMaterial {
+/** Aerial photos of a drop zone on the graphics card, finest first, and how to read them. */
+export interface Photos {
+  textures: THREE.Texture[];
+  /** What the shaders read: the textures, their sizes, which have come in, brightness. */
+  uniforms: Record<string, THREE.IUniform>;
+  dispose(): void;
+}
+
+/**
+ * Starts loading the photos; each shows once it has come in, the coarser
+ * ones until then. `gain` is the brightness they are drawn at: they already
+ * hold the light of the day they were taken. `fallback` shows where none covers.
+ */
+export function loadPhotos(imagery: Imagery[], fallback: number, gain = 1): Photos {
+  const loader = new THREE.TextureLoader();
+  const ready = new THREE.Vector3(0, 0, 0);
+  const levels = [0, 1, 2].map((k) => imagery[Math.min(k, imagery.length - 1)]!);
+  const textures = levels.map((level, k) => {
+    const texture = loader.load(`${import.meta.env.BASE_URL}${level.url}`, () => ready.setComponent(k, 1));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    // The first row of the image is the north edge, at the smallest z.
+    texture.flipY = false;
+    texture.anisotropy = 16;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+    return texture;
+  });
+  return {
+    textures,
+    uniforms: {
+      photo0: { value: textures[0] },
+      photo1: { value: textures[1] },
+      photo2: { value: textures[2] },
+      photoSize: { value: new THREE.Vector3(levels[0]!.size, levels[1]!.size, levels[2]!.size) },
+      photoReady: { value: ready },
+      photoGain: { value: gain },
+      photoFallback: { value: new THREE.Color(fallback) },
+    },
+    dispose() {
+      for (const t of textures) t.dispose();
+    },
+  };
+}
+
+/**
+ * GLSL reading the photos at a point of the ground: the finest one that
+ * covers it, fading into the next one out near its edge.
+ */
+const PHOTO_GLSL = /* glsl */ `
+  uniform sampler2D photo0;
+  uniform sampler2D photo1;
+  uniform sampler2D photo2;
+  uniform vec3 photoSize;
+  uniform vec3 photoReady;
+  uniform float photoGain;
+  uniform vec3 photoFallback;
+  float photoWeight(vec2 uv) {
+    vec2 d = min(uv, 1.0 - uv);
+    return smoothstep(0.0, 0.05, min(d.x, d.y));
+  }
+  vec3 photoAt(vec2 p) {
+    vec2 uv2 = p / photoSize.z + 0.5;
+    vec2 uv1 = p / photoSize.y + 0.5;
+    vec2 uv0 = p / photoSize.x + 0.5;
+    vec3 c = mix(photoFallback, texture2D(photo2, uv2).rgb, photoReady.z * photoWeight(uv2));
+    c = mix(c, texture2D(photo1, uv1).rgb, photoReady.y * photoWeight(uv1));
+    c = mix(c, texture2D(photo0, uv0).rgb, photoReady.x * photoWeight(uv0));
+    return c * photoGain;
+  }
+`;
+
+
+/**
+ * Lambert material whose colour carries world-space ground detail. With
+ * photos, the colour is the photo's, and only the fine grain is added to it.
+ */
+export function groundMaterial(params: THREE.MeshLambertMaterialParameters, layer: number, photos?: Photos): THREE.MeshLambertMaterial {
   noise ??= makeNoiseTexture();
   const detail = noise;
   grain ??= makeGrainTexture();
@@ -145,6 +220,7 @@ export function groundMaterial(params: THREE.MeshLambertMaterialParameters, laye
   material.onBeforeCompile = (shader) => {
     shader.uniforms.detailMap = { value: detail };
     shader.uniforms.grainMap = { value: marks };
+    if (photos) Object.assign(shader.uniforms, photos.uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec2 vGroundXZ;')
       .replace(
@@ -152,10 +228,21 @@ export function groundMaterial(params: THREE.MeshLambertMaterialParameters, laye
         '#include <begin_vertex>\nvGroundXZ = (modelMatrix * vec4(transformed, 1.0)).xz;',
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform sampler2D detailMap;\nuniform sampler2D grainMap;\nvarying vec2 vGroundXZ;')
+      .replace(
+        '#include <common>',
+        `#include <common>\nuniform sampler2D detailMap;\nuniform sampler2D grainMap;\nvarying vec2 vGroundXZ;\n${photos ? PHOTO_GLSL : ''}`,
+      )
       .replace(
         '#include <color_fragment>',
-        `#include <color_fragment>
+        photos
+          ? `#include <color_fragment>
+        diffuseColor.rgb = photoAt(vGroundXZ);
+        vec2 marks = texture2D(grainMap, vGroundXZ / ${GRAIN_TILE}).rg;
+        float grassy = step(1.08 * max(diffuseColor.r, diffuseColor.b), diffuseColor.g);
+        float d1 = mix(marks.g, marks.r, grassy);
+        float d2 = texture2D(detailMap, vGroundXZ / 11.0).r;
+        diffuseColor.rgb *= (0.45 + 1.1 * d1) * (0.85 + 0.3 * d2);`
+          : `#include <color_fragment>
         vec2 marks = texture2D(grainMap, vGroundXZ / ${GRAIN_TILE}).rg;
         // Grass wherever green leads.
         float grassy = step(1.15 * max(diffuseColor.r, diffuseColor.b), diffuseColor.g);
@@ -165,7 +252,7 @@ export function groundMaterial(params: THREE.MeshLambertMaterialParameters, laye
         diffuseColor.rgb *= (0.45 + 1.1 * d1) * (0.75 + 0.5 * d2) * (0.8 + 0.4 * d3);`,
       );
   };
-  material.customProgramCacheKey = () => 'ground-detail';
+  material.customProgramCacheKey = () => (photos ? 'ground-photo' : 'ground-detail');
   return material;
 }
 
@@ -191,11 +278,12 @@ export function buildTerrain(
   color: number,
   groundAt: (x: number, z: number) => number = () => 0,
   colorAt?: (x: number, z: number) => number,
+  photos?: Photos,
 ): THREE.Mesh {
   const lines = terrainLines();
   const n = lines.length;
   const positions = new Float32Array(n * n * 3);
-  const colors = colorAt ? new Float32Array(n * n * 3) : null;
+  const colors = colorAt && !photos ? new Float32Array(n * n * 3) : null;
   const tint = new THREE.Color();
   let o = 0;
   for (const z of lines) {
@@ -223,7 +311,7 @@ export function buildTerrain(
   if (colors) geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geometry.setIndex(index);
   geometry.computeVertexNormals();
-  const mesh = new THREE.Mesh(geometry, groundMaterial(colors ? { vertexColors: true } : { color }, 0));
+  const mesh = new THREE.Mesh(geometry, groundMaterial(colors ? { vertexColors: true } : { color }, 0, photos));
   mesh.renderOrder = 0;
   return mesh;
 }
@@ -268,13 +356,18 @@ function polygons(list: Area[]): THREE.BufferGeometry {
   const positions: number[] = [];
   const colors: number[] = [];
   const color = new THREE.Color();
-  const contour: THREE.Vector2[] = [];
+  const ring = (flat: number[]): THREE.Vector2[] => {
+    const out: THREE.Vector2[] = [];
+    for (let i = 0; i < flat.length; i += 2) out.push(new THREE.Vector2(flat[i], flat[i + 1]));
+    return out;
+  };
   for (const a of list) {
-    contour.length = 0;
-    for (let i = 0; i < a.points.length; i += 2) contour.push(new THREE.Vector2(a.points[i], a.points[i + 1]));
+    const contour = ring(a.points);
+    const holes = (a.holes ?? []).map(ring);
+    const all = contour.concat(...holes);
     color.setHex(a.color);
-    for (const triangle of THREE.ShapeUtils.triangulateShape(contour, [])) {
-      const [a, b, c] = triangle.map((k) => contour[k]!) as [THREE.Vector2, THREE.Vector2, THREE.Vector2];
+    for (const triangle of THREE.ShapeUtils.triangulateShape(contour, holes)) {
+      const [a, b, c] = triangle.map((k) => all[k]!) as [THREE.Vector2, THREE.Vector2, THREE.Vector2];
       // Facing up whichever way round the polygon was given: a face seen
       // from behind is lit from below, and comes out dark.
       const up = (b.y - a.y) * (c.x - a.x) - (b.x - a.x) * (c.y - a.y) > 0;
@@ -334,13 +427,14 @@ export interface Water {
  * mirrors the sky. Wavelets a hand's width across drift over it: smooth
  * water gives nothing to judge height by.
  */
-export function buildWater(rects: Rect[], sky: THREE.Color, areas: Area[] = []): Water {
+export function buildWater(rects: Rect[], sky: THREE.Color, areas: Area[] = [], photos?: Photos): Water {
   noise ??= makeNoiseTexture();
   const time = { value: 0 };
   const group = new THREE.Group();
   for (const [layer, list] of byLayer(rects, areas)) {
     const material = new THREE.ShaderMaterial({
-      uniforms: { time, sky: { value: sky }, detailMap: { value: noise } },
+      uniforms: { time, sky: { value: sky }, detailMap: { value: noise }, ...(photos ? photos.uniforms : {}) },
+      defines: photos ? { USE_PHOTO: '' } : {},
       vertexColors: true,
       side: THREE.DoubleSide,
       polygonOffset: true,
@@ -362,14 +456,23 @@ export function buildWater(rects: Rect[], sky: THREE.Color, areas: Area[] = []):
         uniform sampler2D detailMap;
         varying vec3 vWorld;
         varying vec3 vDeep;
+        #ifdef USE_PHOTO
+        ${PHOTO_GLSL}
+        #endif
         void main() {
           vec3 toEye = cameraPosition - vWorld;
+          #ifdef USE_PHOTO
+          // The water's own colour is the photo's: turquoise over the reef, deep blue beyond.
+          vec3 deep = photoAt(vWorld.xz) * 0.85;
+          #else
+          vec3 deep = vDeep;
+          #endif
           float a = texture2D(detailMap, vWorld.xz / 2.3 + time * vec2(0.021, 0.013)).r;
           float b = texture2D(detailMap, vWorld.xz / 0.9 - time * vec2(0.017, 0.031)).r;
           float ripple = a + b - 1.0;
           float grazing = 1.0 - abs(toEye.y) / length(toEye);
           float mirror = clamp(0.1 + 0.85 * pow(grazing, 4.0) + 0.3 * ripple, 0.0, 1.0);
-          vec3 color = mix(vDeep, sky, mirror) + vec3(0.2) * smoothstep(0.42, 0.62, ripple);
+          vec3 color = mix(deep, sky, mirror) + vec3(0.2) * smoothstep(0.42, 0.62, ripple);
           gl_FragColor = vec4(color, 1.0);
           #include <colorspace_fragment>
         }`,

@@ -44,6 +44,7 @@ import {
   type SkyKind,
   type Weather,
 } from '../sim/weather';
+import { landingHeading } from '../world/dz';
 import { DZS, dzInfo, type DzId } from '../world/dzs';
 import { Nav } from './nav';
 
@@ -120,9 +121,9 @@ const swatch = (id: CanopyColorId): string =>
     .map((c) => `<i style="background:#${c.toString(16).padStart(6, '0')}"></i>`)
     .join('')}</span>`;
 
-/** Where the sun is seen from final, flying into the wind. */
-function sunOnFinal(azimuthDeg: number, windFromDeg: number): string {
-  const off = ((azimuthDeg - windFromDeg + 540) % 360) - 180;
+/** Where the sun is seen from final, flying this heading. */
+function sunOnFinal(azimuthDeg: number, finalDeg: number): string {
+  const off = ((azimuthDeg - finalDeg + 540) % 360) - 180;
   if (Math.abs(off) < 50) return 'face à toi en finale';
   if (Math.abs(off) > 130) return 'dans le dos en finale';
   return off > 0 ? 'à droite en finale' : 'à gauche en finale';
@@ -576,11 +577,11 @@ export class Menu {
     this.jump.addEventListener('click', () => this.go());
     this.updaters.push(() => {
       const { start, exitHeight } = this.setup.jump;
-      const pack = dzInfo(this.setup.dz).pack();
+      const info = dzInfo(this.setup.dz);
       this.jump.innerHTML =
         start === 'plane'
           ? `Sauter<span>${num(exitHeight)} m</span>`
-          : `Partir<span>${start === 'pattern' ? `en circuit · ${pack.pattern.height} m` : `en finale · ${pack.final.height} m`}</span>`;
+          : `Partir<span>${start === 'pattern' ? `en circuit · ${info.starts.pattern} m` : `en finale · ${info.starts.final} m`}</span>`;
     });
     const go = h('div', 'go', this.nav.add(this.resume), this.nav.add(this.jump));
     screen.append(
@@ -598,7 +599,7 @@ export class Menu {
   /** What a home card says. */
   private summary(c: Category): string {
     const { dz, hour, weather, gear, jump } = this.setup;
-    const pack = dzInfo(dz).pack();
+    const info = dzInfo(dz);
     switch (c) {
       case 'gear': {
         const rig = rigFor(gear);
@@ -610,15 +611,14 @@ export class Menu {
           <span class="dim">${alti} · ${gear.audible ? 'altison' : 'sans altison'}</span>`;
       }
       case 'dz': {
-        const info = dzInfo(dz);
         return `
           <span class="big">${info.name}</span>
           <span>${info.note}</span>
-          <span class="dim">Vent habituel du ${heading(pack.wind.fromDeg)}, ${Math.round(pack.wind.speed * 3.6)} km/h</span>`;
+          <span class="dim">Vent habituel du ${heading(info.wind.fromDeg)}, ${Math.round(info.wind.speed * 3.6)} km/h</span>`;
       }
       case 'weather': {
         const sky = SKIES.find((s) => s.value === weather.sky)!.label;
-        const sun = sunPosition(pack.lat, pack.lon, hour);
+        const sun = sunPosition(info.lat, info.lon, hour, info.utcOffsetH);
         const gust = gustPeakKmh(weather);
         const wind =
           weather.windKmh === 0
@@ -627,14 +627,14 @@ export class Menu {
         return `
           <span class="big">${formatHour(hour)} · ${sky}</span>
           <span class="wind">${windArrow(weather.windFromDeg, weather.windKmh === 0)}${wind}</span>
-          <span class="dim">Soleil ${weather.sky === 'overcast' ? 'caché' : `à ${num(Math.max(0, sun.elevationDeg))}°, ${sunOnFinal(sun.azimuthDeg, weather.windFromDeg)}`}</span>`;
+          <span class="dim">Soleil ${weather.sky === 'overcast' ? 'caché' : `à ${num(Math.max(0, sun.elevationDeg))}°, ${sunOnFinal(sun.azimuthDeg, landingHeading(info, weather.windFromDeg))}`}</span>`;
       }
       case 'jump': {
         if (jump.start !== 'plane') {
-          const spot = jump.start === 'pattern' ? pack.pattern.height : pack.final.height;
+          const spot = jump.start === 'pattern' ? info.starts.pattern : info.starts.final;
           return `
             <span class="big">${START_NAMES[jump.start]} · ${spot} m</span>
-            <span>Départ sous voile, ${jump.start === 'pattern' ? 'au début de la vent arrière' : 'en finale face au vent'}</span>
+            <span>Départ sous voile, ${jump.start === 'pattern' ? 'au début de la vent arrière' : 'en finale'}</span>
             <span class="dim">Pas d'avion ni de chute</span>`;
         }
         const run = runHeading(this.setup);
@@ -700,17 +700,27 @@ export class Menu {
     const { screen, body } = this.screenShell('dz', null);
     const list = h('div', 'dzs');
     for (const d of DZS) {
-      const card = button('dz', h('b', '', d.name), h('span', '', d.note), h('i', 'check', '✓'));
+      const check = h('i', 'check', '✓');
+      const card = button('dz', h('b', '', d.name), h('span', '', d.note), check);
       card.addEventListener('click', () => this.setDz(d.id));
       list.append(this.nav.add(card));
-      this.updaters.push(() => card.classList.toggle('on', this.setup.dz === d.id));
+      this.updaters.push(() => {
+        const on = this.setup.dz === d.id;
+        // The real ones come with megabytes of photos: loaded when first chosen.
+        const loading = on && !d.loaded();
+        card.classList.toggle('on', on);
+        card.classList.toggle('loading', loading);
+        check.textContent = loading ? 'chargement…' : '✓';
+      });
     }
     const note = h('p', 'note');
+    const credit = h('p', 'note credit');
     this.updaters.push(() => {
-      const pack = dzInfo(this.setup.dz).pack();
-      note.textContent = `Vent habituel à ${pack.name} : du ${heading(pack.wind.fromDeg)}, ${Math.round(pack.wind.speed * 3.6)} km/h. Changer de DZ remet la météo à ce vent.`;
+      const info = dzInfo(this.setup.dz);
+      note.textContent = `Vent habituel à ${info.name} : du ${heading(info.wind.fromDeg)}, ${Math.round(info.wind.speed * 3.6)} km/h. Changer de DZ remet la météo à ce vent.`;
+      credit.textContent = info.credit ?? '';
     });
-    body.append(list, note);
+    body.append(list, note, credit);
     screen.append(
       hints(
         '↑ ↓ choisir · Entrée prendre cette DZ · Tab catégorie suivante · Échap retour',
@@ -727,13 +737,13 @@ export class Menu {
     this.updaters.push(() => compass.set(w().windFromDeg, w().windKmh));
     body.append(
       this.slider('HEURE', { min: HOUR_MIN, max: HOUR_MAX, step: 0.25, big: 1 }, () => this.setup.hour, (hour) => this.setHour(hour), {
-        hint: "heure d'été, début juillet",
+        hint: 'heure locale, début juillet',
         value: () => formatHour(this.setup.hour),
         note: () => {
-          const pack = dzInfo(this.setup.dz).pack();
-          const sun = sunPosition(pack.lat, pack.lon, this.setup.hour);
+          const info = dzInfo(this.setup.dz);
+          const sun = sunPosition(info.lat, info.lon, this.setup.hour, info.utcOffsetH);
           const hidden = w().sky === 'overcast' ? ' (derrière les nuages)' : '';
-          return `Soleil à ${num(Math.max(0, sun.elevationDeg))}° au-dessus de l'horizon, ${sunOnFinal(sun.azimuthDeg, w().windFromDeg)}${hidden}`;
+          return `Soleil à ${num(Math.max(0, sun.elevationDeg))}° au-dessus de l'horizon, ${sunOnFinal(sun.azimuthDeg, landingHeading(info, w().windFromDeg))}${hidden}`;
         },
       }),
       this.choice<SkyKind>('CIEL', SKIES, () => w().sky, (sky) => this.setWeather({ sky })),
@@ -757,8 +767,8 @@ export class Menu {
       }),
       this.action('Vent habituel de la DZ', () => this.setWeather(usualWeather(this.setup.dz, w().sky)), {
         note: () => {
-          const pack = dzInfo(this.setup.dz).pack();
-          return `${pack.name} : du ${heading(pack.wind.fromDeg)}, ${Math.round(pack.wind.speed * 3.6)} km/h, sans rafales`;
+          const info = dzInfo(this.setup.dz);
+          return `${info.name} : du ${heading(info.wind.fromDeg)}, ${Math.round(info.wind.speed * 3.6)} km/h, sans rafales`;
         },
       }),
     );
@@ -780,9 +790,9 @@ export class Menu {
         (start) => this.setJump({ start }),
         {
           note: () => {
-            const pack = dzInfo(this.setup.dz).pack();
-            if (plan().start === 'pattern') return `Sous voile à ${pack.pattern.height} m, au début de la vent arrière.`;
-            if (plan().start === 'final') return `Sous voile à ${pack.final.height} m, en finale face au vent.`;
+            const info = dzInfo(this.setup.dz);
+            if (plan().start === 'pattern') return `Sous voile à ${info.starts.pattern} m, au début de la vent arrière.`;
+            if (plan().start === 'final') return `Sous voile à ${info.starts.final} m, en finale.`;
             return 'Sortie d\'avion, chute libre, ouverture, puis le vol sous voile.';
           },
         },
@@ -852,6 +862,9 @@ export class Menu {
       this.choice<boolean>('COMPTEUR D\'IMAGES', YES_NO, () => s.showFps, (showFps) => this.setSettings({ showFps }), {
         hint: 'en haut à gauche, en vol',
       }),
+      this.choice<boolean>('TOUCHES À L\'ÉCRAN', YES_NO, () => s.showKeys, (showKeys) => this.setSettings({ showKeys }), {
+        hint: 'sur le côté, en vol · K',
+      }),
       h('h3', 'section', 'AUDIO'),
       this.choice<boolean>('SON', YES_NO, () => s.sound, (sound) => this.setSettings({ sound }), { hint: 'M en vol' }),
       this.slider('VOLUME', { min: 0, max: 100, step: 5, big: 20 }, () => Math.round(s.volume * 100), (v) => this.setSettings({ volume: v / 100 }), {
@@ -892,11 +905,14 @@ export class Menu {
       ['Sauter de l\'avion, puis ouvrir', 'Espace', 'A'],
       ['En chute : tourner', 'Q / D', 'gâchettes'],
       ['En chute : avancer, reculer, glisser', 'Z / S · A / E', 'stick gauche'],
-      ['Recommencer', 'R', 'Y'],
+      ['En chute : monter / descendre', 'R / F', 'LB / RB'],
+      ['En chute : assis / tête en bas', '↑ / ↓', 'croix haut / bas'],
+      ['En chute : à plat / dos', '← / →', 'croix gauche / droite'],
+      ['Recommencer (pas en chute)', 'R', 'Y'],
       ['Partir en circuit / finale / avion', '1 / 2 / 3', '—'],
       ['Menu', 'V ou Échap', 'Start'],
       ['Masquer l\'affichage · pause', 'H · P', '—'],
-      ['Qualité · son', 'G · M', '—'],
+      ['Qualité · son · touches à l\'écran', 'G · M · K', '—'],
     ];
     const table = h('table', 'controls');
     table.innerHTML = `<thead><tr><th></th><th>Clavier</th><th>Manette</th></tr></thead><tbody>${rows

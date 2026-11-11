@@ -18,7 +18,12 @@ export type Action =
   | 'openMenu'
   /** Start on the gamepad: opens the menu, which then takes the gamepad over. */
   | 'padMenu'
-  | 'cycleQuality';
+  | 'cycleQuality'
+  | 'toggleKeys'
+  | 'flyBelly'
+  | 'flyBack'
+  | 'flySit'
+  | 'flyHeadDown';
 
 const ACTIONS: Record<string, Action> = {
   KeyR: 'reset',
@@ -26,6 +31,7 @@ const ACTIONS: Record<string, Action> = {
   KeyP: 'togglePause',
   KeyC: 'recentre',
   KeyG: 'cycleQuality',
+  KeyK: 'toggleKeys',
   // M sits in a different place on AZERTY and QWERTY: take both.
   KeyM: 'toggleSound',
   Semicolon: 'toggleSound',
@@ -34,12 +40,24 @@ const ACTIONS: Record<string, Action> = {
   Digit3: 'spawnPlane',
   Space: 'jump',
   KeyV: 'openMenu',
+  // Positions in freefall: head up, head down, belly, back.
+  ArrowUp: 'flySit',
+  ArrowDown: 'flyHeadDown',
+  ArrowLeft: 'flyBelly',
+  ArrowRight: 'flyBack',
 };
 
-/** Gamepad buttons, standard mapping, that act once per press (A jumps, see poll). */
+/**
+ * Gamepad buttons, standard mapping, that act once per press (A jumps, see
+ * poll). The cross does the same as the arrows: up, down, left, right.
+ */
 const PAD_ACTIONS: [number, Action][] = [
   [3, 'reset'], // Y
   [9, 'padMenu'], // Start
+  [12, 'flySit'],
+  [13, 'flyHeadDown'],
+  [14, 'flyBelly'],
+  [15, 'flyBack'],
 ];
 
 const MOUSE_SENSITIVITY = 0.0022;
@@ -57,7 +75,7 @@ export class InputDevices {
   readonly pulls: Pulls = noPulls();
   /**
    * The same keys in freefall, where they move the body: Q / D turn, Z / S
-   * forward and back, A / E slide sideways (AZERTY letters).
+   * forward and back, A / E slide sideways, R / F up and down (AZERTY letters).
    */
   readonly body: BodyInputs = noBodyInputs();
   /** Analogue brake travel from the gamepad triggers, 0..1. */
@@ -71,6 +89,10 @@ export class InputDevices {
   sensitivity = 1;
   /** Mouse forward and stick up look down. */
   invertLook = false;
+  /** The device last touched, so the help on screen shows its keys. */
+  lastUsed: 'keyboard' | 'gamepad' = 'keyboard';
+  /** Whose gamepad it is, to name its buttons. */
+  padKind: 'xbox' | 'playstation' = 'xbox';
   onAction: (action: Action) => void = () => {};
 
   private readonly keys = new Set<string>();
@@ -84,6 +106,7 @@ export class InputDevices {
   constructor(private readonly surface: HTMLElement) {
     window.addEventListener('keydown', (e) => {
       if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+      this.lastUsed = 'keyboard';
       this.keys.add(e.code);
       const action = ACTIONS[e.code];
       if (action) this.onAction(action);
@@ -141,6 +164,8 @@ export class InputDevices {
     b.turn = key('KeyD') - key('KeyA');
     b.forward = key('KeyW') - key('KeyS');
     b.slide = key('KeyE') - key('KeyQ');
+    // R up (spread out, slower), F down (tucked in, faster).
+    b.fall = key('KeyF') - key('KeyR');
 
     let stickYaw = 0;
     let stickPitch = 0;
@@ -148,7 +173,10 @@ export class InputDevices {
     this.analogBrakeR = 0;
     const pad = navigator.getGamepads?.().find((g) => g?.connected && g.mapping === 'standard');
     this.gamepadConnected = !!pad;
+    if (!pad) this.lastUsed = 'keyboard';
+    else if (pad.buttons.some((b) => b.pressed) || pad.axes.some((a) => Math.abs(a) > 0.3)) this.lastUsed = 'gamepad';
     if (pad) {
+      this.padKind = /054c|sony|playstation|dualsense|dualshock/i.test(pad.id) ? 'playstation' : 'xbox';
       this.analogBrakeL = pad.buttons[6]?.value ?? 0;
       this.analogBrakeR = pad.buttons[7]?.value ?? 0;
       p.frontL ||= pad.buttons[4]?.pressed ?? false;
@@ -159,6 +187,8 @@ export class InputDevices {
       b.turn = clamp(b.turn + this.analogBrakeR - this.analogBrakeL, -1, 1);
       b.forward = clamp(b.forward - deadzone(pad.axes[1] ?? 0), -1, 1);
       b.slide = clamp(b.slide + deadzone(pad.axes[0] ?? 0), -1, 1);
+      // The bumpers go up and down, the cross picks the position.
+      b.fall = clamp(b.fall + (pad.buttons[5]?.pressed ? 1 : 0) - (pad.buttons[4]?.pressed ? 1 : 0), -1, 1);
       const jump = pad.buttons[0]?.pressed ?? false;
       if (jump && !this.padJump) this.onAction('jump');
       this.padJump = jump;

@@ -6,7 +6,7 @@
 // without knowing where the pilot is in the jump.
 
 import type { Controls, Environment, FlightModel } from './flightModel';
-import { Freefall, freefallParams, type BodyInputs } from './freefall';
+import { Freefall, freefallParams, type BodyInputs, type BodyPosition } from './freefall';
 import { MAIN_OPENING, Opening, RESERVE_OPENING, STOWED_BRAKE } from './opening';
 import { DOOR_EYE, Plane, type JumpRun } from './plane';
 import { DEG, quatFromYaw, rotate, set, vec3 } from './vec';
@@ -27,6 +27,8 @@ const PUSH_OFF = 1.5;
 const OFF_HEADING = 25;
 /** How far past its stow a toggle has to come to free it. */
 const UNSTOW = 0.08;
+/** Near enough belly to earth to pull, rad. */
+const FLAT_ENOUGH = 25 * DEG;
 
 const ease = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
@@ -61,6 +63,8 @@ export class Jump {
   readonly log: JumpLog;
   /** When the canopy started flying, s after the exit. */
   private openedAt = 0;
+  /** Asked to pull out of another position: back to belly to earth first. */
+  pullWhenFlat = false;
 
   private readonly tmp = vec3();
   private readonly eye = vec3();
@@ -86,10 +90,29 @@ export class Jump {
     this.ride();
   }
 
-  /** Space bar: out of the door, then the pull. */
+  /**
+   * Space bar: out of the door, then the pull. Nobody pulls head down or on
+   * the back: out of any other position the pilot comes back to belly to
+   * earth first, and pulls once there.
+   */
   act(): void {
     if (this.phase === 'plane') this.exit();
-    else if (this.phase === 'freefall' && this.time > CLEAR_OF_THE_PLANE) this.pull(false);
+    else if (this.phase === 'freefall' && this.time > CLEAR_OF_THE_PLANE) {
+      if (this.body.position === 'belly' && this.body.offPosition() < FLAT_ENOUGH) this.pull(false);
+      else {
+        this.body.setPosition('belly');
+        this.pullWhenFlat = true;
+      }
+    }
+  }
+
+  /**
+   * Into another position in freefall, or out of the door in it. `roll`: which
+   * way a half turn goes (-1 to the left or backwards, 1 to the right or forwards).
+   */
+  fly(position: BodyPosition, roll = 1): void {
+    if (this.pullWhenFlat) return;
+    if (this.phase === 'plane' || this.phase === 'freefall') this.body.setPosition(position, roll);
   }
 
   /** Feet above the ground, m. */
@@ -115,6 +138,7 @@ export class Jump {
       const b = this.body.state;
       this.log.topSpeed = Math.max(this.log.topSpeed, -b.vel.y);
       if (this.height() < AAD_HEIGHT && -b.vel.y > AAD_SPEED) this.pull(true);
+      else if (this.pullWhenFlat && this.body.offPosition() < FLAT_ENOUGH) this.pull(false);
     } else if (this.opening) {
       this.opening.step(dt, env);
       if (this.opening.done) {
@@ -205,6 +229,9 @@ export class Jump {
     this.log.pullHeight = aad ? null : this.height();
     this.log.freefallSeconds = this.time;
     this.log.aad = aad;
+    this.pullWhenFlat = false;
+    // The AAD fires whatever the position: the body goes flat as the bag leaves.
+    this.body.setPosition('belly');
     // Triangular spread: most canopies open near the heading.
     const off = (this.random() + this.random() - 1) * OFF_HEADING;
     this.opening = new Opening(this.body, this.model, aad ? RESERVE_OPENING : MAIN_OPENING, off);
