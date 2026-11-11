@@ -80,6 +80,8 @@ export class InputDevices {
   gamepadConnected = false;
   /** The device last touched, so the help on screen shows its keys. */
   lastUsed: 'keyboard' | 'gamepad' = 'keyboard';
+  /** Whose gamepad it is, to name its buttons. */
+  padKind: 'xbox' | 'playstation' = 'xbox';
   onAction: (action: Action) => void = () => {};
 
   private readonly keys = new Set<string>();
@@ -162,6 +164,7 @@ export class InputDevices {
     if (!pad) this.lastUsed = 'keyboard';
     else if (pad.buttons.some((b) => b.pressed) || pad.axes.some((a) => Math.abs(a) > 0.3)) this.lastUsed = 'gamepad';
     if (pad) {
+      this.padKind = /054c|sony|playstation|dualsense|dualshock/i.test(pad.id) ? 'playstation' : 'xbox';
       this.analogBrakeL = pad.buttons[6]?.value ?? 0;
       this.analogBrakeR = pad.buttons[7]?.value ?? 0;
       p.frontL ||= pad.buttons[4]?.pressed ?? false;

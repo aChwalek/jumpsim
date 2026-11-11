@@ -607,7 +607,7 @@ function frame(now: number): void {
   readTelemetry(model, env, telemetry);
   const height = Math.max(0, feetHeight(model, dz.groundAt));
   const falling = jump !== null && jump.phase !== 'canopy';
-  hud.setKeys(keysPhase(), devices.lastUsed);
+  hud.setKeys(keysPhase(), devices.lastUsed, devices.padKind);
   hud.update(
     {
       altitude: reading,
