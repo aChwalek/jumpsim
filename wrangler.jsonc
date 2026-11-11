@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // Static site only: no Worker script, Cloudflare serves dist/ as is.
+  "name": "jumpsim",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./dist"
+  },
+  // Branches other than main get their own Preview URL (`wrangler preview`).
+  "previews": {}
+}
