@@ -22,7 +22,14 @@
       .gauge .value { font-size: 44px; font-weight: 650; line-height: 1; }
       .gauge .unit { font-size: 16px; opacity: 0.85; margin-left: 4px; }
       .gauge .label { font-size: 11px; letter-spacing: 0.12em; opacity: 0.75; margin-top: 4px; }
-      #height { left: 26px; text-align: left; }
+      #altimeter { position: absolute; left: 22px; bottom: 22px; }
+      #altimeter .dial { width: 132px; height: 132px; display: block; filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5)); }
+      #altimeter .digital {
+        background: #1b1e23; border: 3px solid #3a3e46; border-radius: 10px; padding: 6px 12px 4px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); text-shadow: none; min-width: 110px; text-align: right;
+      }
+      #altimeter .digits { font: 600 40px/1 ui-monospace, 'SF Mono', Menlo, monospace; color: #c8f0d0; letter-spacing: 0.02em; }
+      #altimeter .unit { font-size: 15px; color: #8fb59a; margin-left: 4px; }
       #speeds { right: 26px; text-align: right; }
       #speeds .value { font-size: 30px; }
       #speeds .row + .row { margin-top: 8px; }
@@ -34,8 +41,8 @@
       #cue { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); text-align: center; font-size: 13px; letter-spacing: 0.12em; }
       #cue small { display: block; margin-top: 3px; font-size: 11px; letter-spacing: 0.04em; opacity: 0.8; }
       #hud.freefall #brakes, #hud.freefall #held { display: none; }
-      #height.warn .value { color: #ffd84a; }
-      #height.danger .value { color: #ff5a4a; }
+      #altimeter.warn .digits { color: #ffd84a; }
+      #altimeter.danger .digits { color: #ff5a4a; }
       .card {
         position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
         background: rgba(12, 16, 22, 0.72); border-radius: 12px; padding: 22px 30px; text-align: center;
@@ -49,42 +56,72 @@
       .card .hint { margin-top: 12px; font-size: 12px; opacity: 0.7; }
       #menu {
         position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-        background: rgba(8, 12, 18, 0.35); color: #fff; user-select: none;
+        background: linear-gradient(90deg, rgba(8, 12, 18, 0.55), rgba(8, 12, 18, 0.2) 70%);
+        color: #fff; user-select: none;
         font: 500 14px/1.3 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         font-variant-numeric: tabular-nums;
       }
       #menu .panel {
-        background: rgba(12, 16, 22, 0.8); border-radius: 12px; padding: 22px 30px 20px; backdrop-filter: blur(6px);
-        width: 640px; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px); overflow: auto; box-sizing: border-box;
+        background: rgba(12, 16, 22, 0.8); border-radius: 14px; padding: 20px 28px 18px; backdrop-filter: blur(6px);
+        width: 940px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box;
       }
-      #menu h1 { margin: 0 0 6px; font-size: 26px; font-weight: 650; text-align: center; }
+      #menu header { display: flex; align-items: baseline; gap: 14px; }
+      #menu h1 { margin: 0; font-size: 28px; font-weight: 700; }
+      #menu header p { margin: 0; color: rgba(255, 255, 255, 0.6); }
+      #menu .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
+      @media (max-width: 760px) { #menu .columns { grid-template-columns: 1fr; } }
+      #menu h2 {
+        margin: 18px 0 0; padding-bottom: 6px; font-size: 13px; font-weight: 650; letter-spacing: 0.14em;
+        color: #ffd84a; border-bottom: 1px solid rgba(255, 216, 74, 0.35);
+      }
       #menu .name {
-        display: flex; align-items: baseline; gap: 8px; margin: 16px 0 7px;
+        display: flex; align-items: baseline; gap: 8px; margin: 14px 0 7px;
         font-size: 11px; letter-spacing: 0.12em; color: rgba(255, 255, 255, 0.75);
       }
       #menu .name span { letter-spacing: 0; color: rgba(255, 255, 255, 0.55); }
-      #menu .name b { margin-left: auto; font-size: 18px; letter-spacing: 0; color: #fff; }
+      #menu .name b { margin-left: auto; font-size: 16px; letter-spacing: 0; color: #fff; font-weight: 650; }
       #menu button {
         font: inherit; color: #fff; cursor: pointer; border-radius: 6px;
         background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.25);
       }
       #menu button:hover { background: rgba(255, 255, 255, 0.18); }
-      #menuSizes { display: flex; gap: 5px; }
-      #menuSizes button { flex: 1; padding: 8px 0; }
+      #menu .row { display: flex; gap: 5px; }
+      #menu .row button { flex: 1; padding: 7px 0; }
+      #menuDzs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      #menuDzs button { padding: 8px 10px; text-align: left; }
+      #menuDzs b { display: block; font-size: 15px; }
+      #menuDzs span { display: block; font-size: 12px; opacity: 0.75; margin-top: 2px; }
+      #menuSizes { display: flex; gap: 4px; }
+      #menuSizes button { flex: 1; padding: 7px 0; min-width: 0; }
       #menuKinds { display: flex; gap: 5px; margin-left: auto; font-size: 13px; letter-spacing: 0; }
-      #menuKinds button { padding: 5px 12px; }
+      #menuKinds button { padding: 4px 11px; }
+      #menuColors { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; }
+      #menuColors button { padding: 5px; }
+      #menu .swatch { display: flex; height: 16px; border-radius: 3px 3px 8px 8px; overflow: hidden; }
+      #menu .swatch i { flex: 1; }
       #menu button.on, #menu .starts button { background: #ffd84a; border-color: #ffd84a; color: #111; font-weight: 650; }
-      #menuWeight { width: 100%; margin: 0; accent-color: #ffd84a; }
-      #menuLoading { margin: 16px 0 2px; font-size: 16px; font-weight: 650; }
-      #menuFlight { margin: 0; color: rgba(255, 255, 255, 0.85); }
-      #menu .starts { display: flex; gap: 10px; margin-top: 18px; }
+      #menuColors button.on { background: rgba(255, 216, 74, 0.25); box-shadow: inset 0 0 0 2px #ffd84a; }
+      #menu input[type='range'] { width: 100%; margin: 0; accent-color: #ffd84a; }
+      #menu .note { margin: 5px 0 0; font-size: 12px; color: rgba(255, 255, 255, 0.7); }
+      #menu .wind { display: flex; align-items: center; gap: 14px; }
+      #menu .wind .sliders { flex: 1; display: grid; gap: 6px; }
+      #menu .wind label { display: grid; grid-template-columns: 62px 1fr; align-items: center; font-size: 12px; color: rgba(255, 255, 255, 0.7); }
+      #menu .compass { width: 54px; height: 54px; flex: none; position: relative; }
+      #menu .compass svg { width: 100%; height: 100%; display: block; }
+      #menuWindArrow { position: absolute; inset: 0; transition: transform 0.1s; }
+      #menuUsualWind { padding: 3px 9px; font-size: 12px; margin-left: auto; letter-spacing: 0; }
+      #menuLoading { margin: 10px 0 2px; font-size: 15px; font-weight: 650; }
+      #menuFlight { margin: 0; font-size: 13px; color: rgba(255, 255, 255, 0.85); }
+      #menu .starts { display: flex; gap: 10px; margin-top: 20px; }
       #menu .starts button { flex: 1; padding: 11px 0; font-size: 15px; }
       #menu .starts button:hover { background: #ffe37a; }
       #menu .starts span { font-weight: 500; opacity: 0.65; margin-left: 6px; }
       #menu .hint { margin: 10px 0 0; font-size: 12px; text-align: center; color: rgba(255, 255, 255, 0.7); }
       #menu .resume { display: none; }
       #menu.resumable .resume { display: inline; }
-      #menu table { margin: 16px auto 0; border-collapse: collapse; font-size: 12.5px; color: rgba(255, 255, 255, 0.85); }
+      #menu details { margin-top: 10px; font-size: 12.5px; color: rgba(255, 255, 255, 0.85); }
+      #menu summary { cursor: pointer; text-align: center; color: rgba(255, 255, 255, 0.6); font-size: 12px; }
+      #menu table { margin: 8px auto 0; border-collapse: collapse; }
       #menu td { padding: 2px 10px; }
       #menu td:first-child { font-weight: 650; white-space: nowrap; }
     </style>
@@ -94,10 +131,7 @@
     <div id="hud">
       <div id="perf" class="corner flight"></div>
       <div id="topRight" class="corner flight"><div id="wind"></div><div id="gear"></div></div>
-      <div id="height" class="gauge flight">
-        <div><span class="value" id="heightValue">0</span><span class="unit">m</span></div>
-        <div class="label">HAUTEUR</div>
-      </div>
+      <div id="altimeter" class="flight"></div>
       <div id="speeds" class="gauge flight">
         <div class="row"><span class="value" id="varioValue">0</span><span class="unit">m/s</span><div class="label">VARIO</div></div>
         <div class="row"><span class="value" id="speedValue">0</span><span class="unit">km/h</span><div class="label">VITESSE SOL</div></div>
@@ -112,32 +146,74 @@
     </div>
     <div id="menu">
       <div class="panel">
-        <h1>jumpsim</h1>
-        <div class="name">VOILE <span>ft²</span><div id="menuKinds"></div></div>
-        <div id="menuSizes"></div>
-        <div class="name">POIDS ÉQUIPÉ <span>toi et tout le matériel</span><b id="menuWeightValue"></b></div>
-        <input id="menuWeight" type="range" step="1" />
-        <p id="menuLoading"></p>
-        <p id="menuFlight"></p>
+        <header><h1>jumpsim</h1><p>pilotage sous voile</p></header>
+        <div class="columns">
+          <section>
+            <h2>LIEU ET CONDITIONS</h2>
+            <div class="name">DROP ZONE</div>
+            <div id="menuDzs"></div>
+            <div class="name">HEURE <span>heure d'été, début juillet</span><b id="menuHourValue"></b></div>
+            <input id="menuHour" type="range" />
+            <p class="note" id="menuSun"></p>
+            <div class="name">CIEL</div>
+            <div id="menuSkies" class="row"></div>
+            <div class="name">VENT <span>à 10 m du sol</span><b id="menuWindValue"></b></div>
+            <div class="wind">
+              <div class="compass">
+                <svg viewBox="-30 -30 60 60">
+                  <circle r="27" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.35)" />
+                  <text y="-17" fill="rgba(255,255,255,0.7)" font-size="9" text-anchor="middle">N</text>
+                </svg>
+                <svg id="menuWindArrow" viewBox="-30 -30 60 60">
+                  <path d="M 0 16 L 0 -18 M -6 -11 L 0 -19 L 6 -11" stroke="#ffd84a" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </div>
+              <div class="sliders">
+                <label>direction <input id="menuWindDir" type="range" /></label>
+                <label>force <input id="menuWindSpeed" type="range" /></label>
+              </div>
+            </div>
+            <div class="name">RAFALES <button id="menuUsualWind" type="button">vent habituel de la DZ</button></div>
+            <div id="menuGusts" class="row"></div>
+          </section>
+          <section>
+            <h2>MATÉRIEL</h2>
+            <div class="name">VOILE <span>ft²</span><div id="menuKinds"></div></div>
+            <div id="menuSizes"></div>
+            <div class="name">COULEUR <b id="menuColorName"></b></div>
+            <div id="menuColors"></div>
+            <div class="name">POIDS ÉQUIPÉ <span>toi et tout le matériel</span><b id="menuWeightValue"></b></div>
+            <input id="menuWeight" type="range" step="1" />
+            <p id="menuLoading"></p>
+            <p id="menuFlight"></p>
+            <div class="name">ALTIMÈTRE</div>
+            <div id="menuAltimeters" class="row"></div>
+            <div class="name">ALTISON <span>bips sous voile à 300, 200 et 100 m</span></div>
+            <div id="menuAudible" class="row"></div>
+          </section>
+        </div>
         <div class="starts">
           <button id="menuPattern" type="button">Départ en circuit<span>300 m</span></button>
           <button id="menuFinal" type="button">Départ en finale<span>90 m</span></button>
           <button id="menuPlane" type="button">Saut d'avion<span>4000 m</span></button>
         </div>
         <p class="hint">← → taille · T classique ou tri-cell · ↑ ↓ poids · Entrée, 1, 2 ou 3 pour partir<span class="resume"> · Échap pour reprendre le saut</span></p>
-        <table>
-          <tr><td>Q / D</td><td>commande gauche / droite</td></tr>
-          <tr><td>S</td><td>les deux commandes (frein, arrondi)</td></tr>
-          <tr><td>A / E</td><td>élévateur avant gauche / droit</td></tr>
-          <tr><td>Z</td><td>les deux élévateurs avant</td></tr>
-          <tr><td>Maj</td><td>maintenir la position des commandes</td></tr>
-          <tr><td>Souris</td><td>regarder (C pour recentrer)</td></tr>
-          <tr><td>Espace</td><td>sauter de l'avion, puis ouvrir</td></tr>
-          <tr><td>En chute</td><td>Q / D tourner · Z / S avancer / reculer · A / E glisser</td></tr>
-          <tr><td>R / 1 / 2 / 3</td><td>recommencer / circuit / finale / avion</td></tr>
-          <tr><td>V</td><td>changer de voile ou de poids</td></tr>
-          <tr><td>H / P / G / M</td><td>masquer l'affichage / pause / qualité / son</td></tr>
-        </table>
+        <details>
+          <summary>Commandes en vol</summary>
+          <table>
+            <tr><td>Q / D</td><td>commande gauche / droite</td></tr>
+            <tr><td>S</td><td>les deux commandes (frein, arrondi)</td></tr>
+            <tr><td>A / E</td><td>élévateur avant gauche / droit</td></tr>
+            <tr><td>Z</td><td>les deux élévateurs avant</td></tr>
+            <tr><td>Maj</td><td>maintenir la position des commandes</td></tr>
+            <tr><td>Souris</td><td>regarder (C pour recentrer)</td></tr>
+            <tr><td>Espace</td><td>sauter de l'avion, puis ouvrir</td></tr>
+            <tr><td>En chute</td><td>Q / D tourner · Z / S avancer / reculer · A / E glisser</td></tr>
+            <tr><td>R / 1 / 2 / 3</td><td>recommencer / circuit / finale / avion</td></tr>
+            <tr><td>V</td><td>revenir à ce menu</td></tr>
+            <tr><td>H / P / G / M</td><td>masquer l'affichage / pause / qualité / son</td></tr>
+          </table>
+        </details>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

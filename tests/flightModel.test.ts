@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { FlightModel, calmAir, neutralControls, type Controls } from '../src/sim/flightModel';
 import { DEFAULT_RIG, deriveRig, rigConfig, type CanopyKind, type RigConfig } from '../src/sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry, simulate } from '../src/sim/telemetry';
-import { CANOPY_SIZES, WEIGHT_MAX, WEIGHT_MIN } from '../src/ui/menu';
+import { CANOPY_SIZES, WEIGHT_MAX, WEIGHT_MIN } from '../src/setup';
 import { DEG, rotate, vec3 } from '../src/sim/vec';
 
 const env = calmAir();

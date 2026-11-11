@@ -380,6 +380,40 @@ export function playStep(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioNo
   burst(ctx, noise, out, { type: 'bandpass', from: 1400, to: 700, level: 0.25 + 0.5 * run, seconds: 0.12 });
 }
 
+/** A run of beeps from the piezo of an audible altimeter. */
+export interface Beeps {
+  count: number;
+  /** Length of each beep and of the silence after it, s. */
+  seconds: number;
+  gap: number;
+}
+
+/** Beeps of an audible altimeter: a piezo in the helmet, high and penetrating. */
+export function playBeeps(ctx: BaseAudioContext, out: AudioNode, b: Beeps): void {
+  const now = ctx.currentTime;
+  const tone = ctx.createOscillator();
+  tone.type = 'square';
+  tone.frequency.value = 3100;
+  // The piezo and the helmet foam take the edge off the square.
+  const soften = ctx.createBiquadFilter();
+  soften.type = 'lowpass';
+  soften.frequency.value = 4500;
+  const gate = ctx.createGain();
+  gate.gain.value = 0;
+  for (let i = 0; i < b.count; i++) {
+    const start = now + 0.02 + i * (b.seconds + b.gap);
+    gate.gain.setValueAtTime(0, start);
+    gate.gain.linearRampToValueAtTime(0.09, start + 0.004);
+    gate.gain.setValueAtTime(0.09, start + b.seconds - 0.004);
+    gate.gain.linearRampToValueAtTime(0, start + b.seconds);
+  }
+  tone.connect(soften);
+  soften.connect(gate);
+  gate.connect(out);
+  tone.start(now);
+  tone.stop(now + 0.05 + b.count * (b.seconds + b.gap));
+}
+
 /** The sound of the sim in the page. Silent until `wake` is called. */
 export class Sound {
   muted = localStorage.getItem('muted') === '1';
@@ -429,6 +463,11 @@ export class Sound {
 
   land(l: Landing): void {
     if (this.ctx && this.noise && this.volume) playLanding(this.ctx, this.noise, this.volume, l);
+  }
+
+  /** The audible altimeter going off. */
+  beep(b: Beeps): void {
+    if (this.ctx && this.volume) playBeeps(this.ctx, this.volume, b);
   }
 
   /** A footfall on the ground, at this ground speed in m/s. */

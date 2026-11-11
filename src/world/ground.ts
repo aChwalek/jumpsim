@@ -6,7 +6,8 @@
 // depends on how low the eye is.
 
 import * as THREE from 'three';
-import type { Rect } from './dz';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { Area, Rect } from './dz';
 
 const DEG = Math.PI / 180;
 
@@ -169,14 +170,60 @@ export function groundMaterial(params: THREE.MeshLambertMaterialParameters, laye
 }
 
 /**
- * The base terrain: a flat sheet reaching the horizon. It is cut into 400 m
- * cells because depth interpolated across one 80 km triangle is too coarse
- * for the surfaces laid on top of it, which then flicker in and out.
+ * Grid lines of the terrain along one axis: every 100 m out to 6 km, every
+ * 400 m beyond, to 40 km. Depth interpolated across long triangles is too
+ * coarse for the surfaces laid on top, which then flicker in and out, and
+ * hills need the finer cells near the drop zone.
  */
-export function buildTerrain(color: number): THREE.Mesh {
-  const geometry = new THREE.PlaneGeometry(80000, 80000, 200, 200);
-  geometry.rotateX(-Math.PI / 2);
-  const mesh = new THREE.Mesh(geometry, groundMaterial({ color }, 0));
+function terrainLines(): number[] {
+  const lines: number[] = [];
+  for (let x = -40000; x < -6000; x += 400) lines.push(x);
+  for (let x = -6000; x < 6000; x += 100) lines.push(x);
+  for (let x = 6000; x <= 40000; x += 400) lines.push(x);
+  return lines;
+}
+
+/**
+ * The base terrain reaching the horizon: flat, or shaped by `groundAt`, in
+ * one colour or coloured point by point by `colorAt`.
+ */
+export function buildTerrain(
+  color: number,
+  groundAt: (x: number, z: number) => number = () => 0,
+  colorAt?: (x: number, z: number) => number,
+): THREE.Mesh {
+  const lines = terrainLines();
+  const n = lines.length;
+  const positions = new Float32Array(n * n * 3);
+  const colors = colorAt ? new Float32Array(n * n * 3) : null;
+  const tint = new THREE.Color();
+  let o = 0;
+  for (const z of lines) {
+    for (const x of lines) {
+      if (colors) {
+        tint.setHex(colorAt!(x, z));
+        colors[o] = tint.r;
+        colors[o + 1] = tint.g;
+        colors[o + 2] = tint.b;
+      }
+      positions[o++] = x;
+      positions[o++] = groundAt(x, z);
+      positions[o++] = z;
+    }
+  }
+  const index: number[] = [];
+  for (let j = 0; j < n - 1; j++) {
+    for (let i = 0; i < n - 1; i++) {
+      const a = j * n + i;
+      index.push(a, a + n, a + 1, a + 1, a + n, a + n + 1);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  if (colors) geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setIndex(index);
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, groundMaterial(colors ? { vertexColors: true } : { color }, 0));
   mesh.renderOrder = 0;
   return mesh;
 }
@@ -216,17 +263,60 @@ function quads(list: Rect[]): THREE.BufferGeometry {
   return geometry;
 }
 
-/** Flat coloured rectangles (fields, runway, markings), one mesh per layer. */
-export function buildSurfaces(rects: Rect[]): THREE.Group {
-  const group = new THREE.Group();
-  const layers = new Map<number, Rect[]>();
-  for (const r of rects) {
-    const list = layers.get(r.layer) ?? [];
-    list.push(r);
-    layers.set(r.layer, list);
+/** Polygons as triangles lying on the ground, each in its own colour. */
+function polygons(list: Area[]): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const color = new THREE.Color();
+  const contour: THREE.Vector2[] = [];
+  for (const a of list) {
+    contour.length = 0;
+    for (let i = 0; i < a.points.length; i += 2) contour.push(new THREE.Vector2(a.points[i], a.points[i + 1]));
+    color.setHex(a.color);
+    for (const triangle of THREE.ShapeUtils.triangulateShape(contour, [])) {
+      const [a, b, c] = triangle.map((k) => contour[k]!) as [THREE.Vector2, THREE.Vector2, THREE.Vector2];
+      // Facing up whichever way round the polygon was given: a face seen
+      // from behind is lit from below, and comes out dark.
+      const up = (b.y - a.y) * (c.x - a.x) - (b.x - a.x) * (c.y - a.y) > 0;
+      for (const p of up ? [a, b, c] : [a, c, b]) {
+        positions.push(p.x, 0, p.y);
+        colors.push(color.r, color.g, color.b);
+      }
+    }
   }
-  for (const [layer, list] of layers) {
-    const mesh = new THREE.Mesh(quads(list), groundMaterial({ vertexColors: true, side: THREE.DoubleSide }, layer));
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(positions.map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  return geometry;
+}
+
+/** Rectangles and polygons sorted by layer. */
+function byLayer(rects: Rect[], areas: Area[]): Map<number, { rects: Rect[]; areas: Area[] }> {
+  const layers = new Map<number, { rects: Rect[]; areas: Area[] }>();
+  const at = (layer: number) => {
+    let entry = layers.get(layer);
+    if (!entry) layers.set(layer, (entry = { rects: [], areas: [] }));
+    return entry;
+  };
+  for (const r of rects) at(r.layer).rects.push(r);
+  for (const a of areas) at(a.layer).areas.push(a);
+  return layers;
+}
+
+/** The geometry of a layer: its rectangles and its polygons together. */
+function layerGeometry(rects: Rect[], areas: Area[]): THREE.BufferGeometry {
+  if (!areas.length) return quads(rects);
+  if (!rects.length) return polygons(areas);
+  return mergeGeometries([quads(rects), polygons(areas)]);
+}
+
+/** Flat coloured surfaces (fields, runway, markings), one mesh per layer. */
+export function buildSurfaces(rects: Rect[], areas: Area[] = []): THREE.Group {
+  const group = new THREE.Group();
+  for (const [layer, list] of byLayer(rects, areas)) {
+    const material = groundMaterial({ vertexColors: true, side: THREE.DoubleSide }, layer);
+    const mesh = new THREE.Mesh(layerGeometry(list.rects, list.areas), material);
     mesh.renderOrder = layer;
     group.add(mesh);
   }
@@ -244,18 +334,18 @@ export interface Water {
  * mirrors the sky. Wavelets a hand's width across drift over it: smooth
  * water gives nothing to judge height by.
  */
-export function buildWater(rects: Rect[], sky: THREE.Color): Water {
+export function buildWater(rects: Rect[], sky: THREE.Color, areas: Area[] = []): Water {
   noise ??= makeNoiseTexture();
   const time = { value: 0 };
   const group = new THREE.Group();
-  for (const r of rects) {
+  for (const [layer, list] of byLayer(rects, areas)) {
     const material = new THREE.ShaderMaterial({
       uniforms: { time, sky: { value: sky }, detailMap: { value: noise } },
       vertexColors: true,
       side: THREE.DoubleSide,
       polygonOffset: true,
-      polygonOffsetFactor: -2 * r.layer,
-      polygonOffsetUnits: -2 * r.layer,
+      polygonOffsetFactor: -2 * layer,
+      polygonOffsetUnits: -2 * layer,
       depthWrite: false,
       vertexShader: /* glsl */ `
         varying vec3 vWorld;
@@ -284,8 +374,8 @@ export function buildWater(rects: Rect[], sky: THREE.Color): Water {
           #include <colorspace_fragment>
         }`,
     });
-    const mesh = new THREE.Mesh(quads([r]), material);
-    mesh.renderOrder = r.layer;
+    const mesh = new THREE.Mesh(layerGeometry(list.rects, list.areas), material);
+    mesh.renderOrder = layer;
     group.add(mesh);
   }
   return {
