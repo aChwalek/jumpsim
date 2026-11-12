@@ -92,8 +92,9 @@ export class RemoteJumper {
     // even if the snapshots from the door were missed.
     this.exited = sampled && this.phase !== null && this.phase !== 'freefall' && s.phase === 'freefall' && !s.cutaway;
     if (sampled) this.phase = s.phase;
-    // In their plane, which is not drawn here yet: not shown either.
-    view.object.visible = sampled && s.phase !== 'plane';
+    // In their plane, which is not drawn here yet: not shown either. A bot is in ours, which is:
+    // there in the door with us, to be seen and picked as a target before the exit.
+    view.object.visible = sampled && (s.phase !== 'plane' || this.live !== null);
     if (!view.object.visible) {
       // Back in their plane: a new canister for the next jump. The smoke left drifts on.
       if (sampled) this.smokeLitAt = null;
