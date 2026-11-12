@@ -166,6 +166,9 @@ describe('bots', () => {
     let worst = 0;
     let level = 0;
     let down = 0;
+    let held = 0;
+    let facing = 0;
+    let settled = 0;
     let turned = false;
     fly('vertical', 3, (t, us, all, jump) => {
       // Sitting out of the door, head down half a minute in.
@@ -173,6 +176,18 @@ describe('bots', () => {
       if (t > 28 && !turned) {
         jump.fly('headDown');
         turned = true;
+      }
+      // Settled head down, down to the break-off: each in the round and facing its middle, not its back to it.
+      if (t > 38 && us.state.pos.y > 1500) {
+        settled++;
+        const cx = (us.state.pos.x + all.reduce((a, b) => a + b.model.state.pos.x, 0)) / (all.length + 1);
+        const cz = (us.state.pos.z + all.reduce((a, b) => a + b.model.state.pos.z, 0)) / (all.length + 1);
+        for (const b of all) {
+          const p = b.model.state.pos;
+          held = Math.max(held, apart(us, b.model), Math.abs(p.y - us.state.pos.y));
+          const to = (Math.atan2(cx - p.x, -(cz - p.z)) * 180) / Math.PI;
+          facing = Math.max(facing, Math.abs(((((to - b.jump.body.headingDeg()) % 360) + 540) % 360) - 180));
+        }
       }
       if (us.state.pos.y < 1600) return;
       for (const b of all) {
@@ -193,6 +208,9 @@ describe('bots', () => {
     // Through the turn onto the head they scatter a little, and stay about.
     expect(down).toBeGreaterThan(0);
     expect(down).toBeLessThan(12);
+    expect(settled).toBeGreaterThan(60);
+    expect(held).toBeLessThan(2 * roundRadius(4) + 1);
+    expect(facing).toBeLessThan(30);
   });
 
   test('upright behind a bot: it goes from sitting to head down as it likes, the others round it and as it is', () => {
