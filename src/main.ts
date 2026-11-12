@@ -881,8 +881,23 @@ hud.onWatch = (command) => {
 devices.onAction = (action) => {
   if (menu.isOpen && action !== 'openMenu') return;
   if (watchAction(action)) return;
+  if (cardAction(action)) return;
   actions[action]();
 };
+
+/**
+ * The card at the end of the jump with the gamepad or the keyboard: the cross
+ * or the arrows pick one of its buttons, A or Space takes it. With none
+ * picked, A and Space do what they do on the ground.
+ */
+function cardAction(action: Action): boolean {
+  if (!hud.cardShown || replay || watching || paused) return false;
+  if (action === 'flyLeft' || action === 'flyUp') hud.cardMove(-1);
+  else if (action === 'flyRight' || action === 'flyDown') hud.cardMove(1);
+  else if (action === 'jump') return hud.cardActivate();
+  else return false;
+  return true;
+}
 
 function fly(): void {
   waiting = false;

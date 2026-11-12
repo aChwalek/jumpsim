@@ -121,6 +121,8 @@ export class Hud {
   private readonly watch = el('watch');
   private watched: Watched | null = null;
   private lastWatched = '';
+  /** The card's button chosen with the cross or the arrows, if any. */
+  private cardFocus: HTMLElement | null = null;
 
   constructor() {
     this.result.addEventListener('click', (e) => {
@@ -201,6 +203,28 @@ export class Hud {
     return this.result.style.display === 'block';
   }
 
+  /**
+   * The cross or the arrows on the card: the first press picks its first
+   * button, the next ones go along them.
+   */
+  cardMove(step: -1 | 1): void {
+    const buttons = [...this.result.querySelectorAll<HTMLElement>('[data-act]')].filter((b) => b.getClientRects().length > 0);
+    if (buttons.length === 0) return;
+    const at = this.cardFocus ? buttons.indexOf(this.cardFocus) : -1;
+    const next = buttons[at < 0 ? 0 : (at + step + buttons.length) % buttons.length]!;
+    this.cardFocus?.classList.remove('focus');
+    this.cardFocus = next;
+    next.classList.add('focus');
+  }
+
+  /** A, Space: the button picked on the card, if one is. False when none is. */
+  cardActivate(): boolean {
+    const b = this.cardFocus;
+    if (!b || !this.result.contains(b) || b.getClientRects().length === 0) return false;
+    this.onCard(b.dataset.act as CardAction);
+    return true;
+  }
+
   toggle(): void {
     this.root.classList.toggle('hidden');
   }
@@ -265,6 +289,7 @@ export class Hud {
         : opening
           ? [t.lowTitle, t.lowText]
           : [t.noPullTitle, log.cutawayHeight !== null ? t.noReserveText : t.noPullText];
+    this.cardFocus = null;
     this.result.innerHTML = `
       <h1>${title}</h1>
       <p>${text}</p>
@@ -283,6 +308,7 @@ export class Hud {
   showStrike(when: 'freefall' | 'opening' | 'canopy', speed: number, log: JumpLog | null): void {
     const t = T.hud;
     const text = { freefall: t.strikeFreefall, opening: t.strikeOpening, canopy: t.strikeCanopy }[when];
+    this.cardFocus = null;
     this.result.innerHTML = `
       <h1>${t.strikeTitle}</h1>
       <p>${text}</p>
@@ -300,6 +326,7 @@ export class Hud {
       this.result.style.display = 'none';
       return;
     }
+    this.cardFocus = null;
     this.result.innerHTML = `
       <h1>${T.hud.titles[t.rating]}</h1>
       <p>${T.hud.comments[t.rating]}${wet ? T.hud.wet : ''}${vines ? T.hud.vines : ''}</p>
