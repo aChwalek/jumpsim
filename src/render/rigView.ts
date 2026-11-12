@@ -8,6 +8,7 @@ import type { RigParams } from '../sim/rig';
 import { BOC, Body, PIN, RESERVE_PIN, RING } from './body';
 import { CanopyView, type CanopyLook } from './canopyView';
 import type { DeployStage } from './deployment';
+import { DEFAULT_HELMET, DEFAULT_SUIT, OUTFIT_COLORS, type Outfit } from './outfit';
 import type { Lighting } from './scene';
 
 /** What the frame needs to know beyond the flight model. */
@@ -55,6 +56,8 @@ export class RigView {
   private readonly launch = new THREE.Vector3();
   /** The main's pilot chute: open while it pulls, then collapsed by its kill line. */
   private pilotChuteOpen = 0;
+  /** What the pilot wears, kept for a canopy hung later (the reserve). */
+  private outfit: Outfit = { helmet: OUTFIT_COLORS[DEFAULT_HELMET], suit: OUTFIT_COLORS[DEFAULT_SUIT] };
 
   /** `palette`: one colour per cell, left tip to right tip. */
   constructor(rig: RigParams, palette: number[], light: Lighting) {
@@ -116,6 +119,14 @@ export class RigView {
     this.canopy = view;
     this.detached = false;
     this.adopt(view);
+    view.setSuitColor(this.outfit.suit);
+  }
+
+  /** The colours of the jumpsuit and of the helmet, on the body and on the arms up on the toggles. */
+  setOutfit(outfit: Outfit): void {
+    this.outfit = { ...outfit };
+    this.body.setOutfit(outfit);
+    if (!this.detached) this.canopy.setSuitColor(outfit.suit);
   }
 
   /** How far the canopy is out: null while packed, from 0 at line stretch to 1 open. */
