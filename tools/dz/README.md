@@ -26,15 +26,22 @@ only landing area, and `base` gives the exit (where the run starts, its
 heading, its length and the height down to the landing field). A cliff or a
 narrow valley needs finer relief than the near grid gives: `fineRelief` lays a
 square of it over the near grid, sampled from a national survey where one is
-open (`survey`: `swissalti3d` in Switzerland, `pat` in Trentino), else from
-the terrain tiles at their finest (`terrarium`), which follow a valley floor
-better than the 100 m grid but know no more than the tiles do.
+open (`survey`: `swissalti3d` in Switzerland, `rgealti` in France, through the
+Géoplateforme's altimetry service, `pat` in Trentino), else from the terrain
+tiles at their finest (`terrarium`), which follow a valley floor better than
+the 100 m grid but know no more than the tiles do.
 
 `bridges` lists decks to draw and make solid: the ends of the OSM way, the
 road's height (absolute, m), the width, the published spans and where the
 first pier stands along the way, the girder's depth at the piers and
 mid-span. One the orthophotos show (`inPhotos`) is painted out of them, since
-it would otherwise lie flat on the valley floor under the one drawn. A `base`
+it would otherwise lie flat on the valley floor under the one drawn. A deck may
+also curve (`radius_m`, positive if it bends right from the first end to the
+second; spans are then measured along the arc), climb (`grade`, from the first
+end, whose road `deckTop_m` is), carry wind screens (`parapet_m`), a girder of
+its own width and colour (`girderShare`, `paintHex`), piers of their own shape
+(`pierShape`: tapered, split into two shafts at the top) and pylons with their
+stays (`pylons`): see `Bridge` in `src/world/dz.ts`. A `base`
 on a bridge names it (`bridge`, an index), the station along it and the side:
 the exit is then on the lip of the deck, outside the parapet, square to the
 road, with no run-up, and its height is the road's above the landing field.
@@ -59,6 +66,8 @@ z south, metres. The photos map onto it with no resampling distortion.
 ## Sources and licences
 
 - Orthophotos, France and overseas: IGN BD ORTHO, Géoplateforme WMTS,
+  Licence Ouverte / Etalab 2.0.
+- Fine relief, France: RGE ALTI, IGN, Géoplateforme altimetry service,
   Licence Ouverte / Etalab 2.0.
 - Orthophotos, Spain: PNOA, © Instituto Geográfico Nacional de España,
   CC BY 4.0 (scne.es).

@@ -41,19 +41,47 @@ export interface Building {
  */
 export type SolidAt = (x: number, z: number, y?: number) => number;
 
-/** A bridge: a straight deck on piers, the road on top. */
+/** A bridge: a deck on piers, the road on top. */
 export interface Bridge {
   /** Ends of the deck's axis, x, z. */
   a: [number, number];
   b: [number, number];
-  /** The road, m above the plain. */
+  /** The road at `a`, m above the plain. */
   top: number;
+  /** How much the road rises a metre along from `a` to `b`, falling if negative: level if not given. */
+  grade?: number;
+  /**
+   * Radius of the axis in plan, m, positive if it bends to the right going
+   * from `a` to `b`, negative to the left: straight if not given. Distances
+   * along the deck are then along the arc.
+   */
+  radius?: number;
   /** Width of the deck, m. */
   width: number;
   /** Where the piers stand, m along the axis from `a`. */
   piers: number[];
   /** Depth of the girder under the road at the piers and mid-span, m. */
   depth: [number, number];
+  /** Share of the deck's width the girder takes under its middle: 0.55 if not given. */
+  girder?: number;
+  /** Colour of the girder and the pylons. */
+  paint?: number;
+  /** Height of the parapets, m; over 2 m, wind screens one sees through. 1.1 if not given. */
+  parapet?: number;
+  /**
+   * Piers of their own shape rather than plain boxes: along the deck and
+   * across it under the deck, then at `foot.depth` metres under the road,
+   * growing as the square of the depth between; and over their top
+   * `split.height` metres, in two legs `split.gap` metres apart along the deck.
+   */
+  pierShape?: { head: [number, number]; foot: { depth: number; along: number; across: number }; split?: { height: number; gap: number } };
+  /**
+   * A cable-stayed bridge: over each pier a pylon `height` metres above the
+   * road, an inverted Y on the deck's axis whose legs stand `foot` metres
+   * apart along it, and `stays` stays fanned out each way in one plane down
+   * to the middle of the deck, from `reach[0]` to `reach[1]` metres from the pier.
+   */
+  pylons?: { height: number; foot: number; stays: number; reach: [number, number] };
 }
 
 /** The top of a BASE object, where the jumper stands and runs from. */

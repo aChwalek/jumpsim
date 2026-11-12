@@ -157,6 +157,37 @@ export const LOOKS = {
     // Nobody jumps here from a plane: a start from the air only so that one exists.
     jumpRun: { downwind: 400, offset: 60, height: 1200, indicatedAirspeed: 39 },
   },
+  // Millau: no drop zone, a BASE site, and a forbidden one. The A75 viaduct
+  // over the Tarn, and the meadow on the south bank under its main span.
+  millau: {
+    name: 'Millau',
+    lat: 44.08389,
+    lon: 3.02,
+    utcOffsetH: 2,
+    // The valley wind, up the Tarn from the west-south-west in the afternoon.
+    wind: { fromDeg: 240, speed: kmh(10) },
+    grass: { rough: 0x7d7f48, mown: 0x86894e },
+    // Limestone of the causses and render, tiled or slate roofs.
+    walls: [0xe2dccd, 0xd4cbb6, 0xc9bfa6, 0xeae5d8],
+    roofs: [0x9a5a40, 0x8a4a36, 0x6f6a66, 0x5d5f62],
+    woods: {
+      // Downy oak, Scots pine and box on the slopes, poplars and ash along the river.
+      w: { height: [10, 18], perHectare: 30 },
+      s: { height: [2, 5], perHectare: 12 },
+      o: { height: [4, 6], perHectare: 40 },
+      v: { height: [1.5, 2], perHectare: 60 },
+    },
+    rowHeight: [10, 18],
+    // The meadow slopes gently up from the river: only it is laid flat.
+    relief: { flatBelow: 2, blend: 8 },
+    // Along the meadow, which follows the river; the pattern over the river on its north-west side.
+    landingAxisDeg: 53,
+    patternSideDeg: 323,
+    pattern: { upwind: 70, side: 50, height: 90 },
+    final: { downwind: 110, height: 40 },
+    // Nobody jumps here from a plane: a start from the air only so that one exists.
+    jumpRun: { downwind: 400, offset: 60, height: 1500, indicatedAirspeed: 39 },
+  },
   // Monte Brento: no drop zone, a BASE site, the most jumped exit in the
   // world. The Becco dell'Aquila on the rim of the wall over the Sarca valley,
   // and the campo Gaggiolo on the valley floor 1.7 km out from it.

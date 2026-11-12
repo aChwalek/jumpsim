@@ -8,9 +8,10 @@ import { FlightModel, neutralControls, type Environment } from '../src/sim/fligh
 import { Freefall, freefallParams, noBodyInputs, type BodyInputs } from '../src/sim/freefall';
 import { AAD_HEIGHT, AAD_SPEED, Jump, type JumpOptions } from '../src/sim/jump';
 import { MAIN_OPENING, Opening, STOWED_BRAKE } from '../src/sim/opening';
+import { AIRCRAFT, EXIT_SPOTS, type AircraftId, type ExitSpot } from '../src/sim/plane';
 import { DEFAULT_RIG, deriveRig, reserveConfig } from '../src/sim/rig';
 import { SIM_DT } from '../src/sim/telemetry';
-import { rotate, set, vec3 } from '../src/sim/vec';
+import { rotate, rotateInv, set, vec3 } from '../src/sim/vec';
 
 const flat = () => 0;
 const calm = (): Environment => ({ wind: vec3(), airDensity: airDensityAt(4000) });
@@ -151,6 +152,103 @@ describe('out of the plane', () => {
     expect(jump.phase).toBe('canopy');
     expect(jump.log.openHeight).toBeLessThan(AAD_HEIGHT);
     expect(jump.log.openHeight).toBeGreaterThan(60);
+  });
+});
+
+describe('places at the door', () => {
+  /** On jump run in this plane, at this place. */
+  function aboard(aircraft: AircraftId, spot?: ExitSpot) {
+    const model = new FlightModel(deriveRig(DEFAULT_RIG));
+    const env = calm();
+    const run = { x: 0, z: 0, height: 4000, headingDeg: 90, indicatedAirspeed: 40, aircraft };
+    const jump = new Jump(model, run, env, flat, () => 0.5, { spot });
+    const step = (input: Partial<BodyInputs> = {}) => {
+      env.airDensity = airDensityAt(model.state.pos.y);
+      jump.step(SIM_DT, { ...noBodyInputs(), ...input }, env);
+    };
+    /** The eyes, plane frame. */
+    const eyes = () => {
+      const plane = jump.plane!;
+      const e = model.pilotPoint(vec3(), model.rig.eyePos);
+      return rotateInv(e, plane.att, set(e, e.x - plane.pos.x, e.y - plane.pos.y, e.z - plane.pos.z));
+    };
+    return { jump, step, eyes };
+  }
+
+  test('a press forward or back moves one place, out to the step or into the cabin, and no further', () => {
+    const { jump, step } = aboard('pc6');
+    expect(jump.spot).toBe('low');
+    // Held, it moves one place only.
+    for (let i = 0; i < 1 / SIM_DT; i++) step({ forward: 1 });
+    expect(jump.spot).toBe('step');
+    step();
+    step({ forward: 1 });
+    expect(jump.spot).toBe('step');
+    for (let k = 0; k < 4; k++) {
+      step({ forward: -1 });
+      step();
+    }
+    expect(jump.spot).toBe('inside');
+    // A touch of the stick is not a press.
+    step({ forward: 0.3 });
+    expect(jump.spot).toBe('inside');
+  });
+
+  test('the eyes are at the place, eased there from the last, and the plane flies the same run', () => {
+    for (const aircraft of ['pc6', 'do28'] as const) {
+      const spots = AIRCRAFT[aircraft].spots;
+      const low = aboard(aircraft);
+      for (const spot of EXIT_SPOTS) {
+        const { jump, step, eyes } = aboard(aircraft, spot);
+        expect(jump.plane!.pos).toEqual(low.jump.plane!.pos);
+        step();
+        const mm = (v: { x: number; y: number; z: number }) => [v.x, v.y, v.z].map((c) => Math.round(c * 1000));
+        expect(mm(eyes()), `${aircraft} ${spot}`).toEqual(mm(spots[spot].eye));
+      }
+      // Halfway from the sill to the step, then there.
+      const { jump, step, eyes } = aboard(aircraft);
+      step({ forward: 1 });
+      for (let i = 0; i < 0.3 / SIM_DT; i++) step();
+      const out = (v: number) => AIRCRAFT[aircraft].doorSide * v;
+      expect(jump.inPlace).toBe(false);
+      expect(out(eyes().x)).toBeGreaterThan(out(spots.low.eye.x) + 0.02);
+      expect(out(eyes().x)).toBeLessThan(out(spots.step.eye.x) - 0.02);
+      for (let i = 0; i < 0.5 / SIM_DT; i++) step();
+      expect(jump.inPlace).toBe(true);
+      expect(out(eyes().x)).toBeCloseTo(out(spots.step.eye.x), 3);
+    }
+  });
+
+  test('out of every place through the door, clear of the frame, harder from the inside than off the step', () => {
+    for (const aircraft of ['pc6', 'do28'] as const) {
+      const a = AIRCRAFT[aircraft];
+      const out = (v: number) => a.doorSide * v;
+      const away: Partial<Record<ExitSpot, number>> = {};
+      for (const spot of EXIT_SPOTS) {
+        const { jump, step, eyes } = aboard(aircraft, spot);
+        for (let i = 0; i < 0.5 / SIM_DT; i++) step();
+        const before = out(eyes().x);
+        jump.act();
+        expect(jump.phase).toBe('freefall');
+        let t = 0;
+        // In the doorway the head passes between the front and the back of the frame, under its top.
+        while (out(eyes().x) < a.cabin.halfWidth + 0.3 && t < 1) {
+          const e = eyes();
+          if (out(e.x) > a.cabin.halfWidth - 0.05) {
+            expect(e.z, `${aircraft} ${spot}`).toBeGreaterThan(a.door.front);
+            expect(e.z, `${aircraft} ${spot}`).toBeLessThan(a.door.back);
+            expect(e.y, `${aircraft} ${spot}`).toBeLessThan(a.door.top);
+          }
+          step();
+          t += SIM_DT;
+        }
+        expect(t, `${aircraft} ${spot}`).toBeLessThan(0.5);
+        for (let i = 0; i < 0.2 / SIM_DT; i++) step();
+        away[spot] = out(eyes().x) - before;
+      }
+      expect(away.inside!).toBeGreaterThan(away.low!);
+      expect(away.low!).toBeGreaterThan(away.step!);
+    }
   });
 });
 

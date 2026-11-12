@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { RoomState, cleanName, readRoomMessage, sameShared, sharedPart } from '../src/net/room';
+import { ROOM_NAME } from '../src/net/protocol';
+import { LOAD_EVERY_MS, RoomState, cleanName, nextLoad, publicDz, publicRoom, readRoomMessage, sameShared, sharedPart } from '../src/net/room';
 import { defaultSetup } from '../src/setup';
+import { DZS } from '../src/world/dzs';
 
 describe('room state', () => {
   const room = (): RoomState => {
@@ -94,5 +96,29 @@ describe('shared setup', () => {
 
   it('cleans names', () => {
     expect(cleanName('  a   b ')).toBe('a b');
+  });
+});
+
+describe('public rooms', () => {
+  it('has one for each drop zone, a valid room name, and back', () => {
+    for (const { id } of DZS) {
+      const room = publicRoom(id);
+      expect(ROOM_NAME.test(room)).toBe(true);
+      expect(publicDz(room)).toBe(id);
+    }
+  });
+
+  it('is not for a private room', () => {
+    expect(publicDz('saut-abc234')).toBeNull();
+    expect(publicDz('dz-nowhere')).toBeNull();
+  });
+});
+
+describe('loads', () => {
+  it('leave on the clock, the next one after now', () => {
+    expect(nextLoad(0)).toBe(LOAD_EVERY_MS);
+    expect(nextLoad(LOAD_EVERY_MS - 1)).toBe(LOAD_EVERY_MS);
+    expect(nextLoad(LOAD_EVERY_MS)).toBe(2 * LOAD_EVERY_MS);
+    expect(nextLoad(5 * LOAD_EVERY_MS + 123)).toBe(6 * LOAD_EVERY_MS);
   });
 });

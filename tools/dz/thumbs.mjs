@@ -12,7 +12,7 @@ import { chromium } from 'playwright-core';
 
 const url = process.argv[2] ?? 'http://127.0.0.1:5173/';
 const out = new URL('../../public/dz/thumbs/', import.meta.url);
-const IDS = ['valbrise', 'tower', 'pujaut', 'chambery', 'empuriabrava', 'guadeloupe', 'lauterbrunnen', 'limska', 'brento'];
+const IDS = ['valbrise', 'tower', 'pujaut', 'chambery', 'empuriabrava', 'guadeloupe', 'lauterbrunnen', 'limska', 'millau', 'brento'];
 /** Side of the picture, px, and the part of the map it shows (from its centre). */
 const SIZE = 192;
 const CROP = 0.55;
@@ -31,7 +31,7 @@ await page.waitForFunction(() => window.sim?.menu, null, { timeout: 180000 });
 
 for (const id of IDS) {
   await page.evaluate((id) => {
-    window.sim.menu.debugSetDz(id);
+    window.sim.menu.chooseDz(id);
     window.sim.menu.debugShow('dz');
   }, id);
   // Loaded, photos in, and the map drawn again with them.

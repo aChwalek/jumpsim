@@ -86,6 +86,12 @@ const STANCE_CODES: Record<Stance, number> = {
   reserve: 9,
   doorRight: 10,
   track: 11,
+  doorHigh: 12,
+  doorHighRight: 13,
+  step: 14,
+  stepRight: 15,
+  inside: 16,
+  insideRight: 17,
 };
 const DEPLOY_CODES: Record<DeployStage, number> = { stowed: 0, hand: 1, tow: 2, bag: 3, canopy: 4, free: 5 };
 

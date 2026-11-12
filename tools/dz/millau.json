@@ -1,0 +1,119 @@
+{
+ "id": "millau",
+ "displayName": "Viaduc de Millau",
+ "menuNote": "Le viaduc de Millau au-dessus du Tarn, sur l'A75",
+ "operator": "No drop zone: the A75 viaduct over the Tarn, run by the CEVM (Eiffage). BASE jumping off it is forbidden by order of the prefect of the Aveyron; people have jumped it all the same, some of them killed. This is the simulator's jump, not an invitation.",
+ "aerodrome": {
+  "name": "Viaduc de Millau, the meadow on the south bank of the Tarn under the main span",
+  "icao": "BASE",
+  "elevation_m": 347,
+  "lat": 44.08389,
+  "lon": 3.02
+ },
+ "utcOffsetSummer_h": 2,
+ "inland": true,
+ "imagery": "ign",
+ "fineRelief": {
+  "survey": "rgealti",
+  "source": "IGN RGE ALTI",
+  "centre": [44.08, 3.0228],
+  "size_m": 2800,
+  "spacing_m": 10,
+  "why": "The near grid, every 100 m, rounds off the gorge of the Tarn the piers stand in, 250 m deep: the RGE ALTI every 10 m over the whole viaduct, so that each pier stands on the slope it stands on."
+ },
+ "origin": {
+  "lat": 44.08389,
+  "lon": 3.02,
+  "what": "middle of the meadow on the south bank of the Tarn, between the trees along the river and the wood, just west of the viaduct"
+ },
+ "boundary": [
+  [44.083766, 3.018827],
+  [44.084137, 3.01975],
+  [44.084575, 3.020813],
+  [44.084698, 3.021407],
+  [44.084339, 3.021438],
+  [44.084126, 3.021],
+  [44.083822, 3.020922],
+  [44.083497, 3.01975],
+  [44.083351, 3.018906]
+ ],
+ "runways": [],
+ "paved": [],
+ "landingAreas": [
+  {
+   "name": "Meadow on the south bank of the Tarn, under the viaduct",
+   "use": "sport",
+   "surface": "grass",
+   "polygon": [
+    [44.083766, 3.018827],
+    [44.084137, 3.01975],
+    [44.084575, 3.020813],
+    [44.084698, 3.021407],
+    [44.084339, 3.021438],
+    [44.084126, 3.021],
+    [44.083822, 3.020922],
+    [44.083497, 3.01975],
+    [44.083351, 3.018906]
+   ]
+  }
+ ],
+ "target": {
+  "lat": 44.08389,
+  "lon": 3.02,
+  "radius_m": 8,
+  "shown": false,
+  "evidence": "No target on a BASE landing field: the middle of the meadow is where one aims."
+ },
+ "windsocks": [[44.083441, 3.019031]],
+ "flags": [],
+ "people": [[44.083508, 3.019312], [44.083495, 3.019337], [44.083486, 3.019293]],
+ "bridges": [
+  {
+   "name": "Viaduc de Millau",
+   "osmWay": 440836275,
+   "ends": [[44.09102025, 3.02115215], [44.0689719, 3.0246017]],
+   "radius_m": -20000,
+   "deckTop_m": 602,
+   "grade": 0.03025,
+   "width_m": 32.05,
+   "spans_m": [204, 342, 342, 342, 342, 342, 342, 204],
+   "firstPier_m": 201,
+   "girderDepth_m": [4.2, 4.2],
+   "girderShare": 0.7,
+   "paintHex": "#e6e6e1",
+   "parapet_m": 3,
+   "pierShape": {"head": [16, 10], "foot": {"depth": 249, "along": 17, "across": 25}, "split": {"height": 90, "gap": 6}},
+   "pylons": {"height": 88.9, "foot": 15.5, "stays": 11, "reach": [24, 150]},
+   "inPhotos": true,
+   "photoMargin_m": 5,
+   "evidence": "Axis: the middle of the two carriageways of the A75 (OSM ways 4296812 and 4296813, bridge=viaduct), from the joint at the north abutment C0 to the one at C8 as the 2021 orthophoto shows them; the arc of 20 km radius bending east as one goes south fits both ways within 1.5 m. 2460 m, 32.05 m wide, a steel box girder 4.2 m deep, eight spans of 204, 6 x 342 and 204 m on seven piers P1 to P7 (94.5, 245.0, 221.1, 144.2, 136.4, 111.9 and 77.6 m), split into two shafts over their top 90 m; seven pylons 88.9 m high, an inverted Y whose legs stand 15.5 m apart, eleven stays each way in one plane over the middle of the road; 3 m wind screens along both edges; the road climbs 3.025 % from north to south (Wikipedia, Structurae). The pylons are found on the orthophoto 199 to 201 m on from the north joint, and every 342 m: the piers laid from there. The road's height, 602 m at the north joint, is the RGE ALTI's ground at the foot of each pier plus its published height and the girder, laid on the grade: within 6 m of each of the seven."
+  }
+ ],
+ "base": {
+  "name": "Viaduc de Millau",
+  "bridge": 0,
+  "station_m": 712,
+  "side": "right",
+  "edgeInset_m": 0.3,
+  "evidence": "Off the west edge of the deck, outside the wind screen, square to the road (heading about 265), over the middle of the main span between P2 and P3, where the Tarn and the meadow pass under it: the deck's highest point above the valley floor. The exit's height is the road's above the landing field."
+ },
+ "wind": {
+  "usual": {"fromDeg": 240, "kmh": 10},
+  "description": "INFERRED: on summer afternoons the valley wind comes up the Tarn from the west-south-west; the viaduct has its wind screens for the stronger north-westerlies and the marin from the south-east."
+ },
+ "invented": [
+  "Landing field: nobody lands here legally; this is the meadow on the south bank of the Tarn right under the main span, read off the orthophoto. The windsock and the people on it are made up.",
+  "Exit position: the middle of the main span between P2 and P3, on the west edge, where the drop to the meadow is greatest.",
+  "Deck height: no altitude of the road is published that could be found; it is fitted to the piers' heights, the girder and the RGE ALTI (see the bridge's evidence), within some 5 m.",
+  "Drawn shape: the piers taper as the square of their depth from 16 x 10 m under the deck to 17 x 25 m at the foot of P2, the two shafts 6 m apart; the pylons' legs meet at 45 % of their height and the stays are anchored on the mast between 60 and 96 % of it, on the deck from 24 to 150 m out. The girder takes 70 % of the deck's width and is drawn as a box.",
+  "Pattern and wind: inferred from the shape of the valley."
+ ],
+ "sources": [
+  "https://www.openstreetmap.org/way/440836275, https://www.openstreetmap.org/way/4296812 and https://www.openstreetmap.org/way/4296813: the deck's outline and the two carriageways",
+  "https://fr.wikipedia.org/wiki/Viaduc_de_Millau and https://en.wikipedia.org/wiki/Millau_Viaduct: 2460 m, 32.05 m wide, 4.20 m deep, spans 204 + 6 x 342 + 204 m, the piers' heights, split over their top 90 m, pylons 88.92 m high with 15.5 m at their foot, eleven pairs of stays in a central fan, a 20 km radius, a 3.025 % grade, 270 m over the Tarn",
+  "https://structurae.net/en/structures/millau-viaduct: the base of P2, about 25 m by 17 m",
+  "https://data.geopf.fr/wmts (ORTHOIMAGERY.ORTHOPHOTOS): IGN BD ORTHO, Licence Ouverte / Etalab 2.0",
+  "https://data.geopf.fr/altimetrie (ign_rge_alti_wld): IGN RGE ALTI, Licence Ouverte / Etalab 2.0",
+  "https://www.letribunaldunet.fr/faits-divers/millau-alors-venait-sauter-viaduc-parachute-impensable-produit-homme.html: BASE jumping forbidden by order of the prefect; a jumper killed in 2022"
+ ]
+}

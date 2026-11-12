@@ -37,12 +37,14 @@ export const en: Strings = {
       guadeloupe: 'Saint-François, on Grande-Terre',
       lauterbrunnen: 'High Nose, off the Mürrenfluh into the valley',
       limska: 'The A9 viaduct over the Limska draga, in Istria',
+      millau: 'The Millau viaduct over the Tarn, 270 m up (forbidden for real)',
       brento: "The Becco dell'Aquila, over the Sarca valley",
     },
     made: 'Imaginary DZ',
     credits: {
       pujaut: 'Map © OpenStreetMap · relief IGN · SIA VAC chart',
       france: 'Photos IGN, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
+      franceAlti: 'Photos and RGE ALTI relief IGN, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       spain: 'Photos PNOA © IGN España, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       swiss: 'Photos and relief © swisstopo, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       croatia: 'Photos DOF5 2019/20 © DGU (Otvorena dozvola), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
@@ -116,7 +118,10 @@ export const en: Strings = {
   cue: {
     greenLight: 'GREEN LIGHT',
     exited: (who: string) => `${who} is out`,
+    loadIn: (s: number) => `NEXT LOAD IN ${s} s`,
+    loadAboard: 'you are aboard',
     exitIn: { belly: '', back: 'back exit', sit: 'sit exit', headDown: 'head-down exit' },
+    spots: { inside: 'inside', high: 'high in the door', low: 'low in the door', step: 'on the step' },
     spaceToExit: 'Space to exit',
     flat: 'BELLY TO EARTH',
     toPull: 'to pull',
@@ -163,6 +168,7 @@ export const en: Strings = {
     shift: 'Shift',
     exit: 'exit',
     exitPosition: 'exit position',
+    exitSpot: 'place at the door',
     look: 'look around',
     lookRecentre: (k: string) => `look around, ${k} to recentre`,
     fwdBack: 'forward / back',
@@ -235,6 +241,23 @@ export const en: Strings = {
       create: 'Create a room',
       createNote: 'A link to share: whoever opens it jumps with you, with the same setup.',
       name: (room: string) => `Room ${room}`,
+      publicJoin: (dz: string) => `Public room · ${dz}`,
+      publicNote: (dz: string, players: number | null, max: number) =>
+        players === null
+          ? `Jump with whoever is at ${dz} right now.`
+          : players === 0
+            ? `Nobody at ${dz} right now: be the first.`
+            : players >= max
+              ? `Full: ${players} at ${dz}.`
+              : `${players} at ${dz} right now.`,
+      publicName: (dz: string) => `Public · ${dz}`,
+      publicHostSets: (name: string) => `Weather and jump set by ${name}. Another DZ takes you to its public room.`,
+      publicYouSet: 'You set the weather and jump for everyone. Another DZ takes you to its public room.',
+      hudPublic: 'public',
+      board: 'Board',
+      aboard: 'Aboard',
+      loadSub: (time: string) => `leaves in ${time}`,
+      nextLoad: (time: string, aboard: number) => `Next load in ${time} · ${aboard} aboard`,
       copy: 'Copy link',
       copied: 'Link copied ✓',
       rename: 'My name',
@@ -336,6 +359,22 @@ export const en: Strings = {
         wingsuit: (glide: string, across: string, down: string, _k: string) =>
           `Wings between the arms and the body and between the legs: flown flat once they fill, belly down or on the back (← / →), never upright. Glide ${glide}, ${across} km/h forward, ${down} km/h down. Space: let go of the wings and pull.`,
       },
+      suitColor: 'SUIT COLOUR',
+      suitColorNote: 'Its wings keep the canopy\'s colour.',
+      helmet: 'HELMET',
+      outfitColors: {
+        white: 'White',
+        grey: 'Grey',
+        black: 'Black',
+        navy: 'Navy',
+        blue: 'Blue',
+        red: 'Red',
+        orange: 'Orange',
+        yellow: 'Yellow',
+        green: 'Green',
+        purple: 'Purple',
+        pink: 'Pink',
+      },
     },
 
     dz: {
@@ -402,7 +441,7 @@ export const en: Strings = {
         pattern: (h: string) => `Under canopy at ${h} m, at the top of downwind.`,
         final: (h: string) => `Under canopy at ${h} m, on final.`,
         base: (h: string) => `At the exit, ${h} m up: run up, jump, a few seconds of freefall, open.`,
-        bridge: (h: string) => `On the lip of the deck, ${h} m up: jump, a second or two of freefall, open.`,
+        bridge: (h: string, high: boolean) => `On the lip of the deck, ${h} m up: jump, ${high ? 'three or four seconds' : 'a second or two'} of freefall, open.`,
       },
       exitHeight: 'EXIT ALTITUDE',
       exitHint: 'above the DZ',
@@ -421,6 +460,15 @@ export const en: Strings = {
       malfunctionOff: 'The main always opens fine.',
       malfunctionOn: (k: string) => `The main may streamer: hold ${k} to cut it away, then the reserve.`,
       malfunctionBase: 'BASE: the canopy may open the other way, facing the wall: turn at once.',
+      exitSpot: 'PLACE AT THE DOOR',
+      spots: { inside: 'Inside', high: 'High', low: 'Low', step: 'Step' },
+      spotNote: {
+        inside: 'On your knees in the cabin, behind the door: a dive out.',
+        high: 'Standing bent over in the door, the head under its top: out over the one on the sill.',
+        low: 'Crouched on the sill at the front of the door: a roll out.',
+        step: 'Outside on the step, holding the frame, already in the wind: just let go.',
+      },
+      spotKeys: (fwd: string, back: string) => `In the plane, ${fwd} / ${back} to change places.`,
     },
 
     map: {
