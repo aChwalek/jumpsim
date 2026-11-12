@@ -548,7 +548,11 @@ export class Freefall {
     // Turning: about the axis that is up for the eyes (the back belly to
     // earth, the head when upright, even upside down), so that a turn to the
     // right is always to the right of where they look.
-    const wanted = clamp(input.turn, -1, 1) * shape.turnRate * (1 + (p.trackTurn - 1) * this.track) * authority;
+    // Stretched out on the back the body goes head first, away from where the eyes look: seen
+    // from there a turn goes the other way round, so it is taken the other way, and right stays
+    // the right of what the eyes see.
+    const seen = 1 + (tr.dir - 1) * inTrack;
+    const wanted = clamp(input.turn, -1, 1) * seen * shape.turnRate * (1 + (p.trackTurn - 1) * this.track) * authority;
     s.yawRate += (wanted - s.yawRate) * Math.min(1, dt / p.turnLag);
     const up = this.local;
     set(

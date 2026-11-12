@@ -1216,8 +1216,6 @@ const headPitch = (bodyPitch: number): number =>
  * taught, as far as the neck goes; in the door they look out and down.
  */
 const FREEFALL_GAZE = -20 * DEG;
-/** Head first on the back: how far above the horizon ahead the eyes look. */
-const BACK_GAZE = 45 * DEG;
 const DOOR_GAZE = -12 * DEG;
 const NECK_UP = 75 * DEG;
 const NECK_DOWN = -40 * DEG;
@@ -1267,22 +1265,6 @@ function neckFor(f: number, h: number, gaze: number, prefer: number, lo: number,
   return Math.max(lo, Math.min(hi, a));
 }
 
-/**
- * How far the body is into going head first on its back, 0 to 1: a track or the wings flown on
- * the back, where it goes the way the head points and the eyes would look back past the feet.
- */
-function headFirst(): number {
-  if (!jump || jump.phase !== 'freefall') return 0;
-  const b = jump.body;
-  return b.params.tracks[b.position].dir < 0 ? b.track : 0;
-}
-
-/** The compass heading to show and to stand behind in freefall, degrees: where the body goes when head first on its back. */
-const flownHeading = (j: Jump): number => (j.body.headingDeg() + (headFirst() > 0.5 ? 180 : 0)) % 360;
-
-const aheadView = new THREE.Quaternion();
-const aheadEuler = new THREE.Euler(0, 0, 0, 'YXZ');
-
 /** Where the pilot's eyes look, from the body's attitude and the mouse. */
 function aimCamera(dt: number): void {
   const att = model.state.pilotAtt;
@@ -1324,13 +1306,6 @@ function aimCamera(dt: number): void {
       neck += Math.max(-most, Math.min(most, (wanted - neck) * (1 - Math.exp(-dt / NECK_LAG))));
     }
     flatView.copy(look).multiply(turn.setFromAxisAngle(AXIS_X, neck));
-    // Head first on the back, nobody flies looking where they came from: the eyes are on the sky
-    // above and ahead, where whoever is flown with is, the right way up, so that right is right.
-    const going = headFirst();
-    if (going > 0) {
-      aheadEuler.set(BACK_GAZE, -Math.atan2(crown.x, -crown.z), 0);
-      flatView.slerp(aheadView.setFromEuler(aheadEuler), ease(going));
-    }
     lookEuler.set(devices.lookPitch, -devices.lookYaw, 0);
     flatView.multiply(turn.setFromEuler(lookEuler));
     if (hang <= 0) camera.quaternion.copy(flatView);
@@ -1456,9 +1431,7 @@ function aimChase(): ChaseTarget {
     t.distance = 5;
     t.above = 0.3;
   } else if (falling && jump) {
-    // In a track or in wings on the back the body goes head first, the eyes looking back past
-    // the feet: the camera stays behind where it goes, or right would be left on the screen.
-    t.heading = flownHeading(jump) * DEG;
+    t.heading = jump.body.headingDeg() * DEG;
     t.distance = 5.5;
     t.above = 0.55;
   } else {
@@ -1898,7 +1871,7 @@ function frame(now: number): void {
       altitude: reading,
       verticalSpeed: telemetry.verticalSpeed,
       groundSpeed: telemetry.groundSpeed,
-      headingDeg: jump && falling && jump.phase === 'freefall' ? flownHeading(jump) : jump && falling && jump.phase !== 'plane' ? jump.headingDeg() : telemetry.headingDeg,
+      headingDeg: jump && falling && jump.phase !== 'plane' ? jump.headingDeg() : telemetry.headingDeg,
       controls: applied,
       held: devices.pulls.hold,
       fps: 1 / frameAverage,
