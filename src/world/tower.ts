@@ -29,7 +29,7 @@ export function createTowerZone(): DzPack {
   const t = TOWER;
   const edge = t.z - t.length / 2;
   const runUp = 25;
-  const base: BaseExit = { x: t.x, z: edge + runUp, headingDeg: 0, runUp, width: 4, height: TOWER_HEIGHT };
+  const base: BaseExit = { x: t.x, z: edge + runUp, headingDeg: 0, runUp, width: 4, marked: true, height: TOWER_HEIGHT };
   dz.name = 'Valbrise BASE';
   dz.buildings.push(t);
   dz.base = base;

@@ -128,6 +128,15 @@ function makeGrainTexture(): THREE.Texture {
 let noise: THREE.Texture | undefined;
 let grain: THREE.Texture | undefined;
 
+/**
+ * The colour of a drop zone's rock faces, which the photos taken from above
+ * barely see: the colour itself, and how much of the photo's to keep (0..1).
+ */
+export interface RockTint {
+  color: number;
+  photo: number;
+}
+
 /** Aerial photos of a drop zone on the graphics card, finest first, and how to read them. */
 export interface Photos {
   textures: THREE.Texture[];
@@ -139,9 +148,10 @@ export interface Photos {
 /**
  * Starts loading the photos; each shows once it has come in, the coarser
  * ones until then. `gain` is the brightness they are drawn at: they already
- * hold the light of the day they were taken. `fallback` shows where none covers.
+ * hold the light of the day they were taken. `fallback` shows where none covers;
+ * `rockTint` is the colour of the rock faces, where it is known.
  */
-export function loadPhotos(imagery: Imagery[], fallback: number, gain = 1): Photos {
+export function loadPhotos(imagery: Imagery[], fallback: number, gain = 1, rockTint?: RockTint): Photos {
   const loader = new THREE.TextureLoader();
   const ready = new THREE.Vector3(0, 0, 0);
   const levels = [0, 1, 2].map((k) => imagery[Math.min(k, imagery.length - 1)]!);
@@ -165,6 +175,9 @@ export function loadPhotos(imagery: Imagery[], fallback: number, gain = 1): Phot
       photoReady: { value: ready },
       photoGain: { value: gain },
       photoFallback: { value: new THREE.Color(fallback) },
+      rockTint: {
+        value: rockTint ? new THREE.Vector4(...new THREE.Color(rockTint.color).toArray(), rockTint.photo) : new THREE.Vector4(0, 0, 0, -1),
+      },
     },
     dispose() {
       for (const t of textures) t.dispose();
@@ -210,6 +223,8 @@ const PHOTO_GLSL = /* glsl */ `
  * (triplanar): beds of rock lying flat, blocks, and grit.
  */
 const ROCK_GLSL = /* glsl */ `
+  // The rock's own colour, linear, and how much of the photo's to keep; a < 0: the photo's alone.
+  uniform vec4 rockTint;
   // q: along the face, up. The stretched samples are read blurred: the
   // speckle of single texels would come out as threadlike lines.
   float rockFace(vec2 q) {
@@ -230,15 +245,69 @@ const ROCK_GLSL = /* glsl */ `
     // Rock is greyer than the averaged photo, which takes in the ledges' grass.
     float grey = dot(tint, vec3(0.3, 0.5, 0.2));
     tint = mix(vec3(grey), tint, 0.55) * vec3(1.02, 1.0, 0.97);
+    // Where the rock's own colour is known, the photo only shades it.
+    if (rockTint.a >= 0.0) tint = mix(rockTint.rgb * (0.75 + 0.5 * grey / max(0.05, dot(rockTint.rgb, vec3(0.3, 0.5, 0.2)))), tint, rockTint.a);
     return tint * face;
   }
 `;
 
 /**
- * Lambert material whose colour carries world-space ground detail. With
- * photos, the colour is the photo's, and only the fine grain is added to it.
+ * GLSL for the bare limestone on top of a cliff, where the photos, taken from
+ * above, show the scrub along the rim instead: light grey, in beds and blocks
+ * on its faces, pitted and gritty on top, greyed by lichen, stained ochre in
+ * places. Seen from every side (triplanar).
  */
-export function groundMaterial(params: THREE.MeshLambertMaterialParameters, layer: number, photos?: Photos): THREE.MeshLambertMaterial {
+const LIMESTONE_GLSL = /* glsl */ `
+  uniform sampler2D rockMap;
+  uniform vec3 rockBox;
+  vec3 limestoneAt(vec3 p, vec3 n) {
+    vec3 w = abs(n) + 0.001;
+    w /= w.x + w.y + w.z;
+    float sides = rockFace(vec2(p.z, p.y)) * w.x + rockFace(vec2(p.x, p.y)) * w.z;
+    vec2 q = p.xz;
+    float blocks = texture2D(detailMap, q / 23.0, 2.0).r;
+    float pits = texture2D(detailMap, q / 4.1, 1.0).r;
+    float grit = texture2D(detailMap, q / 0.9).r;
+    // Cracks: thin dark lines where smooth noise crosses its middle, broken
+    // off where another is low, at two sizes.
+    float c1 = (1.0 - smoothstep(0.0, 0.012, abs(texture2D(detailMap, q / 47.0 + 0.13, 3.0).r - 0.5)))
+      * smoothstep(0.48, 0.6, texture2D(detailMap, q / 31.0 + 0.29, 3.0).r);
+    float c2 = (1.0 - smoothstep(0.0, 0.015, abs(texture2D(detailMap, q / 17.0 + 0.61, 3.0).r - 0.5)))
+      * smoothstep(0.5, 0.62, texture2D(detailMap, q / 13.0 + 0.83, 3.0).r);
+    float top = (0.55 + 0.9 * blocks) * (0.75 + 0.5 * pits) * (0.8 + 0.4 * grit) * (1.0 - 0.45 * c1) * (1.0 - 0.3 * c2);
+    // Lichen greys it in patches; here and there an ochre or orange stain.
+    float lichen = smoothstep(0.42, 0.62, texture2D(detailMap, q / 90.0 + 0.37, 3.0).r);
+    float ochre = smoothstep(0.55, 0.7, texture2D(detailMap, q / 150.0 + 0.71, 3.0).r);
+    vec3 stone = rockTint.a >= 0.0 ? rockTint.rgb : vec3(0.42, 0.405, 0.375);
+    stone = mix(stone, stone * vec3(0.62, 0.64, 0.62), lichen * 0.7);
+    stone = mix(stone, stone * vec3(1.12, 0.92, 0.7), ochre * 0.6);
+    return stone * (sides + top * w.y);
+  }
+  // 0 where the photo stands, 1 where the rock is bare.
+  float bareRock(vec2 xz) {
+    vec2 uv = (xz - rockBox.xy) / rockBox.z;
+    if (rockBox.z <= 0.0 || any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
+    return texture2D(rockMap, uv).r;
+  }
+`;
+
+/** Bare rock over a square, as a texture, and the square: west and north edges, side, m. */
+export interface RockCover {
+  texture: THREE.Texture;
+  box: THREE.Vector3;
+}
+
+/**
+ * Lambert material whose colour carries world-space ground detail. With
+ * photos, the colour is the photo's, and only the fine grain is added to it;
+ * bare rock replaces it where `rock` says so.
+ */
+export function groundMaterial(
+  params: THREE.MeshLambertMaterialParameters,
+  layer: number,
+  photos?: Photos,
+  rock?: RockCover,
+): THREE.MeshLambertMaterial {
   noise ??= makeNoiseTexture();
   const detail = noise;
   grain ??= makeGrainTexture();
@@ -255,6 +324,7 @@ export function groundMaterial(params: THREE.MeshLambertMaterialParameters, laye
     shader.uniforms.detailMap = { value: detail };
     shader.uniforms.grainMap = { value: marks };
     if (photos) Object.assign(shader.uniforms, photos.uniforms);
+    if (photos && rock) Object.assign(shader.uniforms, { rockMap: { value: rock.texture }, rockBox: { value: rock.box } });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vGroundWorld;\nvarying vec3 vGroundNormal;')
       .replace(
@@ -271,7 +341,8 @@ export function groundMaterial(params: THREE.MeshLambertMaterialParameters, laye
         uniform sampler2D grainMap;
         varying vec3 vGroundWorld;
         varying vec3 vGroundNormal;
-        ${photos ? PHOTO_GLSL + ROCK_GLSL : ''}`,
+        ${photos ? PHOTO_GLSL + ROCK_GLSL : ''}
+        ${photos && rock ? LIMESTONE_GLSL : ''}`,
       )
       .replace(
         '#include <color_fragment>',
@@ -286,7 +357,13 @@ export function groundMaterial(params: THREE.MeshLambertMaterialParameters, laye
         diffuseColor.rgb *= (0.45 + 1.1 * d1) * (0.85 + 0.3 * d2);
         vec3 groundNormal = normalize(vGroundNormal);
         float steep = smoothstep(0.8, 0.6, groundNormal.y);
-        if (steep > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, rockAt(vGroundWorld, groundNormal), steep);`
+        if (steep > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, rockAt(vGroundWorld, groundNormal), steep);
+        ${
+          rock
+            ? `float bare = bareRock(vGroundXZ);
+        if (bare > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, limestoneAt(vGroundWorld, groundNormal) * (0.7 + 0.6 * marks.g), bare);`
+            : ''
+        }`
           : `#include <color_fragment>
         vec2 vGroundXZ = vGroundWorld.xz;
         vec2 marks = texture2D(grainMap, vGroundXZ / ${GRAIN_TILE}).rg;
@@ -298,7 +375,7 @@ export function groundMaterial(params: THREE.MeshLambertMaterialParameters, laye
         diffuseColor.rgb *= (0.45 + 1.1 * d1) * (0.75 + 0.5 * d2) * (0.8 + 0.4 * d3);`,
       );
   };
-  material.customProgramCacheKey = () => (photos ? 'ground-photo' : 'ground-detail');
+  material.customProgramCacheKey = () => (photos ? (rock ? 'ground-photo-rock' : 'ground-photo') : 'ground-detail');
   return material;
 }
 
@@ -324,23 +401,30 @@ export interface TerrainDetail {
   spacing: number;
 }
 
+/** Whether a cell lies inside a square of finer terrain, which draws it instead. */
+function coveredBy(d: TerrainDetail | undefined, x0: number, z0: number, x1: number, z1: number): boolean {
+  if (!d) return false;
+  const half = d.size / 2;
+  return x0 >= d.x - half - 1e-6 && x1 <= d.x + half + 1e-6 && z0 >= d.z - half - 1e-6 && z1 <= d.z + half + 1e-6;
+}
+
 /**
  * The base terrain reaching the horizon: flat, or shaped by `groundAt`, in
- * one colour or coloured point by point by `colorAt`. Inside `detail` it is
- * drawn finer, for a cliff.
+ * one colour or coloured point by point by `colorAt`. Inside each of
+ * `details`, coarsest first, each inside the one before, it is drawn finer,
+ * for a cliff.
  */
 export function buildTerrain(
   color: number,
   groundAt: (x: number, z: number) => number = () => 0,
   colorAt?: (x: number, z: number) => number,
   photos?: Photos,
-  detail?: TerrainDetail,
+  details: TerrainDetail[] = [],
+  rock?: RockCover,
 ): THREE.Mesh {
   const lines = terrainLines();
-  const half = detail ? detail.size / 2 : 0;
   // Cells of the coarse mesh the fine square covers are left out.
-  const covered = (x0: number, z0: number, x1: number, z1: number): boolean =>
-    !!detail && x0 >= detail.x - half && x1 <= detail.x + half && z0 >= detail.z - half && z1 <= detail.z + half;
+  const covered = (x0: number, z0: number, x1: number, z1: number): boolean => coveredBy(details[0], x0, z0, x1, z1);
   const n = lines.length;
   const positions = new Float32Array(n * n * 3);
   const colors = colorAt && !photos ? new Float32Array(n * n * 3) : null;
@@ -371,20 +455,38 @@ export function buildTerrain(
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   if (colors) geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geometry.setIndex(index);
-  if (detail) geometry = mergeGeometries([geometry, fineTerrain(detail, lines, groundAt, colorAt, !!colors)]);
+  if (details.length) {
+    const parts = [geometry];
+    let outer = { x: lines, z: lines };
+    details.forEach((d, i) => {
+      parts.push(fineTerrain(d, outer, details[i + 1], groundAt, colorAt, !!colors));
+      outer = detailLines(d);
+    });
+    geometry = mergeGeometries(parts);
+  }
   geometry.computeVertexNormals();
-  const mesh = new THREE.Mesh(geometry, groundMaterial(colors ? { vertexColors: true } : { color }, 0, photos));
+  const mesh = new THREE.Mesh(geometry, groundMaterial(colors ? { vertexColors: true } : { color }, 0, photos, rock));
   mesh.renderOrder = 0;
   return mesh;
 }
 
+/** The grid lines of a square of finer terrain, along x and along z. */
+function detailLines(d: TerrainDetail): { x: number[]; z: number[] } {
+  const n = Math.round(d.size / d.spacing) + 1;
+  const along = (from: number): number[] => Array.from({ length: n }, (_, k) => from + k * d.spacing);
+  return { x: along(d.x - d.size / 2), z: along(d.z - d.size / 2) };
+}
+
 /**
- * The fine square of terrain. Along its sides the points follow the straight
- * edges of the coarse cells next to it, so that no crack opens between them.
+ * A finer square of terrain. Along its sides the points follow the straight
+ * edges of the coarser cells next to it (`outer`, the lines of the mesh it is
+ * laid in), so that no crack opens between them. Cells inside `inner`, finer
+ * still, are left to it.
  */
 function fineTerrain(
   d: TerrainDetail,
-  lines: number[],
+  outer: { x: number[]; z: number[] },
+  inner: TerrainDetail | undefined,
   groundAt: (x: number, z: number) => number,
   colorAt: ((x: number, z: number) => number) | undefined,
   colored: boolean,
@@ -394,6 +496,7 @@ function fineTerrain(
   const z0 = d.z - d.size / 2;
   /** Height along a coarse edge: straight between the coarse points either side. */
   const along = (fixed: number, t: number, horizontal: boolean): number => {
+    const lines = horizontal ? outer.x : outer.z;
     let k = 0;
     while (k < lines.length - 2 && lines[k + 1]! <= t) k++;
     const a = lines[k]!;
@@ -430,6 +533,9 @@ function fineTerrain(
   let k = 0;
   for (let j = 0; j < n - 1; j++) {
     for (let i = 0; i < n - 1; i++) {
+      const cx = x0 + i * d.spacing;
+      const cz = z0 + j * d.spacing;
+      if (coveredBy(inner, cx, cz, cx + d.spacing, cz + d.spacing)) continue;
       const a = j * n + i;
       index[k++] = a;
       index[k++] = a + n;
@@ -442,7 +548,7 @@ function fineTerrain(
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   if (colors) geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geometry.setIndex(new THREE.BufferAttribute(index, 1));
+  geometry.setIndex(new THREE.BufferAttribute(index.subarray(0, k), 1));
   return geometry;
 }
 

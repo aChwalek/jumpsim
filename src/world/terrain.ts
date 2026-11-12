@@ -30,10 +30,18 @@ export interface ReliefOptions {
    * its edge, over its outer `FINE_BLEND` metres.
    */
   fine?: HeightGrid & { x: number; z: number };
+  /**
+   * Finer still, inside the fine square: the few hundred metres about a BASE
+   * exit, every metre. It takes over from the fine grid inside its edge, over
+   * its outer `FINER_BLEND` metres.
+   */
+  finer?: HeightGrid & { x: number; z: number };
 }
 
 /** Over how much of its edge the fine grid gives way to the near one, m. */
 export const FINE_BLEND = 150;
+/** And the finer one to the fine one, m. */
+export const FINER_BLEND = 24;
 
 const smoothstep = (a: number, b: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -63,16 +71,26 @@ export function reliefFrom(grid: HeightGrid, o: ReliefOptions): (x: number, z: n
     return shape(rise) * (1 - smoothstep(0, 6000, b.beyond));
   };
   if (!o.fine) return coarse;
-  const f = o.fine;
-  const fine = sampler(f);
-  const fineHalf = ((f.size - 1) * f.spacing) / 2;
+  const fine = laidOver(coarse, o.fine, FINE_BLEND, shape);
+  return o.finer ? laidOver(fine, o.finer, FINER_BLEND, shape) : fine;
+}
+
+/** A square of grid laid over the relief `under`, taking over from it across its outer `blend` metres. */
+function laidOver(
+  under: (x: number, z: number) => number,
+  f: HeightGrid & { x: number; z: number },
+  blend: number,
+  shape: (rise: number) => number,
+): (x: number, z: number) => number {
+  const own = sampler(f);
+  const half = ((f.size - 1) * f.spacing) / 2;
   return (x, z) => {
-    const inside = fineHalf - Math.max(Math.abs(x - f.x), Math.abs(z - f.z));
-    if (inside <= 0) return coarse(x, z);
-    const own = shape(fine(x - f.x, z - f.z).height);
-    if (inside >= FINE_BLEND) return own;
-    const t = smoothstep(0, FINE_BLEND, inside);
-    return coarse(x, z) * (1 - t) + own * t;
+    const inside = half - Math.max(Math.abs(x - f.x), Math.abs(z - f.z));
+    if (inside <= 0) return under(x, z);
+    const h = shape(own(x - f.x, z - f.z).height);
+    if (inside >= blend) return h;
+    const t = smoothstep(0, blend, inside);
+    return under(x, z) * (1 - t) + h * t;
   };
 }
 

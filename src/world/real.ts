@@ -5,6 +5,7 @@
 // grow, where people stand, the pattern) comes with each drop zone's look.
 
 import { bridgeSolid, nearPier, underBridge, undersideAt } from './bridge';
+import { cliffTopOf, onPad, placePad } from './cliffTop';
 import type { Area, Bridge, Building, DzPack, Flag, Placed, Rect, Tree } from './dz';
 import { inArea, seeded } from './dz';
 import { gridOf, reliefFrom } from './terrain';
@@ -28,6 +29,8 @@ export interface RealDzData {
    * north to south.
    */
   fine?: { x: number; z: number; size: number; spacing: number; heights: string };
+  /** Finer still about a BASE exit on a cliff, inside the fine square, packed the same way. */
+  exitRelief?: { x: number; z: number; size: number; spacing: number; heights: string };
   imagery: { url: string; size: number }[];
   /** x, z, length, width, heading, height, roof colour (-1: none), wall colour (-1), flat roof, hangar door, greenhouse. */
   buildings: number[][];
@@ -53,9 +56,19 @@ export interface RealDzData {
     flags: [number, number, number][];
     /**
      * A cliff or a bridge to BASE jump from: where the run starts (none off a
-     * bridge), its heading, and the height down to the landing area, m.
+     * bridge), its heading, and the height down to the landing area, m; the
+     * size of a steel step built on the lip, if there is one.
      */
-    base?: { x: number; z: number; headingDeg: number; runUp: number; width: number; height: number; name: string };
+    base?: {
+      x: number;
+      z: number;
+      headingDeg: number;
+      runUp: number;
+      width: number;
+      height: number;
+      name: string;
+      pad?: { length: number; width: number };
+    };
     /** Bridges: the deck's axis, the road's height above the plain, the piers along it. */
     bridges?: (Bridge & { name: string })[];
   };
@@ -82,6 +95,8 @@ export interface RealDzLook {
   slimRows?: boolean;
   /** Brightness the photos are drawn at. */
   imageryGain?: number;
+  /** The colour of the rock faces, where the photos' is wrong, and how much of the photo's to keep (0..1). */
+  rockTint?: { color: number; photo: number };
   /**
    * Ground less than `flatBelow` above the landing area is laid flat, the
    * hills growing out of it over `blend` metres: 12 and 20 if not given.
@@ -149,12 +164,15 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
   const pick = <T>(list: T[]): T => list[Math.floor(random() * list.length)]!;
 
   const fine = data.fine ? { ...gridOf(data.fine.size, data.fine.spacing, decimetres(data.fine.heights)), x: data.fine.x, z: data.fine.z } : undefined;
+  const exit = data.exitRelief;
+  const finer = fine && exit ? { ...gridOf(exit.size, exit.spacing, decimetres(exit.heights)), x: exit.x, z: exit.z } : undefined;
   const groundAt = reliefFrom(gridOf(data.near.size, data.near.spacing, data.near.heights), {
     plain: 0,
     flatBelow: look.relief?.flatBelow ?? 12,
     blend: look.relief?.blend ?? 20,
     far: gridOf(data.far.size, data.far.spacing, data.far.heights),
     fine,
+    finer,
   });
   const onPlain = (x: number, z: number): boolean => groundAt(x, z) < 0.5;
 
@@ -317,6 +335,20 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
   const flags: Flag[] = data.dz.flags.map(([x, z, height]) => ({ x, z, height, color: 0xe8501e }));
   const [wx, wz] = data.dz.windsocks[0] ?? [target.x + 40, target.z - 40];
 
+  // --- The top of the cliff -----------------------------------------------------------------
+  // The steel step on the lip, solid; the bare rock, grass and stones round
+  // the exit, where the relief is known every metre.
+  const exitBase = base && { x: base.x, z: base.z, headingDeg: base.headingDeg, runUp: base.runUp, width: base.width, height: base.height };
+  const pad = exitBase && base.pad && base.runUp > 0 ? placePad(exitBase, base.pad, groundAt) : undefined;
+  const squares = [fine, finer].filter((g) => !!g).map((g) => ({ x: g.x, z: g.z, size: (g.size - 1) * g.spacing, spacing: g.spacing }));
+  const closest = finer && squares[squares.length - 1];
+  const cliffTop = exitBase && closest && exitBase.runUp > 0 ? cliffTopOf(closest, groundAt, exitBase, pad) : undefined;
+  const bridgeTop = bridges.length ? bridgeSolid(bridges, groundAt) : undefined;
+  const solidAt = (x: number, z: number, y?: number): number => {
+    const under = bridgeTop ? bridgeTop(x, z, y) : groundAt(x, z);
+    return pad && onPad(pad, x, z) ? Math.max(under, pad.top) : under;
+  };
+
   return {
     name: look.name,
     lat: data.origin.lat,
@@ -324,9 +356,10 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     utcOffsetH: data.utcOffsetH,
     imagery: data.imagery,
     imageryGain: look.imageryGain,
+    rockTint: look.rockTint,
     wind: look.wind,
     groundAt,
-    topAt: bridges.length ? bridgeSolid(bridges, groundAt) : undefined,
+    topAt: bridgeTop || pad ? solidAt : undefined,
     bridges: bridges.length ? bridges : undefined,
     target,
     targetLayer: 6,
@@ -349,9 +382,10 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     patternSideDeg: look.patternSideDeg,
     final: look.final,
     jumpRun: look.jumpRun,
-    base: base && { x: base.x, z: base.z, headingDeg: base.headingDeg, runUp: base.runUp, width: base.width, height: base.height },
+    base: exitBase && { ...exitBase, pad },
     // The cliff drawn as finely as it is known, short of the edge where it blends away.
-    terrainDetail: fine && { x: fine.x, z: fine.z, size: (fine.size - 1) * fine.spacing, spacing: fine.spacing },
+    terrainDetail: squares.length ? squares : undefined,
+    cliffTop,
   };
 }
 

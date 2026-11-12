@@ -210,6 +210,9 @@ export const LOOKS = {
       v: { height: [1.5, 2.2], perHectare: 60 },
     },
     rowHeight: [6, 14],
+    // Pale grey limestone streaked with ochre: the photos, taken from above,
+    // lend the walls the green of the woods along their rims.
+    rockTint: { color: 0xa6a39b, photo: 0.25 },
     // The valley floor slopes: only the field itself is laid flat.
     relief: { flatBelow: 2, blend: 8 },
     // Along the valley, the pattern over the road and the river on the east
