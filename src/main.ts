@@ -832,11 +832,13 @@ function simulate(seconds: number): void {
     }
     rampControls(ramped, devices.pulls, dt);
     const pulls = devices.pulls;
-    // Kept pulled all the way, a toggle goes on into wraps and can stall the canopy.
+    // Kept pulled all the way, the toggles go on into wraps and can stall the
+    // canopy. It takes both: one toggle buried alone is a turn, the canopy
+    // dives round and keeps flying.
     const fullL = (pulls.brakeL && ramped.brakeL >= 1) || devices.analogBrakeL >= FULL_TRIGGER;
     const fullR = (pulls.brakeR && ramped.brakeR >= 1) || devices.analogBrakeR >= FULL_TRIGGER;
-    applied.brakeL = Math.max(ramped.brakeL, devices.analogBrakeL) + wrapTravel(wraps, 'brakeL', fullL, pulls.hold, dt);
-    applied.brakeR = Math.max(ramped.brakeR, devices.analogBrakeR) + wrapTravel(wraps, 'brakeR', fullR, pulls.hold, dt);
+    applied.brakeL = Math.max(ramped.brakeL, devices.analogBrakeL) + wrapTravel(wraps, 'brakeL', fullL && fullR, pulls.hold, dt);
+    applied.brakeR = Math.max(ramped.brakeR, devices.analogBrakeR) + wrapTravel(wraps, 'brakeR', fullL && fullR, pulls.hold, dt);
     applied.frontL = ramped.frontL;
     applied.frontR = ramped.frontR;
     Object.assign(hands, applied);

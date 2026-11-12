@@ -65,7 +65,8 @@ export const WRAP_RATE = 0.15;
 /**
  * Travel past full brakes for one toggle. Kept pulled at full, after a stop it
  * goes on slowly into wraps, up to BRAKE_DEEP; hold keeps the wraps, letting
- * go of the toggle drops them.
+ * go of the toggle drops them. The caller counts a toggle at full only while
+ * the other one is too: wraps are for stalling, not for turning.
  */
 export function wrapTravel(w: Wraps, side: keyof Wraps, atFull: boolean, hold: boolean, dt: number): number {
   if (atFull) w[side] += dt;
