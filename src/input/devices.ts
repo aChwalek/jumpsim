@@ -47,6 +47,10 @@ export type Action =
   | 'cutaway'
   /** Gamepad: left stick pressed, into a track or out of it. */
   | 'track'
+  /** Gamepad B, Y, X: straight into that position (in freefall, or to go out in); the same again, back to the belly. */
+  | 'posBack'
+  | 'posSit'
+  | 'posHeadDown'
   /** Collapse or take off the slider. */
   | 'slider'
   /** Eyes, or outside. */
@@ -59,7 +63,9 @@ export type Action =
   | 'nextTarget'
   | 'prevTarget'
   /** The camera locked on the target, or free again. */
-  | 'lock';
+  | 'lock'
+  /** Gamepad, the right stick tapped: lock on the target, or with none, look straight ahead again. */
+  | 'lockOrRecentre';
 
 const ACTIONS: Record<string, Action> = {
   KeyR: 'reset',
@@ -94,17 +100,38 @@ const ACTIONS: Record<string, Action> = {
  * Gamepad buttons, standard mapping, that act once per press (A jumps, see
  * poll). The cross does the same as the arrows: up, down, left, right.
  */
-const PAD_ACTIONS: [number, Action][] = [
-  [2, 'slider'], // X
-  [3, 'reset'], // Y
-  [8, 'camera'], // View / Back / Share
-  [10, 'track'], // Left stick pressed
-  [9, 'padMenu'], // Start
-  [12, 'flyUp'],
-  [13, 'flyDown'],
-  [14, 'flyLeft'],
-  [15, 'flyRight'],
-];
+const PAD_ACTIONS: Partial<Record<number, Action>> = {
+  2: 'slider', // X
+  3: 'reset', // Y
+  8: 'camera', // View / Back / Share
+  9: 'padMenu', // Start
+  10: 'track', // Left stick pressed
+  12: 'flyUp',
+  13: 'flyDown',
+  14: 'flyLeft',
+  15: 'flyRight',
+};
+
+/**
+ * In the door, on the ledge and in freefall, B, Y and X take a position
+ * instead: B on the back, Y sat up (the top button, the head up), X head down.
+ */
+const PAD_POSITIONS: Partial<Record<number, Action>> = {
+  1: 'posBack', // B
+  3: 'posSit', // Y
+  2: 'posHeadDown', // X
+};
+
+/** B, standard mapping: held, the cutaway handle. */
+const PAD_CUTAWAY = 1;
+
+/**
+ * What the gamepad is for at this moment of the jump. `exit`: in the door or
+ * on the ledge, B, Y and X take the position to go out in. `freefall`: they
+ * do the same, and the right stick flies (turns, up and down) unless LB is
+ * held to look around.
+ */
+export type PadMode = 'default' | 'exit' | 'freefall';
 
 /** How long the cutaway key or button has to be held, ms: no cutaway by a slip of the finger. */
 export const CUTAWAY_HOLD = 350;
@@ -117,6 +144,14 @@ const MAX_YAW = 2.6;
 const MAX_PITCH_UP = 1.45;
 const MAX_PITCH_DOWN = 1.5;
 const STICK_DEADZONE = 0.12;
+/**
+ * The right stick all the way over turns the head this fast, rad/s, and
+ * leaves it there, as the mouse does. Short of that, slower than in
+ * proportion, to aim.
+ */
+const STICK_YAW_RATE = 2.6;
+const STICK_PITCH_RATE = 1.8;
+const curve = (v: number): number => v * Math.abs(v);
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 const deadzone = (v: number): number =>
@@ -156,6 +191,14 @@ export class InputDevices {
   lastUsed: 'keyboard' | 'gamepad' = 'keyboard';
   /** Whose gamepad it is, to name its buttons. */
   padKind: 'xbox' | 'playstation' = 'xbox';
+  /** Set from the jump before each poll. */
+  padMode: PadMode = 'default';
+  /**
+   * On foot, set from the jump before each poll: the mouse and the right
+   * stick turn the body, as in any first-person game, rather than the head.
+   * Where the head was turned, the body turns to face that way.
+   */
+  feetTurn = false;
   /** How far an outside camera stands back, as a multiple of its usual distance: the wheel. */
   zoom = 1;
   /** How long the cutaway has been held, 0 to 1 once it goes. */
@@ -178,10 +221,20 @@ export class InputDevices {
   private readonly keys = new Set<string>();
   /** The gamepad's A button was down at the last poll. */
   private padJump = false;
-  /** And the buttons of PAD_ACTIONS. */
+  /** And the other buttons. */
   private readonly padDown = new Set<number>();
-  private mouseYaw = 0;
-  private mousePitch = 0;
+  /**
+   * B went down for the cutaway, not for a position: B pressed in freefall
+   * and still held as the canopy comes out does not cut it away.
+   */
+  private padCutawayArmed = false;
+  /** Where the head is turned, by the mouse and the right stick, rad. */
+  private headYaw = 0;
+  private headPitch = 0;
+  /** When the devices were last read, ms. */
+  private lastPoll: number | null = null;
+  /** The mouse's turn of the body since it was last taken, rad to the right. */
+  private feetYaw = 0;
   /** When the cutaway key or button went down, ms, and whether this hold has fired. */
   private cutawayFrom: number | null = null;
   private cutawayFired = false;
@@ -230,9 +283,10 @@ export class InputDevices {
       const speed = MOUSE_SENSITIVITY * this.sensitivity * this.lookScale;
       this.freeYaw += e.movementX * speed;
       this.freePitch -= e.movementY * speed * (this.invertLook ? -1 : 1);
-      this.mouseYaw = clamp(this.mouseYaw + e.movementX * speed, -MAX_YAW, MAX_YAW);
-      this.mousePitch = clamp(
-        this.mousePitch - e.movementY * speed * (this.invertLook ? -1 : 1),
+      if (this.feetTurn) this.feetYaw += e.movementX * speed;
+      else this.headYaw = clamp(this.headYaw + e.movementX * speed, -MAX_YAW, MAX_YAW);
+      this.headPitch = clamp(
+        this.headPitch - e.movementY * speed * (this.invertLook ? -1 : 1),
         -MAX_PITCH_DOWN,
         MAX_PITCH_UP,
       );
@@ -261,12 +315,22 @@ export class InputDevices {
   }
 
   recentre(): void {
-    this.mouseYaw = 0;
-    this.mousePitch = 0;
+    this.headYaw = 0;
+    this.headPitch = 0;
+  }
+
+  /** How far the mouse has turned the body since last asked, rad to the right; on foot. */
+  takeFeetYaw(): number {
+    const yaw = this.feetYaw;
+    this.feetYaw = 0;
+    return yaw;
   }
 
   /** Read the current state of every device. Call once per frame. */
   poll(): void {
+    const now = performance.now();
+    const dt = this.lastPoll === null ? 0 : Math.min(0.1, (now - this.lastPoll) / 1000);
+    this.lastPoll = now;
     const k = this.keys;
     const p = this.pulls;
     const both = k.has('KeyS'); // S: both toggles
@@ -301,8 +365,11 @@ export class InputDevices {
     this.freeYaw = 0;
     this.freePitch = 0;
 
-    let stickYaw = 0;
-    let stickPitch = 0;
+    // On foot the body turns to where the head was turned.
+    if (this.feetTurn && this.headYaw !== 0) {
+      this.feetYaw += this.headYaw;
+      this.headYaw = 0;
+    }
     this.analogBrakeL = 0;
     this.analogBrakeR = 0;
     const pad = navigator.getGamepads?.().find((g) => g?.connected && g.mapping === 'standard');
@@ -313,40 +380,58 @@ export class InputDevices {
       this.padKind = /054c|sony|playstation|dualsense|dualshock/i.test(pad.id) ? 'playstation' : 'xbox';
       this.analogBrakeL = pad.buttons[6]?.value ?? 0;
       this.analogBrakeR = pad.buttons[7]?.value ?? 0;
-      p.frontL ||= pad.buttons[4]?.pressed ?? false;
-      p.frontR ||= pad.buttons[5]?.pressed ?? false;
-      stickYaw = deadzone(pad.axes[2] ?? 0) * 1.7;
-      stickPitch = -deadzone(pad.axes[3] ?? 0) * 1.2 * (this.invertLook ? -1 : 1);
+      const btn = (i: number): number => (pad.buttons[i]?.pressed ? 1 : 0);
+      p.frontL ||= btn(4) === 1;
+      p.frontR ||= btn(5) === 1;
+      const rightX = deadzone(pad.axes[2] ?? 0);
+      const rightY = deadzone(pad.axes[3] ?? 0);
+      // In freefall the right stick flies, LB held it looks around again.
+      const flies = this.padMode === 'freefall' && btn(4) === 0;
+      if (!flies) {
+        // It turns the head, and leaves it where it turned it; on foot it
+        // turns the body instead, at a walker's rate.
+        const turn = this.lookScale * dt;
+        if (!this.feetTurn) this.headYaw = clamp(this.headYaw + curve(rightX) * STICK_YAW_RATE * turn, -MAX_YAW, MAX_YAW);
+        const up = -curve(rightY) * STICK_PITCH_RATE * turn * (this.invertLook ? -1 : 1);
+        this.headPitch = clamp(this.headPitch + up, -MAX_PITCH_DOWN, MAX_PITCH_UP);
+      }
+      // The free camera of a replay: the left stick, the bumpers, the right stick to look.
       fr.forward = clamp(fr.forward - deadzone(pad.axes[1] ?? 0), -1, 1);
       fr.right = clamp(fr.right + deadzone(pad.axes[0] ?? 0), -1, 1);
-      fr.up = clamp(fr.up + (pad.buttons[5]?.pressed ? 1 : 0) - (pad.buttons[4]?.pressed ? 1 : 0), -1, 1);
+      fr.up = clamp(fr.up + btn(5) - btn(4), -1, 1);
       fr.fast ||= this.analogBrakeR > 0.5;
-      fr.yawRate = stickYaw;
-      fr.pitchRate = stickPitch;
-      // In freefall the triggers turn and the left stick drives.
-      b.turn = clamp(b.turn + this.analogBrakeR - this.analogBrakeL, -1, 1);
+      fr.yawRate = rightX * 1.7;
+      fr.pitchRate = -rightY * 1.2 * (this.invertLook ? -1 : 1);
+      // In freefall the left stick drives; the right stick turns, and the
+      // triggers too, the way the toggles turn under canopy.
+      b.turn = clamp(b.turn + this.analogBrakeR - this.analogBrakeL + (flies ? rightX : 0), -1, 1);
       b.forward = clamp(b.forward - deadzone(pad.axes[1] ?? 0), -1, 1);
       b.slide = clamp(b.slide + deadzone(pad.axes[0] ?? 0), -1, 1);
-      f.turn = clamp(f.turn + this.analogBrakeR - this.analogBrakeL, -1, 1);
+      f.turn = clamp(f.turn + this.analogBrakeR - this.analogBrakeL + (this.feetTurn ? curve(rightX) : 0), -1, 1);
       f.slide = clamp(f.slide + deadzone(pad.axes[0] ?? 0), -1, 1);
-      // The bumpers go up and down, the cross picks the position.
-      b.fall = clamp(b.fall + (pad.buttons[5]?.pressed ? 1 : 0) - (pad.buttons[4]?.pressed ? 1 : 0), -1, 1);
-      const btn = (i: number): number => (pad.buttons[i]?.pressed ? 1 : 0);
+      // The right stick pushed up spreads out (up on the others, the wings
+      // wide), pulled down tucks in (down, the wings tight), as far as it goes.
+      if (flies) b.fall = clamp(b.fall + rightY, -1, 1);
+      // The cross held: somersaults and rolls one after the other.
       b.flip = clamp((b.flip ?? 0) + btn(12) - btn(13), -1, 1);
       b.roll = clamp((b.roll ?? 0) + btn(15) - btn(14), -1, 1);
       const jump = pad.buttons[0]?.pressed ?? false;
       if (jump && !this.padJump) this.onAction('jump');
       this.padJump = jump;
-      for (const [index, action] of PAD_ACTIONS) {
+      for (let index = 1; index < pad.buttons.length; index++) {
         const down = pad.buttons[index]?.pressed ?? false;
-        if (down && !this.padDown.has(index)) this.onAction(action);
+        if (down && !this.padDown.has(index)) {
+          const position = this.padMode === 'default' ? undefined : PAD_POSITIONS[index];
+          const action = position ?? PAD_ACTIONS[index];
+          if (action) this.onAction(action);
+          if (index === PAD_CUTAWAY) this.padCutawayArmed = !position;
+        }
         if (down) this.padDown.add(index);
         else this.padDown.delete(index);
       }
     }
     // The cutaway: X held, or B on the gamepad.
-    const cutaway = k.has('KeyX') || (pad?.buttons[1]?.pressed ?? false);
-    const now = performance.now();
+    const cutaway = k.has('KeyX') || ((pad?.buttons[PAD_CUTAWAY]?.pressed ?? false) && this.padCutawayArmed);
     if (!cutaway) {
       this.cutawayFrom = null;
       this.cutawayFired = false;
@@ -359,7 +444,7 @@ export class InputDevices {
         this.onAction('cutaway');
       }
     }
-    // The right stick pressed: a tap locks, held it picks a target.
+    // The right stick pressed: a tap locks (or with no target, looks straight ahead again), held it picks a target.
     const lock = pad?.buttons[PAD_LOCK]?.pressed ?? false;
     if (lock) {
       this.lockFrom ??= now;
@@ -368,12 +453,12 @@ export class InputDevices {
         this.onAction('pickTarget');
       }
     } else if (this.lockFrom !== null) {
-      if (!this.lockPicked) this.onAction('lock');
+      if (!this.lockPicked) this.onAction('lockOrRecentre');
       this.lockFrom = null;
       this.lockPicked = false;
     }
     f.forward = b.forward;
-    this.lookYaw = clamp(this.mouseYaw + stickYaw, -MAX_YAW, MAX_YAW);
-    this.lookPitch = clamp(this.mousePitch + stickPitch, -MAX_PITCH_DOWN, MAX_PITCH_UP);
+    this.lookYaw = this.headYaw;
+    this.lookPitch = this.headPitch;
   }
 }

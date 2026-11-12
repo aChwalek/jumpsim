@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Altisonic } from './audio/altisonic';
 import { Sound, type Landing } from './audio/sound';
 import { T, lang, num, setLanguage } from './i18n';
-import { InputDevices, type Action } from './input/devices';
+import { InputDevices, type Action, type PadMode } from './input/devices';
 import { keyLabel, readKeyboardLayout } from './input/keyLabels';
 import { noWraps, rampControls, wrapTravel } from './input/ramp';
 import { CANOPY_COLORS, RESERVE_PALETTE } from './render/canopyColors';
@@ -53,6 +53,7 @@ import { noBodyInputs, stepPosition, type BodyPosition } from './sim/freefall';
 import { Jump, type JumpOptions } from './sim/jump';
 import { detectTouchdown, feetHeight, type Touchdown } from './sim/landing';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
+import type { RunUp } from './sim/runUp';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
 import { DEG, quat, rotateInv, vec3 } from './sim/vec';
 import { gustPeakKmh, windAt } from './sim/weather';
@@ -658,6 +659,56 @@ function flyInto(position: BodyPosition): void {
 }
 
 /**
+ * B, Y, X on the gamepad: straight into that position, in freefall or to go
+ * out in. The same button again, back to the belly.
+ */
+function takePosition(position: BodyPosition): void {
+  if (!jump) return;
+  flyInto(jump.body.position === position ? 'belly' : position);
+}
+
+/**
+ * On foot, free to walk and turn: on top of the object before the run-up,
+ * or on the ground once at rest after the landing. Then the mouse and the
+ * right stick turn the body, as in any first-person game; locked on a
+ * target, the body faces where the camera looks (see faceTheView). Not on
+ * the lip of a bridge, where nobody turns round, nor while gathering the
+ * canopy up.
+ */
+function onFoot(): boolean {
+  if (replay || ragdoll) return false;
+  if (arrival) return arrival.canWalk && !(gather !== null && gather < 1);
+  return jump?.phase === 'standing' && jump.runUp !== null && !jump.runUp.standing;
+}
+
+const viewDir = new THREE.Vector3();
+
+/**
+ * Locked on a target, the camera looks at it, and the mouse turns the view
+ * about it: on foot the body faces where the camera looks, so that forward
+ * goes there and the sides go round the target, as in any game. Looking
+ * straight down or up says nothing about where that is.
+ */
+function faceTheView(feet: RunUp | null): void {
+  if (!feet) return;
+  camera.getWorldDirection(viewDir);
+  if (Math.hypot(viewDir.x, viewDir.z) < 0.2) return;
+  feet.headingDeg = ((Math.atan2(viewDir.x, -viewDir.z) / DEG) % 360 + 360) % 360;
+}
+
+/** The feet the mouse turns: on the ground, up on them first if sitting. */
+function feetToTurn(): RunUp | null {
+  return arrival ? arrival.getUp() : (jump?.runUp ?? null);
+}
+
+/** What the gamepad's right stick and B, Y, X are for at this moment of the jump. */
+function padMode(): PadMode {
+  if (!jump || touchdown || arrival || impact) return 'default';
+  if (jump.phase === 'freefall') return 'freefall';
+  return jump.phase === 'plane' || jump.phase === 'standing' ? 'exit' : 'default';
+}
+
+/**
  * ↑ / ↓: in freefall a quarter somersault, forwards or backwards, into the
  * next position; in the door, the position to go out in.
  */
@@ -725,6 +776,9 @@ const actions: Record<Action, () => void> = {
   track: () => {
     if (!paused) devices.padTrack = !devices.padTrack;
   },
+  posBack: () => takePosition('back'),
+  posSit: () => takePosition('sit'),
+  posHeadDown: () => takePosition('headDown'),
   flyUp: () => flyStep(1),
   flyDown: () => flyStep(-1),
   toggleHud: () => hud.toggle(),
@@ -776,6 +830,7 @@ const actions: Record<Action, () => void> = {
     devices.recentre();
     say(locked ? T.cue.locked : T.cue.unlocked);
   },
+  lockOrRecentre: () => (target ? actions.lock() : devices.recentre()),
   camera: () => {
     view = view === 'eyes' ? 'outside' : 'eyes';
     chase.reset();
@@ -1269,6 +1324,10 @@ function watchAction(action: Action): boolean {
       // Let loose from where it is, or back behind the jumper.
       w.free = w.free ? null : new FreeCamera(camera);
       chase.reset();
+      devices.recentre();
+      return true;
+    // No target to lock on in a replay: the right stick tapped looks straight ahead again.
+    case 'lockOrRecentre':
       devices.recentre();
       return true;
     // The menu leaves the replay (see actions.openMenu); the rest as always.
@@ -1986,7 +2045,10 @@ function frame(now: number): void {
   frameAverage += (elapsed - frameAverage) * 0.05;
   if (elapsed < 0.25 && settings.autoResolution) resolution.track(elapsed);
 
+  devices.padMode = padMode();
+  devices.feetTurn = onFoot() && !locked;
   devices.poll();
+  const feetYaw = devices.takeFeetYaw();
   // After the devices: Start may just have opened the menu, which then ignores it until let go.
   menu.poll();
   hud.setMenuOpen(menu.isOpen);
@@ -2006,6 +2068,9 @@ function frame(now: number): void {
     if (replay.done) stopReplay();
   } else if (live) {
     const seconds = Math.min(elapsed, 0.1);
+    if (feetYaw !== 0) feetToTurn()?.turnBy(feetYaw);
+    // Locked, the camera of the last frame says where the body faces; on the ground once walking.
+    if (locked && onFoot()) faceTheView(arrival ? arrival.walker : (jump?.runUp ?? null));
     if (arrival) {
       airTime += seconds;
       // On the feet again: walking, but not while gathering the canopy up.

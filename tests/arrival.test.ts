@@ -202,5 +202,19 @@ describe('walking off once down', () => {
     expect(arrival.canWalk).toBe(false);
     arrival.update(FRAME, { forward: 1, turn: 0, slide: 0, fall: 0 });
     expect(arrival.walker).toBeNull();
+    expect(arrival.getUp()).toBeNull();
+  });
+
+  test('turned by the mouse at rest, before walking: up on the feet and facing that way', () => {
+    const { model, arrival } = walkAfter(1, 1);
+    const ahead = () => {
+      const a = rotate(vec3(), model.state.pilotAtt, vec3(0, 0, -1));
+      return Math.atan2(a.x, -a.z) / DEG;
+    };
+    const before = ahead();
+    arrival.getUp()!.turnBy(90 * DEG);
+    const still = { forward: 0, turn: 0, slide: 0, fall: 0 };
+    for (let i = 0; i < 1 / FRAME; i++) arrival.update(FRAME, still);
+    expect((((ahead() - before) % 360) + 360) % 360).toBeCloseTo(90, 0);
   });
 });
