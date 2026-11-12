@@ -48,6 +48,7 @@ import { noBodyInputs, stepPosition, type BodyPosition } from './sim/freefall';
 import { Jump, type JumpOptions } from './sim/jump';
 import { detectTouchdown, feetHeight, type Touchdown } from './sim/landing';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
+import type { RunUp } from './sim/runUp';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
 import { DEG, quat, rotateInv, vec3 } from './sim/vec';
 import { gustPeakKmh, windAt } from './sim/weather';
@@ -604,6 +605,18 @@ function flyInto(position: BodyPosition): void {
 function takePosition(position: BodyPosition): void {
   if (!jump) return;
   flyInto(jump.body.position === position ? 'belly' : position);
+}
+
+/**
+ * On foot, free to walk and turn: on top of the object before the run-up,
+ * or on the ground once walking. Then the mouse and the right stick turn
+ * the body, as in any first-person game. Not on the lip of a bridge, where
+ * nobody turns round, nor with the camera locked on a target.
+ */
+function feetTurn(): RunUp | null {
+  if (locked || replay) return null;
+  if (arrival) return gather !== null && gather < 1 ? null : arrival.walker;
+  return jump?.phase === 'standing' && jump.runUp && !jump.runUp.standing ? jump.runUp : null;
 }
 
 /** What the gamepad's right stick and B, Y, X are for at this moment of the jump. */
@@ -1678,7 +1691,10 @@ function frame(now: number): void {
   if (elapsed < 0.25 && settings.autoResolution) resolution.track(elapsed);
 
   devices.padMode = padMode();
+  const feet = feetTurn();
+  devices.feetTurn = feet !== null;
   devices.poll();
+  const feetYaw = devices.takeFeetYaw();
   // After the devices: Start may just have opened the menu, which then ignores it until let go.
   menu.poll();
   hud.setMenuOpen(menu.isOpen);
@@ -1688,6 +1704,7 @@ function frame(now: number): void {
     if (replay.done) stopReplay();
   } else if (live) {
     const seconds = Math.min(elapsed, 0.1);
+    feet?.turnBy(feetYaw);
     if (arrival) {
       airTime += seconds;
       // On the feet again: walking, but not while gathering the canopy up.

@@ -138,6 +138,11 @@ export class RunUp {
     return false;
   }
 
+  /** Turned by the mouse, as in any first-person game: `rad` to the right, at once. */
+  turnBy(rad: number): void {
+    this.headingDeg = (((this.headingDeg + rad / DEG) % 360) + 360) % 360;
+  }
+
   /** Off the last step: up and on along the run; or from a standing start, out and up off the lip. */
   leap(): void {
     const h = this.headingDeg * DEG;

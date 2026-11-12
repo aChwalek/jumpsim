@@ -167,6 +167,12 @@ export class InputDevices {
   padKind: 'xbox' | 'playstation' = 'xbox';
   /** Set from the jump before each poll. */
   padMode: PadMode = 'default';
+  /**
+   * On foot, set from the jump before each poll: the mouse and the right
+   * stick turn the body, as in any first-person game, rather than the head.
+   * Where the head was turned, the body turns to face that way.
+   */
+  feetTurn = false;
   /** How far an outside camera stands back, as a multiple of its usual distance: the wheel. */
   zoom = 1;
   /** How long the cutaway has been held, 0 to 1 once it goes. */
@@ -189,6 +195,8 @@ export class InputDevices {
   private padCutawayArmed = false;
   private mouseYaw = 0;
   private mousePitch = 0;
+  /** The mouse's turn of the body since it was last taken, rad to the right. */
+  private feetYaw = 0;
   /** When the cutaway key or button went down, ms, and whether this hold has fired. */
   private cutawayFrom: number | null = null;
   private cutawayFired = false;
@@ -235,7 +243,8 @@ export class InputDevices {
     document.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement !== surface) return;
       const speed = MOUSE_SENSITIVITY * this.sensitivity * this.lookScale;
-      this.mouseYaw = clamp(this.mouseYaw + e.movementX * speed, -MAX_YAW, MAX_YAW);
+      if (this.feetTurn) this.feetYaw += e.movementX * speed;
+      else this.mouseYaw = clamp(this.mouseYaw + e.movementX * speed, -MAX_YAW, MAX_YAW);
       this.mousePitch = clamp(
         this.mousePitch - e.movementY * speed * (this.invertLook ? -1 : 1),
         -MAX_PITCH_DOWN,
@@ -270,6 +279,13 @@ export class InputDevices {
     this.mousePitch = 0;
   }
 
+  /** How far the mouse has turned the body since last asked, rad to the right; on foot. */
+  takeFeetYaw(): number {
+    const yaw = this.feetYaw;
+    this.feetYaw = 0;
+    return yaw;
+  }
+
   /** Read the current state of every device. Call once per frame. */
   poll(): void {
     const k = this.keys;
@@ -295,6 +311,11 @@ export class InputDevices {
     f.turn = key('KeyE') - key('KeyQ');
     f.slide = key('KeyD') - key('KeyA');
 
+    // On foot the body turns to where the head was turned.
+    if (this.feetTurn && this.mouseYaw !== 0) {
+      this.feetYaw += this.mouseYaw;
+      this.mouseYaw = 0;
+    }
     let stickYaw = 0;
     let stickPitch = 0;
     this.analogBrakeL = 0;
@@ -315,7 +336,8 @@ export class InputDevices {
       // In freefall the right stick flies, LB held it looks around again.
       const flies = this.padMode === 'freefall' && btn(4) === 0;
       if (!flies) {
-        stickYaw = rightX * 1.7;
+        // On foot it turns the body instead, at a walker's rate.
+        stickYaw = this.feetTurn ? 0 : rightX * 1.7;
         stickPitch = -rightY * 1.2 * (this.invertLook ? -1 : 1);
       }
       // In freefall the left stick drives; the right stick turns, and the
@@ -323,7 +345,7 @@ export class InputDevices {
       b.turn = clamp(b.turn + this.analogBrakeR - this.analogBrakeL + (flies ? rightX : 0), -1, 1);
       b.forward = clamp(b.forward - deadzone(pad.axes[1] ?? 0), -1, 1);
       b.slide = clamp(b.slide + deadzone(pad.axes[0] ?? 0), -1, 1);
-      f.turn = clamp(f.turn + this.analogBrakeR - this.analogBrakeL, -1, 1);
+      f.turn = clamp(f.turn + this.analogBrakeR - this.analogBrakeL + (this.feetTurn ? rightX : 0), -1, 1);
       f.slide = clamp(f.slide + deadzone(pad.axes[0] ?? 0), -1, 1);
       // The right stick pushed up spreads out (up on the others, the wings
       // wide), pulled down tucks in (down, the wings tight), as far as it goes.

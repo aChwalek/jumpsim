@@ -1,11 +1,23 @@
 // The gamepad in freefall: the right stick flies unless LB is held, B / Y / X
 // take a position in the door and in freefall, and B pressed for a position
-// does not turn into a cutaway once the canopy is out.
+// does not turn into a cutaway once the canopy is out. On foot, the mouse and
+// the right stick turn the body.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CUTAWAY_HOLD, InputDevices, type Action } from '../src/input/devices';
+import { RunUp } from '../src/sim/runUp';
 
-const on = { addEventListener: () => {} };
+/** Something events can be listened to on, and sent to. */
+function target() {
+  const listeners = new Map<string, ((e: unknown) => void)[]>();
+  return {
+    addEventListener: (type: string, f: (e: unknown) => void) => listeners.set(type, [...(listeners.get(type) ?? []), f]),
+    send: (type: string, e: unknown) => listeners.get(type)?.forEach((f) => f(e)),
+  };
+}
+
+let surface: ReturnType<typeof target>;
+let doc: ReturnType<typeof target> & { pointerLockElement: unknown };
 
 function fakePad() {
   const buttons = Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 }));
@@ -16,7 +28,7 @@ let pad: ReturnType<typeof fakePad>;
 let now = 0;
 
 function devices(): { d: InputDevices; actions: Action[] } {
-  const d = new InputDevices(on as unknown as HTMLElement);
+  const d = new InputDevices(surface as unknown as HTMLElement);
   const actions: Action[] = [];
   d.onAction = (a) => actions.push(a);
   return { d, actions };
@@ -32,8 +44,10 @@ function press(d: InputDevices, button: number): void {
 beforeEach(() => {
   pad = fakePad();
   now = 0;
-  vi.stubGlobal('window', on);
-  vi.stubGlobal('document', { ...on, pointerLockElement: null });
+  surface = target();
+  doc = Object.assign(target(), { pointerLockElement: surface as unknown });
+  vi.stubGlobal('window', target());
+  vi.stubGlobal('document', doc);
   vi.stubGlobal('navigator', { getGamepads: () => [pad] });
   vi.spyOn(performance, 'now').mockImplementation(() => now);
 });
@@ -123,5 +137,56 @@ describe('cutaway on B', () => {
     now = 3 * CUTAWAY_HOLD;
     d.poll();
     expect(actions).toEqual(['posBack']);
+  });
+});
+
+describe('on foot', () => {
+  const mouse = (x: number) => doc.send('mousemove', { movementX: x, movementY: 0 });
+
+  it('the mouse turns the body, not the head', () => {
+    const { d } = devices();
+    d.feetTurn = true;
+    mouse(100);
+    d.poll();
+    expect(d.takeFeetYaw()).toBeGreaterThan(0);
+    expect(d.takeFeetYaw()).toBe(0);
+    expect(d.lookYaw).toBe(0);
+  });
+
+  it('the body turns to where the head was turned', () => {
+    const { d } = devices();
+    mouse(-100);
+    d.poll();
+    const head = d.lookYaw;
+    expect(head).toBeLessThan(0);
+    d.feetTurn = true;
+    d.poll();
+    expect(d.takeFeetYaw()).toBeCloseTo(head);
+    expect(d.lookYaw).toBe(0);
+  });
+
+  it('the right stick turns the body', () => {
+    const { d } = devices();
+    d.feetTurn = true;
+    pad.axes[2] = 1;
+    d.poll();
+    expect(d.feet.turn).toBe(1);
+    expect(d.lookYaw).toBe(0);
+  });
+
+  it('elsewhere the mouse turns the head', () => {
+    const { d } = devices();
+    mouse(100);
+    d.poll();
+    expect(d.lookYaw).toBeGreaterThan(0);
+    expect(d.takeFeetYaw()).toBe(0);
+  });
+
+  it('turns the walker round, the compass heading kept within 0 to 360', () => {
+    const w = new RunUp(() => 0, 0, 0, 350);
+    w.turnBy((20 * Math.PI) / 180);
+    expect(w.headingDeg).toBeCloseTo(10);
+    w.turnBy((-30 * Math.PI) / 180);
+    expect(w.headingDeg).toBeCloseTo(340);
   });
 });
