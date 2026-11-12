@@ -131,6 +131,44 @@
 #menu .go .jump .btn { background: rgba(0, 0, 0, 0.12); border-color: rgba(0, 0, 0, 0.25); color: var(--ink); }
 #menu .go .jump.focus { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--accent), 0 12px 34px rgba(255, 205, 50, 0.32); }
 
+/* Jumping with others: make a room, or the one we are in. */
+#menu .room { margin-top: 12px; }
+#menu .room-create {
+  width: 100%; display: grid; grid-template-columns: auto 1fr; column-gap: 12px; align-items: center; text-align: left;
+  padding: 11px 16px; border-radius: 14px; border-style: dashed; background: var(--tile);
+}
+#menu .room-create .icon { grid-row: span 2; width: 24px; height: 24px; color: var(--accent); }
+#menu .room-create .label { font: 700 16px/1.1 var(--display); letter-spacing: 0.1em; text-transform: uppercase; }
+#menu .room-create .note { font-size: 12.5px; color: var(--dim); }
+#menu .room-create.focus, #menu .room-create:hover { border-color: var(--accent-line); background: var(--tile-hi); }
+#menu .room-in {
+  padding: 11px 14px 12px; border-radius: 14px; border: 1px solid var(--accent-line); background: var(--accent-soft);
+}
+#menu .room-top { display: flex; align-items: center; gap: 8px; }
+#menu .room-top > .icon { width: 20px; height: 20px; color: var(--accent); }
+#menu .room-name { margin-right: auto; font: 700 16px/1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; }
+#menu .room-btn { padding: 5px 10px; font-size: 12.5px; font-weight: 600; }
+#menu .room-btn.focus { border-color: var(--accent); }
+#menu .room-link {
+  margin: 8px 0 6px; padding: 6px 9px; border-radius: 8px; background: rgba(0, 0, 0, 0.28);
+  font-size: 12.5px; color: var(--dim); user-select: all; overflow-wrap: anywhere;
+}
+#menu .room-players { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+#menu .room-players li {
+  display: flex; align-items: center; gap: 6px; padding: 3px 9px 3px 7px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07); font-size: 13px; font-weight: 600;
+}
+#menu .room-players li small { font-weight: 500; color: var(--faint); }
+#menu .room-players .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+#menu .room-players li.ready .dot { background: #6ee07a; box-shadow: 0 0 6px rgba(110, 224, 122, 0.8); }
+#menu .room-note { margin: 7px 0 0; font-size: 12.5px; color: var(--dim); }
+#menu .room-start { margin-top: 8px; width: 100%; }
+#menu .room-warn { margin: 6px 0 0; font-size: 12.5px; color: #ffb36b; }
+#menu .cat-card.locked { cursor: default; opacity: 0.82; }
+#menu .cat-card.locked:hover { transform: none; border-color: var(--line); }
+#menu .cat-card.locked .more .icon { width: 12px; height: 12px; margin-right: 3px; }
+#menu .go .jump.ready { background: linear-gradient(180deg, #a5f0ae, #6ee07a); }
+
 #menu .hints { margin: 12px 0 0; font-size: 11.5px; text-align: center; color: var(--faint); line-height: 1.8; }
 
 /* Corner buttons: language, logbook, settings. */

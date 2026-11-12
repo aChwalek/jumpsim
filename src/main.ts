@@ -43,7 +43,8 @@ import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
 import type { KeysPhase } from './ui/keys';
 import { Menu } from './ui/menu';
-import { Multiplayer, roomFromUrl } from './net/multiplayer';
+import { Multiplayer, newRoomName, roomFromUrl, roomLink, setRoomInUrl } from './net/multiplayer';
+import { cleanName, sameShared, sharedPart } from './net/room';
 import { buildWorld, type World } from './world/build';
 import { isWet, spawnsFor, type DzPack } from './world/dz';
 import { dzInfo } from './world/dzs';
@@ -90,8 +91,7 @@ let flash: { text: string; until: number } | null = null;
 const planeView = new PlaneView();
 scene.add(planeView.object);
 const menu = new Menu(setup, settings);
-/** Jumping with others, when the address names a room (`?room=name`). */
-const room = roomFromUrl();
+/** Jumping with others, in the room the address names (`?room=name`). */
 let net: Multiplayer | null = null;
 /** How many were in the room when the HUD last said. */
 let playersShown = 0;
@@ -234,20 +234,75 @@ function applySettings(): void {
   devices.invertLook = settings.invertLook;
   if (settings.language !== lang) setLanguage(settings.language);
   hud.applyLanguage();
-  applyMultiplayer();
   showGear();
   saveSettings(settings);
 }
 
-/** Joins the room, or leaves it, as the settings say. */
-function applyMultiplayer(): void {
-  const wanted = settings.multiplayer && room !== null;
-  if (wanted && !net && room) net = new Multiplayer(room, scene, () => light);
-  else if (!wanted && net) {
-    net.dispose();
-    net = null;
+/** The name the others see: made up the first time. */
+function playerName(): string {
+  if (!settings.playerName) {
+    settings.playerName = `${T.menu.room.defaultName} ${10 + Math.floor(Math.random() * 90)}`;
+    saveSettings(settings);
   }
+  return settings.playerName;
 }
+
+/** Goes into a room: its address becomes the page's, to share. */
+function joinRoom(name: string): void {
+  leaveRoom(false);
+  setRoomInUrl(name);
+  net = new Multiplayer(name, scene, () => light, playerName(), {
+    setup: (shared) => {
+      // Whoever leads changed the jump: ready for the old one is not ready for this one.
+      if (sameShared(shared, sharedPart(menu.current))) return;
+      net?.setReady(false);
+      menu.applyShared(shared);
+    },
+    start: (start, shared) => menu.startShared(shared, start),
+    changed: showRoom,
+  });
+  net.setShared(sharedPart(menu.current));
+  showRoom();
+  showGear();
+}
+
+function leaveRoom(fromUrl = true): void {
+  if (!net) return;
+  net.dispose();
+  net = null;
+  if (fromUrl) setRoomInUrl(null);
+  showRoom();
+  showGear();
+}
+
+/** The room on the menu's home screen. */
+function showRoom(): void {
+  if (!net) return menu.setRoom(null);
+  const { state } = net;
+  const host = state.host;
+  menu.setRoom({
+    room: net.room,
+    link: roomLink(net.room),
+    online: state.selfId !== null,
+    isHost: state.isHost,
+    hostName: host?.name ?? '',
+    ready: net.isReady,
+    players: state.list.map((p) => ({ name: p.name, ready: p.ready, self: p.id === state.selfId, host: p.id === host?.id })),
+  });
+}
+
+menu.onCreateRoom = () => joinRoom(newRoomName());
+menu.onLeaveRoom = () => leaveRoom();
+menu.onReady = (ready) => net?.setReady(ready);
+menu.onStartNow = () => net?.startNow();
+menu.onSetupChange = (chosen) => net?.setShared(sharedPart(chosen));
+menu.onRename = () => {
+  const name = prompt(T.menu.room.renamePrompt, playerName());
+  if (name === null || !cleanName(name)) return;
+  settings.playerName = cleanName(name);
+  saveSettings(settings);
+  net?.setName(settings.playerName);
+};
 applySettings();
 
 const ramped = neutralControls();
@@ -1105,6 +1160,8 @@ applyWeather();
 showGear();
 spawn('pattern');
 menu.open(false);
+const roomInUrl = roomFromUrl();
+if (roomInUrl) joinRoom(roomInUrl);
 requestAnimationFrame(frame);
 
 if (import.meta.env.DEV) {

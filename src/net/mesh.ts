@@ -1,4 +1,4 @@
-import type { ClientMessage, ServerMessage } from './protocol';
+import type { ClientMessage, Member, ServerMessage } from './protocol';
 
 /**
  * How browsers find a way to each other through home routers: a STUN server
@@ -17,6 +17,15 @@ const RECONNECT_MS = 3000;
 type Signal = { sdp: RTCSessionDescriptionInit } | { candidate: RTCIceCandidateInit | null };
 
 export interface MeshEvents {
+  /** In the room (again): who we are, who is there. */
+  welcome(you: Member, peers: Member[]): void;
+  /** Someone came into the room, or left it (whether or not we could reach them). */
+  joined(member: Member): void;
+  left(id: string): void;
+  /** Lost the signalling server: out of the room until it comes back. */
+  offline(): void;
+  /** A message for the whole room, through the server. */
+  room(from: string, data: unknown): void;
   /** A peer's channels are open: a good time to tell it who we are. */
   open(id: string): void;
   /** Gone, or never got through. */
@@ -67,6 +76,12 @@ export class Mesh {
     for (const p of this.peers.values()) if (p.state.readyState === 'open') p.state.send(data);
   }
 
+  /** To the whole room through the server: rare messages everyone must get. */
+  broadcastRoom(data: unknown): void {
+    const message: ClientMessage = { type: 'broadcast', data };
+    if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify(message));
+  }
+
   broadcastControl(data: string): void {
     for (const p of this.peers.values()) this.sendControl(p, data);
   }
@@ -110,6 +125,7 @@ export class Mesh {
       this.id = null;
       // A new id when we come back: the others will be told we left, and call us again.
       for (const id of [...this.peers.keys()]) this.drop(id);
+      this.events.offline();
       if (!this.closed) setTimeout(() => this.connect(), RECONNECT_MS);
     };
   }
@@ -117,15 +133,21 @@ export class Mesh {
   private onServer(m: ServerMessage): void {
     switch (m.type) {
       case 'welcome':
-        this.id = m.id;
+        this.id = m.you.id;
+        this.events.welcome(m.you, m.peers);
         // The newcomer calls everyone already there: only one side ever offers.
-        for (const id of m.peers) void this.call(id);
+        for (const p of m.peers) void this.call(p.id);
         break;
       case 'join':
         // They will call: nothing to do until their offer comes.
+        this.events.joined(m.member);
         break;
       case 'leave':
         this.drop(m.id);
+        this.events.left(m.id);
+        break;
+      case 'broadcast':
+        this.events.room(m.from, m.data);
         break;
       case 'signal':
         void this.onSignal(m.from, m.data as Signal);

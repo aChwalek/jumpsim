@@ -30,3 +30,9 @@ export const ICON_MORE = icon('<path d="M9.5 5.5 16 12l-6.5 6.5"/>');
 /** The mark next to the name: a canopy, filled. */
 export const LOGO =
   '<svg class="logo" viewBox="0 0 40 40" aria-hidden="true"><path d="M3 15C8 6 32 6 37 15 28 12 12 12 3 15Z" fill="currentColor"/><path d="M5 15.6 18.4 31M35 15.6 21.6 31M13.6 13.4 19 31M26.4 13.4 21 31" stroke="currentColor" stroke-width="1.4" fill="none" opacity=".7"/><circle cx="20" cy="33" r="2.6" fill="currentColor"/></svg>';
+/** Two people: jumping with others. */
+export const ICON_PEOPLE = icon(
+  '<circle cx="9" cy="8" r="3.2"/><path d="M3 19.5c.6-3.4 3-5.3 6-5.3s5.4 1.9 6 5.3"/><path d="M15.5 4.9a3.2 3.2 0 0 1 0 6.2M17.6 14.6c1.8.7 3 2.4 3.4 4.9"/>',
+);
+/** A lock, on what someone else sets. */
+export const ICON_LOCK = icon('<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/>');
