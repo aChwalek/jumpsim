@@ -309,6 +309,12 @@ export const en: Strings = {
       rslHint: 'the cutaway pulls the reserve',
       rslNote: (size: string, on: boolean, k: string) =>
         `Reserve ${size} ft², 7 cells. ${on ? `Cutting away (hold ${k}) opens the reserve by itself.` : 'After the cutaway, Space pulls the reserve handle.'}`,
+      smoke: 'SMOKE',
+      smokeHint: 'on the right ankle',
+      smokes: { none: 'None', red: 'Red', orange: 'Orange', yellow: 'Yellow', green: 'Green', blue: 'Blue', purple: 'Purple' },
+      smokeLine: (color: string) => `${color.toLowerCase()} smoke`,
+      smokeNote: (on: boolean, s: string) =>
+        on ? `Lit on exit (or from the start under canopy), it burns for ${s} s: the trail drifts with the wind.` : 'No smoke.',
     },
 
     dz: {

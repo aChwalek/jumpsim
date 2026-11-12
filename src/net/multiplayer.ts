@@ -1,3 +1,4 @@
+import { isSmoke } from '../render/smoke';
 import * as THREE from 'three';
 import type { Lighting } from '../render/scene';
 import { isCanopyColor } from '../render/canopyColors';
@@ -343,6 +344,8 @@ export function readHello(m: unknown): Hello | null {
       ...(g as Gear),
       kind,
       color,
+      // Someone on an older version has no smoke.
+      smoke: isSmoke(g.smoke) ? g.smoke : 'none',
       canopyAreaFt2: nearestSize(kind, canopyAreaFt2),
       exitWeightKg: validWeight(exitWeightKg),
     },

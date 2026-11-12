@@ -416,3 +416,7 @@
   #menu .screen { padding: 16px 14px 10px; }
   #menu .corner-btn span:not(.lang-opt) { display: none; }
 }
+
+/* Smoke colours: a round dot each, "none" in words. */
+#menu .choices.smokes button { display: flex; align-items: center; justify-content: center; }
+#menu .smoke-dot { display: block; width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); }

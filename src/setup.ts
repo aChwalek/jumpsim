@@ -5,6 +5,7 @@
 import { T } from './i18n';
 import { HOUR_MAX, HOUR_MIN } from './render/daylight';
 import { isCanopyColor, type CanopyColorId } from './render/canopyColors';
+import { isSmoke, type SmokeKind } from './render/smoke';
 import type { Container } from './sim/jump';
 import { DEFAULT_RIG, deriveRig, reserveConfig, rigConfig, type CanopyKind, type RigParams } from './sim/rig';
 import { WIND_MAX_KMH, type GustLevel, type SkyKind, type Weather } from './sim/weather';
@@ -52,6 +53,8 @@ export interface Gear {
   container: Container;
   /** A reserve static line: cutting the main away pulls the reserve. */
   rsl: boolean;
+  /** A smoke canister on the right ankle, lit on leaving: its colour, or none. */
+  smoke: SmokeKind;
 }
 
 /**
@@ -140,6 +143,7 @@ export function defaultSetup(): Setup {
       slider: 'collapsible',
       container: 'sport',
       rsl: true,
+      smoke: 'none',
     },
     jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'none' },
   };
@@ -181,6 +185,7 @@ export function validSetup(saved: unknown): Setup {
   if (oneOf(g.slider, SLIDER_KINDS)) gear.slider = g.slider;
   if (oneOf(g.container, CONTAINERS)) gear.container = g.container;
   if (typeof g.rsl === 'boolean') gear.rsl = g.rsl;
+  if (isSmoke(g.smoke)) gear.smoke = g.smoke;
   const j = (s.jump ?? {}) as Partial<Record<keyof JumpPlan, unknown>>;
   if (oneOf(j.start, startsAt(setup.dz))) setup.jump.start = j.start;
   if (finite(j.exitHeight)) setup.jump.exitHeight = validExitHeight(j.exitHeight);

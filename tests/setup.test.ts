@@ -145,6 +145,12 @@ test('slider and RSL are read back, old setups get a collapsible slider and an R
   expect(validSetup({ gear: { slider: 'velcro', rsl: 'yes' } }).gear).toMatchObject({ slider: 'collapsible', rsl: true });
 });
 
+test('the smoke canister is read back: none by default or when unknown', () => {
+  expect(validSetup({}).gear.smoke).toBe('none');
+  expect(validSetup({ gear: { smoke: 'orange' } }).gear.smoke).toBe('orange');
+  expect(validSetup({ gear: { smoke: 'toString' } }).gear.smoke).toBe('none');
+});
+
 test('the audible altimeter sounds each circuit height once on the way down', () => {
   const alti = new Altisonic();
   alti.reset(1000);
