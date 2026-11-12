@@ -12,16 +12,19 @@ const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x));
  *
  * Below the stall the section behaves like a flapped wing: lift is linear in
  * angle of attack, brakes add some lift and a lot of drag. Past the stall
- * (either sign) it blends smoothly into a separated-flow model.
+ * (either sign) it blends smoothly into a separated-flow model. `deep` is the
+ * toggle travel past full brakes (0 to 1): it brings the stall down to angles
+ * the canopy flies at.
  */
 export function sectionCoeffs(
   alpha: number,
   brake: number,
   p: AeroParams,
   out: SectionCoeffs,
+  deep = 0,
 ): SectionCoeffs {
   const clLinear = p.clAlpha * (alpha - p.alpha0) + p.clBrake * brake;
-  const cdProfile = p.cd0 + p.cdBrake * brake;
+  const cdProfile = p.cd0 + p.cdBrake * brake + p.cdDeep * deep;
   const cdLinear = cdProfile + p.kInduced * clLinear * clLinear;
 
   const sin = Math.sin(alpha);
@@ -32,7 +35,7 @@ export function sectionCoeffs(
   const clPlate = Math.sign(sin2) * Math.sqrt(Math.abs(sin2)) * p.clPlateau;
   const cdPlate = cdProfile + p.cdPlate * sin * sin;
 
-  const stallAngle = p.alphaStall0 - p.alphaStallBrake * brake;
+  const stallAngle = p.alphaStall0 - p.alphaStallBrake * brake - p.alphaStallDeep * deep;
   const stalled =
     sigmoid((alpha - stallAngle) / p.stallWidth) +
     sigmoid((p.alphaStallNeg - alpha) / p.stallWidth);

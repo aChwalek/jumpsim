@@ -25,13 +25,20 @@ import {
   type Vec3,
 } from './vec';
 
-/** Pilot inputs, each from 0 (hands up / released) to 1 (fully pulled). */
+/**
+ * Pilot inputs, each from 0 (hands up / released) to 1 (fully pulled). The
+ * toggles go on past 1, up to BRAKE_DEEP: arms fully down, the pilot takes
+ * wraps of the steering line round the hand and pulls the tail deeper still.
+ */
 export interface Controls {
   brakeL: number;
   brakeR: number;
   frontL: number;
   frontR: number;
 }
+
+/** Toggle travel with wraps taken: past 1 the tail separates and the canopy stalls. */
+export const BRAKE_DEEP = 1.3;
 
 export const neutralControls = (): Controls => ({
   brakeL: 0,
@@ -152,7 +159,11 @@ export class FlightModel {
     for (let i = 0; i < panels.length; i++) {
       const p = panels[i]!;
       const r = p.r;
-      const brake = (p.side < 0 ? c.brakeL : c.brakeR) * p.brakeGain;
+      const toggle = p.side < 0 ? c.brakeL : c.brakeR;
+      const brake = Math.min(toggle, 1) * p.brakeGain;
+      // The first wraps mostly take up the stretch in the lines.
+      const wrapped = toggle > 1 ? (toggle - 1) / (BRAKE_DEEP - 1) : 0;
+      const deep = wrapped * wrapped;
       const front = p.side < 0 ? c.frontL : c.frontR;
 
       // Local airspeed: u = vb + omega x r.
@@ -182,7 +193,7 @@ export class FlightModel {
 
       const alpha = Math.atan2(-un, uf);
       if (i === mid) this.alphaCentre = alpha;
-      const k = sectionCoeffs(alpha, brake, rig.aero, this.coeffs);
+      const k = sectionCoeffs(alpha, brake, rig.aero, this.coeffs, deep);
       const q = halfRho * v2 * p.area;
       const lift = q * k.cl;
       const drag = q * k.cd;
@@ -223,7 +234,7 @@ export class FlightModel {
     const cx = vb.x - w.z * rig.canopyPos.y;
     const cz = vb.z + w.x * rig.canopyPos.y;
     const speed = Math.hypot(cx, vb.y, cz);
-    const pull = aero.cnBrake * (c.brakeR - c.brakeL) + aero.cnFront * (c.frontR - c.frontL);
+    const pull = aero.cnBrake * (Math.min(c.brakeR, 1) - Math.min(c.brakeL, 1)) + aero.cnFront * (c.frontR - c.frontL);
     this.ty +=
       halfRho *
       speed *

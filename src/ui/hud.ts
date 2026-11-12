@@ -175,8 +175,11 @@ export class Hud {
 
   update(d: HudData, frameSeconds: number): void {
     // Bars follow every frame; numbers change at a readable rate.
-    this.brakeL.style.height = `${d.controls.brakeL * 100}%`;
-    this.brakeR.style.height = `${d.controls.brakeR * 100}%`;
+    this.brakeL.style.height = `${Math.min(d.controls.brakeL, 1) * 100}%`;
+    this.brakeR.style.height = `${Math.min(d.controls.brakeR, 1) * 100}%`;
+    // Wraps: the bar stays full and turns red.
+    this.brakeL.classList.toggle('wraps', d.controls.brakeL > 1);
+    this.brakeR.classList.toggle('wraps', d.controls.brakeR > 1);
     this.frontL.style.opacity = String(d.controls.frontL);
     this.frontR.style.opacity = String(d.controls.frontR);
     this.held.style.opacity = d.held ? '0.9' : '0';

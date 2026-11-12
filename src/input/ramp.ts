@@ -2,7 +2,7 @@
 // control down steadily, letting go lets it ride back up, and "hold" keeps it
 // where it is so a brake setting can be kept without holding the key.
 
-import type { Controls } from '../sim/flightModel';
+import { BRAKE_DEEP, type Controls } from '../sim/flightModel';
 
 export interface Pulls {
   brakeL: boolean;
@@ -47,4 +47,28 @@ export function rampControls(c: Controls, pulls: Pulls, dt: number, rates: RampR
   c.brakeR = ramp(c.brakeR, pulls.brakeR, pulls.hold, rates.brakePull, rates.brakeRelease, dt);
   c.frontL = ramp(c.frontL, pulls.frontL, pulls.hold, rates.frontPull, rates.frontRelease, dt);
   c.frontR = ramp(c.frontR, pulls.frontR, pulls.hold, rates.frontPull, rates.frontRelease, dt);
+}
+
+/** Seconds each toggle has been kept at full travel, which is where wraps start. */
+export interface Wraps {
+  brakeL: number;
+  brakeR: number;
+}
+
+export const noWraps = (): Wraps => ({ brakeL: 0, brakeR: 0 });
+
+/** Seconds at full travel, arms straight, before the toggle goes on into wraps. */
+export const WRAP_STOP = 1;
+/** Travel per second past full once taking wraps. */
+export const WRAP_RATE = 0.15;
+
+/**
+ * Travel past full brakes for one toggle. Kept pulled at full, after a stop it
+ * goes on slowly into wraps, up to BRAKE_DEEP; hold keeps the wraps, letting
+ * go of the toggle drops them.
+ */
+export function wrapTravel(w: Wraps, side: keyof Wraps, atFull: boolean, hold: boolean, dt: number): number {
+  if (atFull) w[side] += dt;
+  else if (!hold) w[side] = 0;
+  return Math.min(Math.max(0, (w[side] - WRAP_STOP) * WRAP_RATE), BRAKE_DEEP - 1);
 }

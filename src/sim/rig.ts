@@ -142,6 +142,8 @@ export interface AeroParams {
   cd0: number;
   /** Profile drag coefficient added by full brakes. */
   cdBrake: number;
+  /** Profile drag coefficient added by the toggles pulled as deep as they go. */
+  cdDeep: number;
   /** Drag coefficient for flow along the span (sideways sliding). */
   cdSpan: number;
   /** Induced drag factor: CDi = kInduced * CL^2. */
@@ -150,6 +152,8 @@ export interface AeroParams {
   alphaStall0: number;
   /** Reduction of the stall angle at full brakes, radians. */
   alphaStallBrake: number;
+  /** Further reduction with the toggles pulled as deep as they go (wraps), radians. */
+  alphaStallDeep: number;
   /** Negative stall angle (front collapse region), radians. */
   alphaStallNeg: number;
   /** Width of the stall transition, radians. */
@@ -375,12 +379,15 @@ export function deriveRig(config: RigConfig): RigParams {
     cd0: config.canopyCd0,
     // Brake drag also powers the flare: lowering it costs the plane-out.
     cdBrake: 0.3,
+    cdDeep: 0.8,
     // Sideways drag high above the pilot: it levels the canopy once a turn is
     // released, and too much of it keeps a held spiral from steepening.
     cdSpan: 0.1,
     kInduced: 1 / (Math.PI * config.aspectRatio * efficiency),
     alphaStall0: 18 * DEG,
     alphaStallBrake: 0 * DEG,
+    // Full brakes fly at 14 to 15.5 degrees: wraps bring the stall below that.
+    alphaStallDeep: 8 * DEG,
     alphaStallNeg: -12 * DEG,
     stallWidth: 2 * DEG,
     clPlateau: 0.95,

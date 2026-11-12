@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { FlightModel, calmAir, neutralControls, type Controls } from '../src/sim/flightModel';
+import { BRAKE_DEEP, FlightModel, calmAir, neutralControls, type Controls } from '../src/sim/flightModel';
 import { DEFAULT_RIG, deriveRig, rigConfig, type CanopyKind, type RigConfig } from '../src/sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry, simulate } from '../src/sim/telemetry';
 import { CANOPY_SIZES, WEIGHT_MAX, WEIGHT_MIN } from '../src/setup';
@@ -137,6 +137,32 @@ describe('steady flight', () => {
     expect(full.forward).toBeLessThan(8);
     expect(full.sink).toBeLessThan(levels[0]!.sink);
     expect(full.alphaDeg).toBeLessThan(17);
+  });
+
+  test('wraps past full brakes stall the canopy, progressively', () => {
+    const full = steady({ brakeL: 1, brakeR: 1 });
+    const first = steady({ brakeL: 1.05, brakeR: 1.05 });
+    const deep = steady({ brakeL: BRAKE_DEEP, brakeR: BRAKE_DEEP });
+    // The first wraps take up stretch: still flying.
+    expect(first.alphaDeg).toBeLessThan(17);
+    // All the way: the wing is well past the stall, barely going forward and sinking fast.
+    expect(deep.alphaDeg).toBeGreaterThan(40);
+    expect(deep.forward).toBeLessThan(full.forward / 2);
+    expect(deep.sink).toBeGreaterThan(full.sink + 2.5);
+  });
+
+  test('letting the toggles up recovers a stall, with a dive', () => {
+    const model = trimmed({}, 0, env);
+    simulate(model, 8, controls({ brakeL: BRAKE_DEEP, brakeR: BRAKE_DEEP }), env);
+    const tel = emptyTelemetry();
+    let lowest = 0;
+    for (let t = 0; t < 600; t++) {
+      simulate(model, 0.01, neutralControls(), env);
+      lowest = Math.min(lowest, readTelemetry(model, env, tel).pitchDeg);
+    }
+    expect(lowest).toBeLessThan(-30);
+    expect(model.alphaCentre / DEG).toBeLessThan(12);
+    expect(Math.hypot(model.state.vel.x, model.state.vel.z)).toBeGreaterThan(12);
   });
 
   test('front risers dive: faster, steeper', () => {

@@ -969,16 +969,17 @@ export class CanopyView {
     this.flutter = Math.min(0.03, 0.0012 * airspeed) * (1 - this.heap) * (1 - this.crumple);
 
     const c = look.controls;
-    this.tailTarget[0] = c.brakeL;
-    this.tailTarget[1] = c.brakeR;
+    // Wraps past full travel bring the tail down no further: the canopy shows them by stalling.
+    this.tailTarget[0] = Math.min(c.brakeL, 1);
+    this.tailTarget[1] = Math.min(c.brakeR, 1);
     this.front = [c.frontL, c.frontR];
     this.shapeFor(this.inflation!, look.dt);
 
     // Risers, arms and toggles, then the slider and the lines that run through it.
     if (look.pilotAtt) this.relative.copy(this.inverse).multiply(look.pilotAtt);
     const pilot = look.pilotAtt && !this.released ? this.relative : null;
-    this.rigSide(this.sides[0]!, look.hands.brakeL, c.frontL, pilot);
-    this.rigSide(this.sides[1]!, look.hands.brakeR, c.frontR, pilot);
+    this.rigSide(this.sides[0]!, Math.min(look.hands.brakeL, 1), c.frontL, pilot);
+    this.rigSide(this.sides[1]!, Math.min(look.hands.brakeR, 1), c.frontR, pilot);
     const sliderUp = 1 - ease((this.inflation! - 0.15) / 0.75);
     this.placeSlider(sliderUp);
     this.reshape();
