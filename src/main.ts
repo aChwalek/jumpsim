@@ -670,14 +670,30 @@ function takePosition(position: BodyPosition): void {
 /**
  * On foot, free to walk and turn: on top of the object before the run-up,
  * or on the ground once at rest after the landing. Then the mouse and the
- * right stick turn the body, as in any first-person game. Not on the lip
- * of a bridge, where nobody turns round, while gathering the canopy up,
- * nor with the camera locked on a target.
+ * right stick turn the body, as in any first-person game; locked on a
+ * target, the body faces where the camera looks (see faceTheView). Not on
+ * the lip of a bridge, where nobody turns round, nor while gathering the
+ * canopy up.
  */
 function onFoot(): boolean {
-  if (locked || replay || ragdoll) return false;
+  if (replay || ragdoll) return false;
   if (arrival) return arrival.canWalk && !(gather !== null && gather < 1);
   return jump?.phase === 'standing' && jump.runUp !== null && !jump.runUp.standing;
+}
+
+const viewDir = new THREE.Vector3();
+
+/**
+ * Locked on a target, the camera looks at it, and the mouse turns the view
+ * about it: on foot the body faces where the camera looks, so that forward
+ * goes there and the sides go round the target, as in any game. Looking
+ * straight down or up says nothing about where that is.
+ */
+function faceTheView(feet: RunUp | null): void {
+  if (!feet) return;
+  camera.getWorldDirection(viewDir);
+  if (Math.hypot(viewDir.x, viewDir.z) < 0.2) return;
+  feet.headingDeg = ((Math.atan2(viewDir.x, -viewDir.z) / DEG) % 360 + 360) % 360;
 }
 
 /** The feet the mouse turns: on the ground, up on them first if sitting. */
@@ -2030,7 +2046,7 @@ function frame(now: number): void {
   if (elapsed < 0.25 && settings.autoResolution) resolution.track(elapsed);
 
   devices.padMode = padMode();
-  devices.feetTurn = onFoot();
+  devices.feetTurn = onFoot() && !locked;
   devices.poll();
   const feetYaw = devices.takeFeetYaw();
   // After the devices: Start may just have opened the menu, which then ignores it until let go.
@@ -2053,6 +2069,8 @@ function frame(now: number): void {
   } else if (live) {
     const seconds = Math.min(elapsed, 0.1);
     if (feetYaw !== 0) feetToTurn()?.turnBy(feetYaw);
+    // Locked, the camera of the last frame says where the body faces; on the ground once walking.
+    if (locked && onFoot()) faceTheView(arrival ? arrival.walker : (jump?.runUp ?? null));
     if (arrival) {
       airTime += seconds;
       // On the feet again: walking, but not while gathering the canopy up.
