@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import type { Lighting } from '../render/scene';
 import { buildBridges } from './bridge';
-import { buildCliffTop, rockTexture } from './cliffTop';
-import type { DzPack } from './dz';
+import { buildCliffTop, rockTexture, type RockMask } from './cliffTop';
+import { facetedHeight, surfaceColorAt } from './cover';
+import { isWet, type DzPack } from './dz';
 import { buildGrass } from './grass';
-import { buildDisc, buildSurfaces, buildTerrain, buildWater, loadPhotos } from './ground';
-import { buildBuildings, buildCars, buildFlags, buildLedgeMarks, buildPeople, buildTrees, buildWindsock } from './objects';
+import { TERRAIN_SPACING, buildDisc, buildSurfaces, buildTerrain, buildWater, loadPhotos } from './ground';
+import { buildBuildings, buildCars, buildFlags, buildLedgeMarks, buildPeople, buildTrees, buildVines, buildWindsock } from './objects';
 
 export interface World {
   object: THREE.Group;
@@ -21,6 +22,13 @@ export interface World {
   dispose(): void;
 }
 
+/** Whether the rock is mostly bare at the point. */
+function bareRock(rock: RockMask, x: number, z: number): boolean {
+  const i = Math.round((x - rock.x0) / rock.spacing);
+  const j = Math.round((z - rock.z0) / rock.spacing);
+  return i >= 0 && j >= 0 && i < rock.n && j < rock.n && rock.values[j * rock.n + i]! > 96;
+}
+
 /** Turn a drop zone pack into a scene graph, lit by `light`. */
 export function buildWorld(dz: DzPack, light: Lighting): World {
   const object = new THREE.Group();
@@ -28,9 +36,21 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
   const windsock = buildWindsock(dz.windsock.x, dz.windsock.z, dz.windsock.height, groundAt);
   // The grass round the eye takes the light where the eye is: sun or cloud shadow.
   const grassLight = new THREE.Color().copy(light.ground);
-  const grass = buildGrass({ ...dz.grass, target: dz.target }, grassLight);
   // Aerial photos, where the drop zone has some: they show as they come in.
   const photos = dz.imagery ? loadPhotos(dz.imagery, dz.grass.area.color, dz.imageryGain, dz.rockTint) : undefined;
+  const grass = buildGrass(
+    {
+      ...dz.grass,
+      target: dz.target,
+      // The blades stand on the terrain as it is drawn, in the colour of what lies there.
+      groundAt: facetedHeight(groundAt, TERRAIN_SPACING, dz.terrainDetail),
+      photos,
+      // Nor does it grow in water, or on the bare rock of a cliff top, which has its own tussocks.
+      wet: (x, z) => isWet(dz, x, z) || (!!dz.cliffTop && bareRock(dz.cliffTop.rock, x, z)),
+      colorAt: surfaceColorAt(dz.landColor ?? (() => dz.grass.area.color), dz.surfaces, dz.areas ?? []),
+    },
+    grassLight,
+  );
   const water = buildWater(dz.water, light.horizon, dz.waterAreas, photos);
   const flags = buildFlags(dz.flags, light.fabric, groundAt);
   const trees = buildTrees(dz.trees, groundAt);
@@ -49,6 +69,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     water.object,
     flags.object,
   );
+  if (dz.vineRows?.length) object.add(buildVines(dz.vineRows, groundAt));
   if (dz.bridges) object.add(buildBridges(dz.bridges, groundAt));
   if (cliffTop) object.add(cliffTop.object);
   // The run is painted on a tower's roof; a cliff has nothing on it, and off a bridge there is no run.

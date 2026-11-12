@@ -4,7 +4,6 @@
 import { T } from '../i18n';
 import type { AircraftId } from '../sim/plane';
 import { createValbrise, type DzPack } from './dz';
-import { createPujaut } from './pujaut';
 import { createRealDz, type RealDzData, type RealDzLook } from './real';
 import { LOOKS } from './realDzs';
 import { TOWER_HEIGHT, createTowerZone } from './tower';
@@ -135,7 +134,7 @@ function real(
 export const DZS: DzInfo[] = [
   built('valbrise', 'Valbrise', createValbrise),
   built('tower', 'Valbrise BASE', createTowerZone, undefined, { height: TOWER_HEIGHT }),
-  built('pujaut', 'Pujaut', createPujaut, { name: 'Skydive Pujaut', icao: 'LFNT', credit: 'pujaut' }),
+  real('pujaut', 'Skydive Pujaut', 'LFNT', 'france', () => import('./data/pujaut')),
   real('chambery', 'Savoie Parachutisme', 'LFLB', 'france', () => import('./data/chambery')),
   real('empuriabrava', 'Skydive Empuriabrava', 'LEAP', 'spain', () => import('./data/empuriabrava')),
   real('guadeloupe', 'Caraïbe Parachutisme', 'TFFC', 'france', () => import('./data/guadeloupe')),

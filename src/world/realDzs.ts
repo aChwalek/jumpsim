@@ -11,6 +11,35 @@ type Look = RealDzLook & { lat: number; lon: number; utcOffsetH: number };
 const kmh = (v: number): number => v / 3.6;
 
 export const LOOKS = {
+  // Skydive Pujaut on the Avignon-Pujaut aerodrome (LFNT), in the Gard: a
+  // former lake bed, flat as a table, among vines and windbreaks of cypress,
+  // ringed by low hills of garrigue and pine, the Rhône behind the eastern ridge.
+  pujaut: {
+    name: 'Pujaut',
+    lat: 44.000472,
+    lon: 4.75438,
+    utcOffsetH: 2,
+    // The mistral, north-north-west: four days in ten on summer afternoons.
+    wind: { fromDeg: 340, speed: 5 },
+    grass: { rough: 0x9e9a5e, mown: 0x7c9a48 },
+    walls: [0xe6d8bd, 0xdcc49a, 0xece6da, 0xd9b98c, 0xe0d0b4],
+    roofs: [0xb45f3c, 0xa8553a, 0xc06a45, 0x9c4f36],
+    woods: {
+      // Aleppo pines and holm oaks in the woods, kermes oak and broom in the garrigue.
+      w: { height: [8, 15], perHectare: 24 },
+      s: { height: [2.5, 5.5], perHectare: 10 },
+      o: { height: [3, 5], perHectare: 50 },
+    },
+    // The windbreaks are cypresses.
+    rowHeight: [8, 13],
+    slimRows: true,
+    targetColor: 0xcdbf9a,
+    // Left-hand circuit west of the landing area with the mistral, over the open field.
+    pattern: { upwind: 180, side: 150, height: 300 },
+    final: { downwind: 260, height: 90 },
+    // Into the wind, in the club's Dornier Do 28 G92.
+    jumpRun: { downwind: 500, offset: 60, height: 4000, indicatedAirspeed: 40, aircraft: 'do28' },
+  },
   // Savoie Parachutisme on Chambéry-Savoie airport (LFLB), at the south end
   // of the Lac du Bourget, between the Mont du Chat and the Revard.
   chambery: {
@@ -144,7 +173,6 @@ export const LOOKS = {
       w: { height: [8, 15], perHectare: 35 },
       s: { height: [2, 5], perHectare: 12 },
       o: { height: [4, 6], perHectare: 40 },
-      v: { height: [1.5, 2], perHectare: 60 },
     },
     rowHeight: [6, 12],
     // The valley floor is narrow and slopes: only the field itself is laid flat.
@@ -175,7 +203,6 @@ export const LOOKS = {
       w: { height: [10, 18], perHectare: 30 },
       s: { height: [2, 5], perHectare: 12 },
       o: { height: [4, 6], perHectare: 40 },
-      v: { height: [1.5, 2], perHectare: 60 },
     },
     rowHeight: [10, 18],
     // The meadow slopes gently up from the river: only it is laid flat.
@@ -207,7 +234,6 @@ export const LOOKS = {
       w: { height: [10, 20], perHectare: 30 },
       s: { height: [2, 5], perHectare: 12 },
       o: { height: [3, 5], perHectare: 50 },
-      v: { height: [1.5, 2.2], perHectare: 60 },
     },
     rowHeight: [6, 14],
     // Pale grey limestone streaked with ochre: the photos, taken from above,

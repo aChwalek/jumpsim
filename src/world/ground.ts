@@ -126,6 +126,9 @@ function makeGrainTexture(): THREE.Texture {
 }
 
 let noise: THREE.Texture | undefined;
+
+/** Soft noise with a speckle on it, tiling: what breaks up every plain surface. */
+export const noiseTexture = (): THREE.Texture => (noise ??= makeNoiseTexture());
 let grain: THREE.Texture | undefined;
 
 /**
@@ -189,7 +192,11 @@ export function loadPhotos(imagery: Imagery[], fallback: number, gain = 1, rockT
  * GLSL reading the photos at a point of the ground: the finest one that
  * covers it, fading into the next one out near its edge.
  */
-const PHOTO_GLSL = /* glsl */ `
+export const PHOTO_GLSL = /* glsl */ `
+  // A vertex shader has no biased lookup: it sets its own, which names the level.
+  #ifndef PHOTO_TEX
+  #define PHOTO_TEX(t, uv, blur) texture2D(t, uv, blur)
+  #endif
   uniform sampler2D photo0;
   uniform sampler2D photo1;
   uniform sampler2D photo2;
@@ -206,9 +213,9 @@ const PHOTO_GLSL = /* glsl */ `
     vec2 uv2 = p / photoSize.z + 0.5;
     vec2 uv1 = p / photoSize.y + 0.5;
     vec2 uv0 = p / photoSize.x + 0.5;
-    vec3 c = mix(photoFallback, texture2D(photo2, uv2, blur).rgb, photoReady.z * photoWeight(uv2));
-    c = mix(c, texture2D(photo1, uv1, blur).rgb, photoReady.y * photoWeight(uv1));
-    c = mix(c, texture2D(photo0, uv0, blur).rgb, photoReady.x * photoWeight(uv0));
+    vec3 c = mix(photoFallback, PHOTO_TEX(photo2, uv2, blur).rgb, photoReady.z * photoWeight(uv2));
+    c = mix(c, PHOTO_TEX(photo1, uv1, blur).rgb, photoReady.y * photoWeight(uv1));
+    c = mix(c, PHOTO_TEX(photo0, uv0, blur).rgb, photoReady.x * photoWeight(uv0));
     return c * photoGain;
   }
   vec3 photoAt(vec2 p) { return photoAt(p, 0.0); }
@@ -351,10 +358,20 @@ export function groundMaterial(
         vec2 vGroundXZ = vGroundWorld.xz;
         diffuseColor.rgb = photoAt(vGroundXZ);
         vec2 marks = texture2D(grainMap, vGroundXZ / ${GRAIN_TILE}).rg;
-        float grassy = step(1.08 * max(diffuseColor.r, diffuseColor.b), diffuseColor.g);
-        float d1 = mix(marks.g, marks.r, grassy);
+        // Blades wherever the ground bears something, as the grass standing on it has it: green, or
+        // warm, short of blue or white. Bluish is tarmac, roofs and water, white is sand: stones.
+        float warm = max(diffuseColor.r, diffuseColor.g);
+        float bears = smoothstep(0.0, 0.1, (warm - diffuseColor.b) / max(warm, 0.001));
+        bears *= 1.0 - smoothstep(0.5, 0.8, dot(diffuseColor.rgb, vec3(0.3, 0.5, 0.2)));
+        bears = max(bears, step(1.08 * max(diffuseColor.r, diffuseColor.b), diffuseColor.g));
+        float d1 = mix(marks.g, marks.r, bears);
         float d2 = texture2D(detailMap, vGroundXZ / 11.0).r;
-        diffuseColor.rgb *= (0.45 + 1.1 * d1) * (0.85 + 0.3 * d2);
+        // A photo pixel is a metre across: patches a stride wide and drier
+        // ones a few metres wide fill in what it blurs.
+        float d3 = texture2D(detailMap, vGroundXZ.yx / 3.1).r;
+        float dry = smoothstep(0.35, 0.65, texture2D(detailMap, vGroundXZ / 37.0 + 0.37).r);
+        diffuseColor.rgb *= (0.45 + 1.1 * d1) * (0.85 + 0.3 * d2) * mix(1.0, 0.7 + 0.6 * d3, bears);
+        diffuseColor.rgb *= mix(vec3(1.0), vec3(1.1, 1.0, 0.8), 0.6 * bears * dry);
         vec3 groundNormal = normalize(vGroundNormal);
         float steep = smoothstep(0.8, 0.6, groundNormal.y);
         if (steep > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, rockAt(vGroundWorld, groundNormal), steep);
@@ -379,6 +396,9 @@ export function groundMaterial(
   return material;
 }
 
+/** Metres between the grid lines of the terrain near the drop zone. */
+export const TERRAIN_SPACING = 100;
+
 /**
  * Grid lines of the terrain along one axis: every 100 m out to 6 km, every
  * 400 m beyond, to 40 km. Depth interpolated across long triangles is too
@@ -388,7 +408,7 @@ export function groundMaterial(
 function terrainLines(): number[] {
   const lines: number[] = [];
   for (let x = -40000; x < -6000; x += 400) lines.push(x);
-  for (let x = -6000; x < 6000; x += 100) lines.push(x);
+  for (let x = -6000; x < 6000; x += TERRAIN_SPACING) lines.push(x);
   for (let x = 6000; x <= 40000; x += 400) lines.push(x);
   return lines;
 }

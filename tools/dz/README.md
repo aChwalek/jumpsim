@@ -12,6 +12,11 @@ swissALTI3D or the Province of Trento's LiDAR (below), which reads GeoTIFFs
 with numpy and Pillow. Downloads are cached in
 `~/.cache/jumpsim-dz` (about 30 MB a drop zone), so a second run is quick.
 
+If no Overpass server can be reached, `osm_api.py <id>` fetches the same
+OpenStreetMap data from the OSM API instead (within 4.6 km only: no far water,
+no coastline) and leaves it where `build.py <id> --only relief,imagery` finds
+it. Pujaut was built that way.
+
 ## Inputs
 
 `tools/dz/<id>.json` holds what is specific to the drop zone, in WGS84

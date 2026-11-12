@@ -30,7 +30,8 @@ export interface Touchdown {
   rating: LandingRating;
 }
 
-const worst = (a: LandingRating, b: LandingRating): LandingRating =>
+/** The worse of two. */
+export const worst = (a: LandingRating, b: LandingRating): LandingRating =>
   ORDER.indexOf(a) > ORDER.indexOf(b) ? a : b;
 
 export function rateLanding(sink: number, groundSpeed: number, bankDeg: number): LandingRating {

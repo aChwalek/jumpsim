@@ -42,7 +42,6 @@ export const en: Strings = {
     },
     made: 'Imaginary DZ',
     credits: {
-      pujaut: 'Map © OpenStreetMap · relief IGN · SIA VAC chart',
       france: 'Photos IGN, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       franceAlti: 'Photos and RGE ALTI relief IGN, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       spain: 'Photos PNOA © IGN España, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
@@ -90,6 +89,7 @@ export const en: Strings = {
       crash: 'Likely injured.',
     },
     wet: ' And splash: into the pond.',
+    vines: ' Onto a row of vines, posts and wires: that hurts.',
     sink: 'vertical speed',
     groundSpeedRow: 'ground speed',
     fromTarget: 'from the target',
