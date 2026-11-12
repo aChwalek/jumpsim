@@ -191,13 +191,13 @@ const NO_WINGS = { armWing: 0, wingRoot: 0, fill: 0, legWing: false, legIn: 0, t
 /**
  * Drawn from photos: a first wingsuit's arm wings straight from the wrist to
  * the hip, its leg wing around the legs to the feet and cut in between them;
- * a big one's arm wings dropping from the hand and on down to the ankles, its
- * leg wing square across the feet.
+ * a bigger one's arm wings straight from the hand to the knee, a big one's to
+ * the ankle, its leg wing square across the feet.
  */
 const WINGSUIT_CUTS: Record<Suit['level'], Omit<SuitCut, 'bag' | 'legWing'>> = {
   1: { armWing: 1, wingRoot: 1.1, fill: 0.25, legIn: -0.05, tail: 0, notch: -0.22 },
-  2: { armWing: 1.04, wingRoot: 2.2, fill: 0.45, legIn: -0.06, tail: 0.02, notch: -0.15 },
-  3: { armWing: 1.07, wingRoot: 3, fill: 0.7, legIn: -0.07, tail: 0.04, notch: 0 },
+  2: { armWing: 1.04, wingRoot: 2, fill: 0, legIn: -0.05, tail: 0.02, notch: -0.15 },
+  3: { armWing: 1.07, wingRoot: 3, fill: 0, legIn: -0.05, tail: 0.04, notch: 0 },
 };
 
 function suitCut(suit: Suit): SuitCut {
