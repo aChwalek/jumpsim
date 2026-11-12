@@ -7,8 +7,9 @@ import { createValbrise, type DzPack } from './dz';
 import { createPujaut } from './pujaut';
 import { createRealDz, type RealDzData, type RealDzLook } from './real';
 import { LOOKS } from './realDzs';
+import { TOWER_HEIGHT, createTowerZone } from './tower';
 
-export type DzId = 'valbrise' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadeloupe';
+export type DzId = 'valbrise' | 'tower' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadeloupe';
 
 export interface DzInfo {
   id: DzId;
@@ -32,6 +33,8 @@ export interface DzInfo {
   starts: { pattern: number; final: number; plane: number };
   /** The plane that flies jump run there. */
   aircraft: AircraftId;
+  /** An object to BASE jump from, and its height, m. */
+  base?: { height: number };
   /** The pack, if it has been loaded. */
   loaded(): DzPack | undefined;
   /** Loads the pack, the first time only. */
@@ -41,7 +44,13 @@ export interface DzInfo {
 type Credit = keyof typeof T.dz.credits;
 
 /** A drop zone built on the spot, from code. */
-function built(id: DzId & keyof typeof T.dz.notes, name: string, create: () => DzPack, club?: { name: string; icao: string; credit: Credit }): DzInfo {
+function built(
+  id: DzId & keyof typeof T.dz.notes,
+  name: string,
+  create: () => DzPack,
+  club?: { name: string; icao: string; credit: Credit },
+  base?: { height: number },
+): DzInfo {
   let pack: DzPack | undefined;
   const get = (): DzPack => (pack ??= create());
   return {
@@ -49,6 +58,7 @@ function built(id: DzId & keyof typeof T.dz.notes, name: string, create: () => D
     name,
     club: club?.name,
     icao: club?.icao,
+    base,
     get note() {
       return T.dz.notes[id];
     },
@@ -122,6 +132,7 @@ function real(
 
 export const DZS: DzInfo[] = [
   built('valbrise', 'Valbrise', createValbrise),
+  built('tower', 'Valbrise BASE', createTowerZone, undefined, { height: TOWER_HEIGHT }),
   built('pujaut', 'Pujaut', createPujaut, { name: 'Skydive Pujaut', icao: 'LFNT', credit: 'pujaut' }),
   real('chambery', 'Savoie Parachutisme', 'LFLB', 'france', () => import('./data/chambery')),
   real('empuriabrava', 'Skydive Empuriabrava', 'LEAP', 'spain', () => import('./data/empuriabrava')),

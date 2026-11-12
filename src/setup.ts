@@ -5,6 +5,7 @@
 import { T } from './i18n';
 import { HOUR_MAX, HOUR_MIN } from './render/daylight';
 import { isCanopyColor, type CanopyColorId } from './render/canopyColors';
+import type { Container } from './sim/jump';
 import { DEFAULT_RIG, deriveRig, reserveConfig, rigConfig, type CanopyKind, type RigParams } from './sim/rig';
 import { WIND_MAX_KMH, type GustLevel, type SkyKind, type Weather } from './sim/weather';
 import { DZS, dzInfo, type DzId } from './world/dzs';
@@ -30,6 +31,8 @@ export type AltimeterKind = 'none' | 'analog' | 'digital';
 export type SliderKind = 'fixed' | 'collapsible' | 'removable';
 export const SLIDER_KINDS: readonly SliderKind[] = ['fixed', 'collapsible', 'removable'];
 
+export const CONTAINERS: readonly Container[] = ['sport', 'base'];
+
 /** How often the main goes wrong as it opens. */
 export type MalfunctionRate = 'none' | 'sometimes' | 'always';
 export const MALFUNCTION_RATES: readonly MalfunctionRate[] = ['none', 'sometimes', 'always'];
@@ -45,13 +48,21 @@ export interface Gear {
   /** An audible altimeter in the helmet, beeping at the circuit heights. */
   audible: boolean;
   slider: SliderKind;
+  /** A skydiving container, with a reserve, or a BASE one, with one canopy only. */
+  container: Container;
   /** A reserve static line: cutting the main away pulls the reserve. */
   rsl: boolean;
 }
 
-/** Where the jump starts: in the plane, or already under canopy, on downwind or on final. */
-export type Start = 'plane' | 'pattern' | 'final';
-export const STARTS: readonly Start[] = ['plane', 'pattern', 'final'];
+/**
+ * Where the jump starts: in the plane, already under canopy (on downwind or
+ * on final), or on top of a BASE object, where the drop zone has one.
+ */
+export type Start = 'plane' | 'pattern' | 'final' | 'base';
+export const STARTS: readonly Start[] = ['plane', 'pattern', 'final', 'base'];
+
+/** The starts on offer at a drop zone. */
+export const startsAt = (dz: DzId): Start[] => STARTS.filter((s) => s !== 'base' || !!dzInfo(dz).base);
 
 /** Exit heights on offer, above the drop zone, m: from a hop and pop to a high one. */
 export const EXIT_HEIGHT_MIN = 1000;
@@ -127,6 +138,7 @@ export function defaultSetup(): Setup {
       altimeter: 'digital',
       audible: false,
       slider: 'collapsible',
+      container: 'sport',
       rsl: true,
     },
     jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'none' },
@@ -167,9 +179,10 @@ export function validSetup(saved: unknown): Setup {
   if (oneOf(g.altimeter, ['none', 'analog', 'digital'] as const)) gear.altimeter = g.altimeter;
   if (typeof g.audible === 'boolean') gear.audible = g.audible;
   if (oneOf(g.slider, SLIDER_KINDS)) gear.slider = g.slider;
+  if (oneOf(g.container, CONTAINERS)) gear.container = g.container;
   if (typeof g.rsl === 'boolean') gear.rsl = g.rsl;
   const j = (s.jump ?? {}) as Partial<Record<keyof JumpPlan, unknown>>;
-  if (oneOf(j.start, STARTS)) setup.jump.start = j.start;
+  if (oneOf(j.start, startsAt(setup.dz))) setup.jump.start = j.start;
   if (finite(j.exitHeight)) setup.jump.exitHeight = validExitHeight(j.exitHeight);
   if (finite(j.runDeg)) setup.jump.runDeg = validHeading(j.runDeg);
   if (oneOf(j.malfunction, MALFUNCTION_RATES)) setup.jump.malfunction = j.malfunction;

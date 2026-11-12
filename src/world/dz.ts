@@ -30,6 +30,23 @@ export interface Building {
   flatRoof?: boolean;
   /** Has a hangar door; by default anything over 6 m does. */
   hangar?: boolean;
+  /** A tower: bands of windows all round, one every this many metres up. */
+  floors?: number;
+}
+
+/** The top of a BASE object, where the jumper stands and runs from. */
+export interface BaseExit {
+  /** Where the jumper stands at the start, m. */
+  x: number;
+  z: number;
+  /** Compass heading of the run, towards the edge, degrees. */
+  headingDeg: number;
+  /** How far ahead the edge is, m. */
+  runUp: number;
+  /** Width of the run marked on top, m. */
+  width: number;
+  /** Height of the top above the ground at its foot, m. */
+  height: number;
 }
 
 export interface Tree {
@@ -96,6 +113,13 @@ export interface DzPack {
   /** Wind the place usually gets: where it comes from, and speed in m/s. */
   wind: { fromDeg: number; speed: number };
   groundAt(x: number, z: number): number;
+  /**
+   * The top of whatever stands at a point, where it is something one can
+   * land on or hit (a tower's roof); the ground if not given.
+   */
+  topAt?(x: number, z: number): number;
+  /** An object to BASE jump from. */
+  base?: BaseExit;
   target: { x: number; z: number; radius: number };
   surfaces: Rect[];
   /** Flat surfaces of any shape. */
@@ -150,6 +174,9 @@ export interface DzPack {
    */
   jumpRun: { downwind: number; offset: number; height: number; indicatedAirspeed: number; aircraft?: AircraftId };
 }
+
+/** What one stands on or runs into at a point: a roof where there is one, else the ground. */
+export const solidOf = (dz: DzPack): ((x: number, z: number) => number) => dz.topAt?.bind(dz) ?? dz.groundAt;
 
 /** Which way finals are flown with the wind from this direction, compass degrees. */
 export function landingHeading(dz: Pick<DzPack, 'landingAxisDeg'>, windFromDeg: number): number {

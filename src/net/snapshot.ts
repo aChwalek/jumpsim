@@ -67,7 +67,7 @@ export const emptySnapshot = (): Snapshot => ({
  * The code each value goes as, one byte. A Record, so that a phase, stance
  * or stage added elsewhere does not compile until it has a code here.
  */
-const PHASE_CODES: Record<Phase, number> = { none: 0, plane: 1, freefall: 2, opening: 3, canopy: 4 };
+const PHASE_CODES: Record<Phase, number> = { none: 0, plane: 1, freefall: 2, opening: 3, canopy: 4, standing: 5 };
 const STANCE_CODES: Record<Stance, number> = {
   door: 0,
   belly: 1,

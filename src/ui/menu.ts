@@ -47,6 +47,8 @@ import {
   MALFUNCTION_ODDS,
   MALFUNCTION_RATES,
   SLIDER_KINDS,
+  CONTAINERS,
+  startsAt,
   type Setup,
   type Start,
 } from '../setup';
@@ -105,9 +107,8 @@ interface Option<T> {
   html?: string;
 }
 
-const STARTS: readonly Start[] = ['plane', 'pattern', 'final'];
 /** Straight to a start from the menu, as in flight. */
-const START_KEYS: Record<string, Start | undefined> = { Digit1: 'pattern', Digit2: 'final', Digit3: 'plane' };
+const START_KEYS: Record<string, Start | undefined> = { Digit1: 'pattern', Digit2: 'final', Digit3: 'plane', Digit4: 'base' };
 
 /** A small picture of each drop zone from above, for the list (tools/dz/thumbs.mjs makes them). */
 const thumbUrl = (id: DzId): string => `${import.meta.env.BASE_URL}dz/thumbs/${id}.jpg`;
@@ -522,7 +523,7 @@ export class Menu {
   private key(e: KeyboardEvent): void {
     if (!this.isOpen || e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
     const start = START_KEYS[e.code];
-    if (start) {
+    if (start && startsAt(this.setup.dz).includes(start)) {
       e.preventDefault();
       this.go(start);
     }
@@ -546,6 +547,10 @@ export class Menu {
     this.setup.dz = dz;
     // Each place comes with the wind it usually gets.
     this.setup.weather = usualWeather(dz, this.setup.weather.sky);
+    // A place with a BASE object is there for it; elsewhere there is none.
+    const plan = this.setup.jump;
+    if (dzInfo(dz).base) plan.start = 'base';
+    else if (plan.start === 'base') plan.start = 'plane';
     this.changedScenery();
   }
 
@@ -768,11 +773,14 @@ export class Menu {
       const sub =
         start === 'plane'
           ? `${num(exitHeight)} m · ${info.name}`
-          : start === 'pattern'
-            ? T.menu.goPattern(num(info.starts.pattern))
-            : T.menu.goFinal(num(info.starts.final));
+          : start === 'base'
+            ? `BASE ${num(info.base?.height ?? 0)} m · ${info.name}`
+            : start === 'pattern'
+              ? T.menu.goPattern(num(info.starts.pattern))
+              : T.menu.goFinal(num(info.starts.final));
+      const jumping = start === 'plane' || start === 'base';
       this.jump.innerHTML = `<span class="go-icon">${start === 'plane' ? ICON_PLANE : ICON_CANOPY}</span><span class="go-label">${
-        start === 'plane' ? T.menu.jumpButton : T.menu.go
+        jumping ? T.menu.jumpButton : T.menu.go
       }</span><span class="go-sub">${sub}</span><i class="btn pad">Start</i>`;
     });
     const go = h('div', 'go', this.nav.add(this.resume), this.nav.add(this.jump));
@@ -881,7 +889,9 @@ export class Menu {
         return `
           <span class="big">${gear.canopyAreaFt2}<small class="unit">ft²</small> <small>${kindName(gear.kind)}</small>${swatch(gear.color)}</span>
           <span>${gear.exitWeightKg} kg · ${num(rig.wingLoading, 2)} lb/ft² · ${loadingLabel(rig.wingLoading)}</span>
-          <span class="dim">${g.altimeterLine[gear.altimeter]} · ${gear.audible ? g.audibleOn : g.audibleOff} · ${g.sliderLine[gear.slider]}${gear.rsl ? ' · RSL' : ''}</span>`;
+          <span class="dim">${g.containerLine[gear.container]} · ${g.altimeterLine[gear.altimeter]} · ${gear.audible ? g.audibleOn : g.audibleOff} · ${g.sliderLine[gear.slider]}${
+            gear.container === 'sport' && gear.rsl ? ' · RSL' : ''
+          }</span>`;
       }
       case 'dz': {
         return `
@@ -909,6 +919,13 @@ export class Menu {
       }
       case 'jump': {
         const j = T.menu.jump;
+        if (jump.start === 'base') {
+          const dz = dzInfo(this.setup.dz).loaded();
+          return `
+            <span class="big">${num(info.base?.height ?? 0)}<small class="unit">m</small> <small>${j.starts.base}</small></span>
+            <span>${j.baseLine(num(dz?.base?.runUp ?? 25))}</span>
+            <span class="dim">${j.baseNote[this.setup.gear.container]}</span>`;
+        }
         if (jump.start !== 'plane') {
           const spot = jump.start === 'pattern' ? info.starts.pattern : info.starts.final;
           return `
@@ -977,9 +994,13 @@ export class Menu {
       this.choice<SliderKind>(g.slider, options(SLIDER_KINDS, (k) => g.sliders[k]), () => gear().slider, (slider) => this.setGear({ slider }), {
         note: () => g.sliderNote[gear().slider](keyLabel('KeyG')),
       }),
+      this.choice(g.container, options(CONTAINERS, (c) => g.containers[c]), () => gear().container, (container) => this.setGear({ container }), {
+        note: () => g.containerNote[gear().container](String(reserveSize(gear().exitWeightKg))),
+      }),
       this.choice<boolean>(g.rsl, yesNo(), () => gear().rsl, (rsl) => this.setGear({ rsl }), {
         hint: g.rslHint,
         note: () => g.rslNote(String(reserveSize(gear().exitWeightKg)), gear().rsl, keyLabel('KeyX')),
+        disabled: () => gear().container === 'base',
       }),
     );
     screen.append(this.detailHints());
@@ -1085,10 +1106,11 @@ export class Menu {
     const compass = new Compass();
     this.updaters.push(() => compass.set(this.setup.weather.windFromDeg, this.setup.weather.windKmh, runHeading(this.setup)));
     body.append(
-      this.choice<Start>(j.start, options(STARTS, (s) => j.starts[s]), () => plan().start, (start) => this.setJump({ start }), {
+      this.choice<Start>(j.start, () => options(startsAt(this.setup.dz), (s) => j.starts[s]), () => plan().start, (start) => this.setJump({ start }), {
         note: () => {
           const info = dzInfo(this.setup.dz);
           const start = plan().start;
+          if (start === 'base') return j.startNote.base(num(info.base?.height ?? 0));
           if (start === 'pattern') return j.startNote.pattern(num(info.starts.pattern));
           if (start === 'final') return j.startNote.final(num(info.starts.final));
           return j.startNote.plane;
@@ -1150,8 +1172,9 @@ export class Menu {
         () => plan().malfunction,
         (malfunction) => this.setJump({ malfunction }),
         {
-          note: () => (plan().malfunction === 'none' ? j.malfunctionOff : j.malfunctionOn(keyLabel('KeyX'))),
-          disabled: noPlane,
+          note: () =>
+            plan().malfunction === 'none' ? j.malfunctionOff : plan().start === 'base' ? j.malfunctionBase : j.malfunctionOn(keyLabel('KeyX')),
+          disabled: () => noPlane() && plan().start !== 'base',
         },
       ),
     );
@@ -1291,7 +1314,12 @@ export class Menu {
       hour: '2-digit',
       minute: '2-digit',
     })}`;
-    const start = e.start === 'plane' && e.freefall ? t.fromPlaneAt(num(e.freefall.exitHeight)) : T.menu.jump.starts[e.start];
+    const start =
+      e.start === 'plane' && e.freefall
+        ? t.fromPlaneAt(num(e.freefall.exitHeight))
+        : e.start === 'base' && e.freefall
+          ? t.fromBaseAt(num(e.freefall.exitHeight))
+          : T.menu.jump.starts[e.start];
     const canopy = `${e.canopy.areaFt2} ft²${e.canopy.kind === 'triCell' ? ` ${kindName('triCell')}` : ''} · ${e.canopy.exitWeightKg} kg`;
     const ff = e.freefall ? (e.freefall.aad ? t.aad : e.freefall.pullHeight !== null ? t.pulledAt(num(e.freefall.pullHeight)) : '') : '';
     const bad = e.outcome === 'hard' || e.outcome === 'crash' || e.outcome === 'impact';
