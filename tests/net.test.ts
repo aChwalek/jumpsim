@@ -120,6 +120,12 @@ describe('hello', () => {
     expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, color: 'toString' } })).toBeNull();
     expect(readHello('hello')).toBeNull();
   });
+
+  it('keeps a smoke it knows, and has none from an older version or an unknown one', () => {
+    expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, smoke: 'green' } })?.gear.smoke).toBe('green');
+    expect(readHello({ type: 'hello', dz: 'pujaut', gear })?.gear.smoke).toBe('none');
+    expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, smoke: 'plaid' } })?.gear.smoke).toBe('none');
+  });
 });
 
 describe('snapshot codes', () => {

@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import type { RigParams } from '../sim/rig';
 import { GEAR_LAYER, OUTSIDE_LAYER } from './scene';
 import { JOINTS, type Joint } from '../sim/ragdoll';
+import { SMOKE_COLORS, type SmokeKind } from './smoke';
 
 const UPPER_ARM = 0.3;
 const FOREARM = 0.28;
@@ -194,6 +195,10 @@ export class Body {
   private readonly needle: THREE.Mesh;
   private readonly cutawayHandle: THREE.Mesh;
   private readonly reserveHandle: THREE.Mesh;
+  /** The smoke canister on the outside of the right ankle, and where its smoke comes out. */
+  private readonly canisterMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  private readonly canister = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.15, 12), this.canisterMaterial);
+  private readonly smokeOutlet = new THREE.Object3D();
   private readonly eye: THREE.Vector3;
   private readonly lean = new THREE.Quaternion();
   private readonly euler = new THREE.Euler(0, 0, 0, 'ZXY');
@@ -307,12 +312,21 @@ export class Body {
       );
       this.trunk.add(thigh);
       this.legs.push({ thigh, shin });
+      if (side > 0) {
+        this.canister.position.set(0.09, -shinLength + 0.15, 0.02);
+        // The cap at the bottom, where the smoke comes out.
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 0.02, 12).translate(0, -0.085, 0), webbing);
+        this.canister.add(cap);
+        this.smokeOutlet.position.set(0.09, -shinLength + 0.05, 0.02);
+        shin.add(this.canister, this.smokeOutlet);
+      }
       const L = side < 0 ? 'L' : 'R';
       mark(`hip${L}`, this.trunk, side * HIP_APART, pilotY - HIP_DROP, HIP_BACK);
       mark(`knee${L}`, shin, 0, 0, 0);
       mark(`foot${L}`, shin, 0, -shinLength, 0);
     }
     mark('pelvis', this.trunk, 0, pilotY - HIP_DROP + 0.04, HIP_BACK + 0.02);
+    this.canister.visible = false;
     for (const joint of ['elbowL', 'elbowR', 'handL', 'handR'] as const) mark(joint, this.group, 0, 0, 0);
     this.marks = marks;
     this.group.add(this.trunk);
@@ -349,6 +363,18 @@ export class Body {
   setHandles(cutaway: boolean, reserve: boolean): void {
     this.cutawayHandle.visible = cutaway;
     this.reserveHandle.visible = reserve;
+  }
+
+  /** A smoke canister on the right ankle, of that colour, or none. */
+  setSmoke(kind: SmokeKind): void {
+    this.canister.visible = kind !== 'none';
+    if (kind !== 'none') this.canisterMaterial.color.setHex(SMOKE_COLORS[kind]);
+  }
+
+  /** Where the canister's smoke comes out, world frame, after the last pose and placing. */
+  smokePoint(out: THREE.Vector3): THREE.Vector3 {
+    this.smokeOutlet.updateWorldMatrix(true, false);
+    return this.smokeOutlet.getWorldPosition(out);
   }
 
   /** Where a hand is, pilot frame, after the last pose. */

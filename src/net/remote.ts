@@ -3,6 +3,7 @@ import { CANOPY_COLORS, RESERVE_PALETTE } from '../render/canopyColors';
 import { CanopyView } from '../render/canopyView';
 import { Posture } from '../render/posture';
 import { RigView, type RigFrame } from '../render/rigView';
+import { SMOKE_BURN, SmokeTrail } from '../render/smoke';
 import type { Lighting } from '../render/scene';
 import { reserveRigFor, rigFor, sameFlight, type Gear } from '../setup';
 import { FlightModel } from '../sim/flightModel';
@@ -44,6 +45,12 @@ export class RemoteJumper {
   private main: FlightModel | null = null;
   private reserve: FlightModel | null = null;
   private view: RigView | null = null;
+  /** Their smoke, if they jump with a canister; lit when they left (local clock, ms). */
+  private smoke: SmokeTrail | null = null;
+  private smokeLitAt: number | null = null;
+  private wasLanded = false;
+  private readonly smokeFrom = new THREE.Vector3();
+  private readonly smokeVel = new THREE.Vector3();
   private readonly frame: RigFrame = {
     time: 0,
     dt: 0,
@@ -60,6 +67,7 @@ export class RemoteJumper {
   setGear(gear: Gear, light: Lighting): void {
     const before = this.gear;
     this.gear = gear;
+    this.fitSmoke(light);
     if (before && sameFlight(before, gear) && before.color === gear.color) return;
     if (!before || !sameFlight(before, gear)) {
       this.main = new FlightModel(rigFor(gear));
@@ -79,7 +87,12 @@ export class RemoteJumper {
     if (sampled) this.phase = s.phase;
     // In their plane, which is not drawn here yet: not shown either.
     view.object.visible = sampled && s.phase !== 'plane';
-    if (!view.object.visible) return;
+    if (!view.object.visible) {
+      // Back in their plane: a new canister for the next jump. The smoke left drifts on.
+      if (sampled) this.smokeLitAt = null;
+      this.smoke?.update(f.dt, null, this.smokeVel, f.wind);
+      return;
+    }
 
     // A new jump after a reserve ride or a cutaway: a fresh rig.
     if (!s.reserve && !s.cutaway && (view.detached || view.canopy.reserve)) return this.newView(f.light);
@@ -115,9 +128,15 @@ export class RemoteJumper {
     frame.deployTime = s.deployTime;
     frame.bagOut = s.bagOut;
     view.update(model, s.controls, f.groundAt, f.light, s.hands, frame);
+    this.drawSmoke(f, view);
   }
 
   dispose(): void {
+    this.dropSmoke();
+    this.disposeView();
+  }
+
+  private disposeView(): void {
     if (!this.view) return;
     this.scene.remove(this.view.object);
     this.view.dispose();
@@ -126,11 +145,43 @@ export class RemoteJumper {
 
   private newView(light: Lighting): void {
     if (!this.gear || !this.main) return;
-    this.dispose();
+    this.disposeView();
     this.view = new RigView(this.main.rig, CANOPY_COLORS[this.gear.color].cells, light);
     this.view.object.visible = false;
     seenFromAfar(this.view.object);
     this.scene.add(this.view.object);
+    this.view.body.setSmoke(this.gear.smoke);
+  }
+
+  /** A canister on their ankle, and a trail for it, as their gear has it. */
+  private fitSmoke(light: Lighting): void {
+    const kind = this.gear?.smoke ?? 'none';
+    this.view?.body.setSmoke(kind);
+    if (kind === 'none') return this.dropSmoke();
+    if (!this.smoke) {
+      this.smoke = new SmokeTrail(kind, light);
+      this.scene.add(this.smoke.object);
+    } else this.smoke.setColor(kind);
+  }
+
+  private dropSmoke(): void {
+    if (!this.smoke) return;
+    this.scene.remove(this.smoke.object);
+    this.smoke.dispose();
+    this.smoke = null;
+  }
+
+  /** Lit when they leave the plane or the object (at once under canopy), out after its burn; again on their next jump. */
+  private drawSmoke(f: RemoteFrame, view: RigView): void {
+    const s = this.now;
+    const aboard = s.phase === 'plane' || s.phase === 'standing';
+    if (aboard || (this.wasLanded && !s.landed)) this.smokeLitAt = null;
+    this.wasLanded = s.landed;
+    if (!this.smoke) return;
+    if (!aboard && this.smokeLitAt === null) this.smokeLitAt = f.now;
+    const burning = this.smokeLitAt !== null && f.now - this.smokeLitAt < SMOKE_BURN * 1000;
+    this.smokeVel.set(s.vel.x, s.vel.y, s.vel.z);
+    this.smoke.update(f.dt, burning ? view.body.smokePoint(this.smokeFrom) : null, this.smokeVel, f.wind);
   }
 
   /** Where they are now, if drawn: over their head, or over their canopy once it is out. */

@@ -310,6 +310,12 @@ export const fr = {
       rslHint: 'la libération tire le secours',
       rslNote: (size: string, on: boolean, k: string) =>
         `Secours ${size} ft², 7 caissons. ${on ? `Libérer (${k} maintenu) ouvre le secours tout seul.` : 'Après la libération, Espace pour tirer la poignée de secours.'}`,
+      smoke: 'FUMIGÈNE',
+      smokeHint: 'à la cheville droite',
+      smokes: { none: 'Aucun', red: 'Rouge', orange: 'Orange', yellow: 'Jaune', green: 'Vert', blue: 'Bleu', purple: 'Violet' },
+      smokeLine: (color: string) => `fumigène ${color.toLowerCase()}`,
+      smokeNote: (on: boolean, s: string) =>
+        on ? `Allumé à la sortie (ou dès le départ sous voile), il fume ${s} s : la traînée suit le vent.` : 'Pas de fumigène.',
     },
 
     dz: {

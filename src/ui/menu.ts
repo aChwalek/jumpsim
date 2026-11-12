@@ -19,6 +19,7 @@ import './menu.css';
 import { LANGS, T, heading, lang, num, setLanguage, type Lang } from '../i18n';
 import { HOUR_MAX, HOUR_MIN, formatHour, sunPosition } from '../render/daylight';
 import { CANOPY_COLORS, type CanopyColorId } from '../render/canopyColors';
+import { SMOKE_BURN, SMOKE_COLORS, SMOKE_KINDS, type SmokeColor, type SmokeKind } from '../render/smoke';
 import { OUTCOME_GROUPS, clearLogbook, loadLogbook, logStats, type LogEntry } from '../logbook';
 import { QUALITY_LEVELS, SENSITIVITY_MAX, SENSITIVITY_MIN, type Settings } from '../settings';
 import {
@@ -150,6 +151,10 @@ const swatch = (id: CanopyColorId): string =>
   `<span class="swatch">${CANOPY_COLORS[id].cells
     .map((c) => `<i style="background:#${c.toString(16).padStart(6, '0')}"></i>`)
     .join('')}</span>`;
+
+/** A round dot of the smoke's colour. */
+const smokeDot = (color: SmokeColor): string =>
+  `<span class="smoke-dot" style="background:#${SMOKE_COLORS[color].toString(16).padStart(6, '0')}"></span>`;
 
 /** Where the sun is seen from final, flying this heading. */
 function sunOnFinal(azimuthDeg: number, finalDeg: number): string {
@@ -891,7 +896,7 @@ export class Menu {
           <span>${gear.exitWeightKg} kg · ${num(rig.wingLoading, 2)} lb/ft² · ${loadingLabel(rig.wingLoading)}</span>
           <span class="dim">${g.containerLine[gear.container]} · ${g.altimeterLine[gear.altimeter]} · ${gear.audible ? g.audibleOn : g.audibleOff} · ${g.sliderLine[gear.slider]}${
             gear.container === 'sport' && gear.rsl ? ' · RSL' : ''
-          }</span>`;
+          }${gear.smoke !== 'none' ? ` · ${g.smokeLine(g.smokes[gear.smoke])}` : ''}</span>`;
       }
       case 'dz': {
         return `
@@ -1002,6 +1007,18 @@ export class Menu {
         note: () => g.rslNote(String(reserveSize(gear().exitWeightKg)), gear().rsl, keyLabel('KeyX')),
         disabled: () => gear().container === 'base',
       }),
+      this.choice<SmokeKind>(
+        g.smoke,
+        SMOKE_KINDS.map((kind) => ({ value: kind, label: g.smokes[kind], ...(kind === 'none' ? {} : { html: smokeDot(kind) }) })),
+        () => gear().smoke,
+        (smoke) => this.setGear({ smoke }),
+        {
+          hint: g.smokeHint,
+          value: () => g.smokes[gear().smoke],
+          note: () => g.smokeNote(gear().smoke !== 'none', String(SMOKE_BURN)),
+          cls: 'smokes',
+        },
+      ),
     );
     screen.append(this.detailHints());
     return screen;

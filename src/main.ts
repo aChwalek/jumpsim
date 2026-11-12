@@ -15,6 +15,7 @@ import { cycle, lockedChase, pickPlayer, pickPoint, type Target } from './render
 import { FREEFALL_STANCES, LegSwing, Posture, type LegCues, type Stance } from './render/posture';
 import { RigView, type RigFrame } from './render/rigView';
 import { RagdollView } from './render/ragdollView';
+import { SMOKE_BURN, SmokeTrail } from './render/smoke';
 import { copyPose, type Pose } from './render/body';
 import { TopView } from './render/topView';
 import { FIELD_OF_VIEW, GEAR_LAYER, OUTSIDE_LAYER, Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
@@ -116,6 +117,11 @@ scene.add(planeView.object);
 /** The body thrown about by a crash, drawn in place of the pilot's own. */
 const ragdollView = new RagdollView();
 scene.add(ragdollView.object);
+/** The smoke from the canister on the ankle, if there is one, and when it was lit (air time, s). */
+const smoke = new SmokeTrail('red', light);
+scene.add(smoke.object);
+let smokeLitAt: number | null = null;
+fitSmoke();
 for (const m of ragdollView.materials()) if (m instanceof THREE.MeshLambertMaterial) light.clouds.shade(m, 'light');
 const menu = new Menu(setup, settings);
 /** Jumping with others, in the room the address names (`?room=name`). */
@@ -180,6 +186,40 @@ function newRigView(): void {
   rigView.dispose();
   rigView = new RigView(rig, CANOPY_COLORS[setup.gear.color].cells, light);
   scene.add(rigView.object);
+  fitSmoke();
+}
+
+/** The canister on the ankle as the gear has it, and the colour of its smoke. */
+function fitSmoke(): void {
+  const kind = setup.gear.smoke;
+  rigView.body.setSmoke(kind);
+  if (kind !== 'none') smoke.setColor(kind);
+}
+
+const smokeFrom = new THREE.Vector3();
+const smokeBefore = new THREE.Vector3();
+const smokeVel = new THREE.Vector3();
+let smokeWasOut = false;
+
+/** The canister is lit on leaving the plane or the object (at once under canopy), and smokes for a while. */
+function drawSmoke(dt: number): void {
+  const kind = setup.gear.smoke;
+  const out = !jump || (jump.phase !== 'plane' && jump.phase !== 'standing');
+  if (kind !== 'none' && out && smokeLitAt === null) smokeLitAt = airTime;
+  const burning = kind !== 'none' && smokeLitAt !== null && airTime - smokeLitAt < SMOKE_BURN;
+  if (!burning || dt <= 0) {
+    smokeWasOut = false;
+    return smoke.update(dt, null, smokeVel, rigFrame.wind);
+  }
+  // From the foot thrown about by a crash, or from the canister on the pilot's own.
+  if (ragdoll) smokeFrom.fromArray(liveJoints, 3 * J.footR);
+  else rigView.body.smokePoint(smokeFrom);
+  // Its speed from where it was: right whatever moves it (flight, legs, walking, a crash).
+  if (smokeWasOut) smokeVel.subVectors(smokeFrom, smokeBefore).divideScalar(dt);
+  else smokeVel.set(model.state.vel.x, model.state.vel.y, model.state.vel.z);
+  smokeBefore.copy(smokeFrom);
+  smokeWasOut = true;
+  smoke.update(dt, smokeFrom, smokeVel, rigFrame.wind);
 }
 
 /** Back under the main, whatever the last jump did with it. */
@@ -242,6 +282,7 @@ function apply(next: Setup, withGear: boolean): boolean {
   applyDz();
   applyWeather();
   if (withGear) applyGear(before.gear);
+  fitSmoke();
   showGear();
   return setup.dz === before.dz && sameFlight(setup.gear, before.gear);
 }
@@ -473,6 +514,9 @@ function spawn(kind: Start): void {
   stepsHeard = 0;
   endCrash();
   canopyTime = 0;
+  smoke.clear();
+  smokeLitAt = null;
+  smokeWasOut = false;
   posture.reset();
   legSwing.reset();
   chase.reset();
@@ -1611,7 +1655,10 @@ function frame(now: number): void {
     if (moving > 0 && !(recorder.crashAt !== null && canReplay())) record(recorder.next(moving), shown, inflation, onRisers, heap);
     rigView.update(model, applied, solid, light, hands, rigFrame);
     drawReleased(moving);
+    drawSmoke(moving);
   }
+  // A replay goes back in time: the smoke of now has no place in it.
+  if (replay) smoke.object.visible = false;
   if (net) {
     if (!replay) sendJumper(net, pose, onRisers, inflation, elapsed);
     net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, setup.dz);
