@@ -182,7 +182,7 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
   }
 
   // --- Buildings ----------------------------------------------------------------------
-  const bridges: Bridge[] = (data.dz.bridges ?? []).map(({ a, b, top, width, piers, depth }) => ({ a, b, top, width, piers, depth }));
+  const bridges: Bridge[] = (data.dz.bridges ?? []).map(({ name: _, ...bridge }) => bridge);
   const buildings: Building[] = [];
   for (const [x, z, length, width, heading, height, roof, wall, flatRoof, hangar, greenhouse] of data.buildings as number[][]) {
     // Whatever OSM has under a deck (its own piers, a hut) gives way to the bridge drawn.
