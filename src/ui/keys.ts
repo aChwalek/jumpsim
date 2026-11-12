@@ -9,7 +9,7 @@ import { T } from '../i18n';
 import { keyLabel } from '../input/keyLabels';
 
 /** `ledge`: on top of a BASE object, before the exit; `baseCanopy`: under its one canopy, which cannot be cut away. */
-export type KeysPhase = 'ledge' | 'plane' | 'freefall' | 'wingsuit' | 'canopy' | 'baseCanopy' | 'ground';
+export type KeysPhase = 'ledge' | 'plane' | 'freefall' | 'wingsuit' | 'canopy' | 'baseCanopy' | 'ground' | 'replay' | 'replayFree';
 export type InputKind = 'keyboard' | 'gamepad';
 export type PadKind = 'xbox' | 'playstation';
 
@@ -82,6 +82,29 @@ function keyboardRows(phase: KeysPhase): Row[] {
         [[k('KeyT'), k('KeyL')], t.targetLock],
         [[k('KeyB')], t.cameraZoom],
       ];
+    case 'replay':
+      return [
+        [[t.space], t.playPause],
+        [['←', '→'], t.seek],
+        [['↑', '↓'], t.speed],
+        [[k('KeyR')], t.fromStart],
+        [[t.esc], t.leave],
+        [[t.mouse], t.orbit],
+        [[k('KeyB')], t.freeCamera],
+      ];
+    case 'replayFree':
+      return [
+        [[k('KeyW'), k('KeyS')], t.fwdBack],
+        [[k('KeyA'), k('KeyD')], t.camSides],
+        [[k('KeyQ'), k('KeyE')], t.camDownUp],
+        [[t.shift], t.camFast],
+        [[t.mouse], t.camLook],
+        [[k('KeyB')], t.followCamera],
+        [[t.space], t.playPause],
+        [['←', '→'], t.seek],
+        [['↑', '↓'], t.speed],
+        [[t.esc], t.leave],
+      ];
     case 'ground':
       return [
         [[k('KeyW'), k('KeyS')], t.walk],
@@ -151,6 +174,28 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
         [['rs'], t.look],
         [['rs'], t.targetLockPad],
         [['view'], t.camera],
+      ];
+    case 'replay':
+      return [
+        [['a'], t.playPause],
+        [['left', 'right'], t.seek],
+        [['up', 'down'], t.speed],
+        [['y'], t.fromStart],
+        [['start'], t.leave],
+        [['rs'], t.orbitPad],
+        [['view'], t.freeCamera],
+      ];
+    case 'replayFree':
+      return [
+        [['ls'], t.camMove],
+        [['rs'], t.look],
+        [['lb', 'rb'], t.camDownUp],
+        [['rt'], t.camFast],
+        [['view'], t.followCamera],
+        [['a'], t.playPause],
+        [['left', 'right'], t.seek],
+        [['up', 'down'], t.speed],
+        [['start'], t.leave],
       ];
     case 'ground':
       return [
