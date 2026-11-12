@@ -188,4 +188,37 @@ export const LOOKS = {
     // Nobody jumps here from a plane: a start from the air only so that one exists.
     jumpRun: { downwind: 400, offset: 60, height: 1500, indicatedAirspeed: 39 },
   },
+  // Monte Brento: no drop zone, a BASE site, the most jumped exit in the
+  // world. The Becco dell'Aquila on the rim of the wall over the Sarca valley,
+  // and the campo Gaggiolo on the valley floor 1.7 km out from it.
+  brento: {
+    name: 'Monte Brento',
+    lat: 45.992674,
+    lon: 10.926101,
+    utcOffsetH: 2,
+    // The Ora del Garda, up the valley from the lake from late morning.
+    wind: { fromDeg: 190, speed: kmh(10) },
+    grass: { rough: 0x6b7a3a, mown: 0x74883f },
+    // Trentino stone and render, a few wooden barns.
+    walls: [0xe6e0d4, 0xd8cdb8, 0xefe9de, 0xc9bca4, 0x8a6a4a],
+    roofs: [0x8a4a36, 0x6f6a66, 0x9a5a40, 0x55504c],
+    woods: {
+      // Hop hornbeam, manna ash and oak on the limestone, pines higher up.
+      w: { height: [10, 20], perHectare: 30 },
+      s: { height: [2, 5], perHectare: 12 },
+      o: { height: [3, 5], perHectare: 50 },
+      v: { height: [1.5, 2.2], perHectare: 60 },
+    },
+    rowHeight: [6, 14],
+    // The valley floor slopes: only the field itself is laid flat.
+    relief: { flatBelow: 2, blend: 8 },
+    // Along the valley, the pattern over the road and the river on the east
+    // side, away from the wall.
+    landingAxisDeg: 10,
+    patternSideDeg: 100,
+    pattern: { upwind: 110, side: 100, height: 150 },
+    final: { downwind: 140, height: 50 },
+    // Nobody jumps here from a plane: a start from the air, over the valley, only so that one exists.
+    jumpRun: { downwind: 500, offset: 60, height: 2000, indicatedAirspeed: 39 },
+  },
 } satisfies Record<string, Look>;

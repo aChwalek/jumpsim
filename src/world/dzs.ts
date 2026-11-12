@@ -9,7 +9,7 @@ import { createRealDz, type RealDzData, type RealDzLook } from './real';
 import { LOOKS } from './realDzs';
 import { TOWER_HEIGHT, createTowerZone } from './tower';
 
-export type DzId = 'valbrise' | 'tower' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadeloupe' | 'lauterbrunnen' | 'limska' | 'millau';
+export type DzId = 'valbrise' | 'tower' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadeloupe' | 'lauterbrunnen' | 'limska' | 'millau' | 'brento';
 
 export interface DzInfo {
   id: DzId;
@@ -145,6 +145,8 @@ export const DZS: DzInfo[] = [
   real('limska', 'Vijadukt Limska Draga', undefined, 'croatia', () => import('./data/limska'), { height: 115, standing: true }),
   // The A75 viaduct: the road's height above the landing field at the exit, as built into data/millau.ts.
   real('millau', 'Viaduc de Millau', undefined, 'franceAlti', () => import('./data/millau'), { height: 277, standing: true }),
+  // The Becco dell'Aquila: the height down to the landing field, as in tools/dz/brento.json.
+  real('brento', "Becco dell'Aquila", undefined, 'trentino', () => import('./data/brento'), { height: 1175 }),
 ];
 
 export function dzInfo(id: DzId): DzInfo {
