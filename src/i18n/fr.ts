@@ -46,7 +46,6 @@ export const fr = {
     },
     made: 'DZ imaginaire',
     credits: {
-      pujaut: 'Carte © OpenStreetMap · relief IGN · carte VAC SIA',
       france: 'Photos IGN, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       franceAlti: 'Photos et relief RGE ALTI IGN, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       spain: 'Photos PNOA © IGN España, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',

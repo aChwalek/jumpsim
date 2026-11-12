@@ -1,0 +1,406 @@
+{
+ "id": "pujaut",
+ "displayName": "Pujaut",
+ "menuNote": "Un ancien lac asséché près d'Avignon",
+ "operator": "Skydive Pujaut (Dornier Do 28 G92)",
+ "aerodrome": {
+  "name": "Avignon-Pujaut",
+  "icao": "LFNT",
+  "elevation_m": 44,
+  "lat": 44.000472,
+  "lon": 4.75438
+ },
+ "utcOffsetSummer_h": 2,
+ "origin": {
+  "lat": 44.000472,
+  "lon": 4.75438,
+  "what": "centre of the parachute landing area, as in the earlier hand-built Pujaut"
+ },
+ "boundary": [
+  [
+   43.995145,
+   4.745314
+  ],
+  [
+   44.00261,
+   4.751932
+  ],
+  [
+   44.001173,
+   4.755729
+  ],
+  [
+   43.996942,
+   4.764445
+  ],
+  [
+   43.989233,
+   4.757302
+  ],
+  [
+   43.991389,
+   4.752632
+  ],
+  [
+   43.992018,
+   4.750908
+  ],
+  [
+   43.992369,
+   4.751183
+  ],
+  [
+   43.993186,
+   4.749485
+  ]
+ ],
+ "runways": [
+  {
+   "ref": "16R/34L",
+   "ends": [
+    [
+     44.002111,
+     4.752175
+    ],
+    [
+     43.990379,
+     4.756447
+    ]
+   ],
+   "width_m": 100,
+   "surface": "grass",
+   "evidence": "the earlier hand-built Pujaut (SIA VAC chart of LFNT and OSM, tools/pujaut), converted from its local metres"
+  },
+  {
+   "ref": "12/30",
+   "ends": [
+    [
+     44.000937,
+     4.750562
+    ],
+    [
+     43.995199,
+     4.7627
+    ]
+   ],
+   "width_m": 100,
+   "surface": "grass",
+   "evidence": "the earlier hand-built Pujaut (SIA VAC chart of LFNT and OSM, tools/pujaut), converted from its local metres"
+  },
+  {
+   "ref": "16L/34R",
+   "ends": [
+    [
+     43.998512,
+     4.757894
+    ],
+    [
+     43.992879,
+     4.759936
+    ]
+   ],
+   "width_m": 80,
+   "surface": "grass",
+   "evidence": "the earlier hand-built Pujaut (SIA VAC chart of LFNT and OSM, tools/pujaut), converted from its local metres"
+  }
+ ],
+ "paved": [
+  {
+   "name": "Car park (asphalt)",
+   "polygon": [
+    [
+     44.00049,
+     4.756115
+    ],
+    [
+     44.000221,
+     4.756763
+    ],
+    [
+     43.999935,
+     4.756534
+    ],
+    [
+     44.000204,
+     4.755886
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "the earlier hand-built Pujaut (SIA VAC chart of LFNT and OSM, tools/pujaut), converted from its local metres"
+  },
+  {
+   "name": "Apron pad in front of hangar",
+   "polygon": [
+    [
+     43.999971,
+     4.755353
+    ],
+    [
+     44.000113,
+     4.755492
+    ],
+    [
+     44.000055,
+     4.755607
+    ],
+    [
+     43.999913,
+     4.755469
+    ]
+   ],
+   "surface": "concrete",
+   "evidence": "the earlier hand-built Pujaut (SIA VAC chart of LFNT and OSM, tools/pujaut), converted from its local metres"
+  }
+ ],
+ "landingAreas": [
+  {
+   "name": "Parachute landing area",
+   "use": "sport",
+   "polygon": [
+    [
+     44.001514,
+     4.753319
+    ],
+    [
+     44.000616,
+     4.755229
+    ],
+    [
+     44.000301,
+     4.754954
+    ],
+    [
+     44.000023,
+     4.755504
+    ],
+    [
+     43.999538,
+     4.755129
+    ],
+    [
+     44.000203,
+     4.753731
+    ]
+   ],
+   "surface": "grass",
+   "colorHex": "#7c9a48",
+   "evidence": "the earlier hand-built Pujaut (SIA VAC chart of LFNT and OSM, tools/pujaut), converted from its local metres"
+  }
+ ],
+ "target": {
+  "lat": 44.000948,
+  "lon": 4.753905,
+  "radius_m": 2.7,
+  "surface": "gravel",
+  "colorHex": "#cdbf9a",
+  "evidence": "the gravel disc in the north-west part of the landing area, the earlier hand-built Pujaut (SIA VAC chart of LFNT and OSM, tools/pujaut), converted from its local metres"
+ },
+ "pond": null,
+ "buildings": [
+  {
+   "name": "Skydive Pujaut main hangar",
+   "polygon": [
+    [
+     44.000447,
+     4.755253
+    ],
+    [
+     44.000197,
+     4.755768
+    ],
+    [
+     43.999962,
+     4.755548
+    ],
+    [
+     44.000212,
+     4.755032
+    ]
+   ],
+   "height_m": 9,
+   "wallHex": "#c9ccd0",
+   "roofHex": "#eceeef",
+   "flatRoof": false,
+   "hangarDoor": true,
+   "evidence": "the earlier hand-built Pujaut (SIA VAC chart of LFNT and OSM, tools/pujaut), converted from its local metres"
+  },
+  {
+   "name": "Volomax wind tunnel",
+   "polygon": [
+    [
+     43.999538,
+     4.755993
+    ],
+    [
+     43.999695,
+     4.75614
+    ],
+    [
+     43.999649,
+     4.756236
+    ],
+    [
+     43.999492,
+     4.756089
+    ]
+   ],
+   "height_m": 10,
+   "wallHex": "#dfe3e6",
+   "roofHex": "#2f6fb0",
+   "flatRoof": true,
+   "hangarDoor": false,
+   "evidence": "the earlier hand-built Pujaut (SIA VAC chart of LFNT and OSM, tools/pujaut), converted from its local metres"
+  },
+  {
+   "name": "Restaurant",
+   "polygon": [
+    [
+     44.00051,
+     4.756373
+    ],
+    [
+     44.000409,
+     4.756582
+    ],
+    [
+     44.000292,
+     4.756473
+    ],
+    [
+     44.000393,
+     4.756265
+    ]
+   ],
+   "height_m": 5,
+   "wallHex": "#e6d8bd",
+   "roofHex": "#b45f3c",
+   "flatRoof": false,
+   "hangarDoor": false,
+   "evidence": "the earlier hand-built Pujaut (SIA VAC chart of LFNT and OSM, tools/pujaut), converted from its local metres"
+  },
+  {
+   "name": "Low building by the hangar",
+   "polygon": [
+    [
+     44.00059,
+     4.75553
+    ],
+    [
+     44.000393,
+     4.755937
+    ],
+    [
+     44.000327,
+     4.755875
+    ],
+    [
+     44.000524,
+     4.755468
+    ]
+   ],
+   "height_m": 4,
+   "wallHex": "#d9d4c8",
+   "roofHex": "#8c8f93",
+   "flatRoof": false,
+   "hangarDoor": false,
+   "evidence": "the earlier hand-built Pujaut (SIA VAC chart of LFNT and OSM, tools/pujaut), converted from its local metres"
+  },
+  {
+   "name": "Glider hangar and clubhouse",
+   "polygon": [
+    [
+     43.997903,
+     4.760508
+    ],
+    [
+     43.9977,
+     4.760927
+    ],
+    [
+     43.997577,
+     4.760813
+    ],
+    [
+     43.997781,
+     4.760393
+    ]
+   ],
+   "height_m": 7,
+   "wallHex": "#b9bcc0",
+   "roofHex": "#7d8288",
+   "flatRoof": false,
+   "hangarDoor": true,
+   "evidence": "the earlier hand-built Pujaut (SIA VAC chart of LFNT and OSM, tools/pujaut), converted from its local metres"
+  }
+ ],
+ "windsocks": [
+  {
+   "lat": 44.000447,
+   "lon": 4.754335
+  }
+ ],
+ "flags": [],
+ "people": [
+  [
+   44.000966,
+   4.754268
+  ],
+  [
+   44.000957,
+   4.75425
+  ],
+  [
+   44.000203,
+   4.755067
+  ],
+  [
+   44.000176,
+   4.755104
+  ],
+  [
+   44.000238,
+   4.755154
+  ],
+  [
+   44.000005,
+   4.755254
+  ],
+  [
+   44.000113,
+   4.755754
+  ],
+  [
+   44.000364,
+   4.756253
+  ],
+  [
+   44.001101,
+   4.75388
+  ]
+ ],
+ "pattern": {
+  "description": "Left-hand circuit west of the landing area with the mistral, over the open field."
+ },
+ "jumpRun": {
+  "exitAltitudeAgl_m": 4000,
+  "aircraft": "Dornier Do 28 G92",
+  "description": "Into the wind."
+ },
+ "wind": {
+  "usual": {
+   "fromDeg": 340,
+   "kmh": 18
+  },
+  "notes": "The mistral, north-north-west: four days in ten on summer afternoons."
+ },
+ "invented": [
+  "Everything here was carried over from the earlier hand-built Pujaut, whose own inputs (SIA VAC chart, OSM extracts) are no longer in the repository; positions are good to a few metres.",
+  "People, and the pattern and jump run in src/world/realDzs.ts."
+ ],
+ "sources": [
+  "SIA VAC chart of LFNT (via the earlier src/world/pujautData.ts)",
+  "OpenStreetMap, fetched with tools/dz/osm_api.py: no Overpass server could be reached when this was built"
+ ],
+ "imagery": "ign",
+ "inland": true
+}
