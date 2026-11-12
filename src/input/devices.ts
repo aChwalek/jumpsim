@@ -47,7 +47,9 @@ export type Action =
   | 'nextTarget'
   | 'prevTarget'
   /** The camera locked on the target, or free again. */
-  | 'lock';
+  | 'lock'
+  /** Gamepad, the right stick tapped: lock on the target, or with none, look straight ahead again. */
+  | 'lockOrRecentre';
 
 const ACTIONS: Record<string, Action> = {
   KeyR: 'reset',
@@ -126,6 +128,14 @@ const MAX_YAW = 2.6;
 const MAX_PITCH_UP = 1.45;
 const MAX_PITCH_DOWN = 1.5;
 const STICK_DEADZONE = 0.12;
+/**
+ * The right stick all the way over turns the head this fast, rad/s, and
+ * leaves it there, as the mouse does. Short of that, slower than in
+ * proportion, to aim.
+ */
+const STICK_YAW_RATE = 2.6;
+const STICK_PITCH_RATE = 1.8;
+const curve = (v: number): number => v * Math.abs(v);
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 const deadzone = (v: number): number =>
@@ -193,8 +203,11 @@ export class InputDevices {
    * and still held as the canopy comes out does not cut it away.
    */
   private padCutawayArmed = false;
-  private mouseYaw = 0;
-  private mousePitch = 0;
+  /** Where the head is turned, by the mouse and the right stick, rad. */
+  private headYaw = 0;
+  private headPitch = 0;
+  /** When the devices were last read, ms. */
+  private lastPoll: number | null = null;
   /** The mouse's turn of the body since it was last taken, rad to the right. */
   private feetYaw = 0;
   /** When the cutaway key or button went down, ms, and whether this hold has fired. */
@@ -244,9 +257,9 @@ export class InputDevices {
       if (document.pointerLockElement !== surface) return;
       const speed = MOUSE_SENSITIVITY * this.sensitivity * this.lookScale;
       if (this.feetTurn) this.feetYaw += e.movementX * speed;
-      else this.mouseYaw = clamp(this.mouseYaw + e.movementX * speed, -MAX_YAW, MAX_YAW);
-      this.mousePitch = clamp(
-        this.mousePitch - e.movementY * speed * (this.invertLook ? -1 : 1),
+      else this.headYaw = clamp(this.headYaw + e.movementX * speed, -MAX_YAW, MAX_YAW);
+      this.headPitch = clamp(
+        this.headPitch - e.movementY * speed * (this.invertLook ? -1 : 1),
         -MAX_PITCH_DOWN,
         MAX_PITCH_UP,
       );
@@ -275,8 +288,8 @@ export class InputDevices {
   }
 
   recentre(): void {
-    this.mouseYaw = 0;
-    this.mousePitch = 0;
+    this.headYaw = 0;
+    this.headPitch = 0;
   }
 
   /** How far the mouse has turned the body since last asked, rad to the right; on foot. */
@@ -288,6 +301,9 @@ export class InputDevices {
 
   /** Read the current state of every device. Call once per frame. */
   poll(): void {
+    const now = performance.now();
+    const dt = this.lastPoll === null ? 0 : Math.min(0.1, (now - this.lastPoll) / 1000);
+    this.lastPoll = now;
     const k = this.keys;
     const p = this.pulls;
     const both = k.has('KeyS'); // S: both toggles
@@ -312,12 +328,10 @@ export class InputDevices {
     f.slide = key('KeyD') - key('KeyA');
 
     // On foot the body turns to where the head was turned.
-    if (this.feetTurn && this.mouseYaw !== 0) {
-      this.feetYaw += this.mouseYaw;
-      this.mouseYaw = 0;
+    if (this.feetTurn && this.headYaw !== 0) {
+      this.feetYaw += this.headYaw;
+      this.headYaw = 0;
     }
-    let stickYaw = 0;
-    let stickPitch = 0;
     this.analogBrakeL = 0;
     this.analogBrakeR = 0;
     const pad = navigator.getGamepads?.().find((g) => g?.connected && g.mapping === 'standard');
@@ -336,16 +350,19 @@ export class InputDevices {
       // In freefall the right stick flies, LB held it looks around again.
       const flies = this.padMode === 'freefall' && btn(4) === 0;
       if (!flies) {
-        // On foot it turns the body instead, at a walker's rate.
-        stickYaw = this.feetTurn ? 0 : rightX * 1.7;
-        stickPitch = -rightY * 1.2 * (this.invertLook ? -1 : 1);
+        // It turns the head, and leaves it where it turned it; on foot it
+        // turns the body instead, at a walker's rate.
+        const turn = this.lookScale * dt;
+        if (!this.feetTurn) this.headYaw = clamp(this.headYaw + curve(rightX) * STICK_YAW_RATE * turn, -MAX_YAW, MAX_YAW);
+        const up = -curve(rightY) * STICK_PITCH_RATE * turn * (this.invertLook ? -1 : 1);
+        this.headPitch = clamp(this.headPitch + up, -MAX_PITCH_DOWN, MAX_PITCH_UP);
       }
       // In freefall the left stick drives; the right stick turns, and the
       // triggers too, the way the toggles turn under canopy.
       b.turn = clamp(b.turn + this.analogBrakeR - this.analogBrakeL + (flies ? rightX : 0), -1, 1);
       b.forward = clamp(b.forward - deadzone(pad.axes[1] ?? 0), -1, 1);
       b.slide = clamp(b.slide + deadzone(pad.axes[0] ?? 0), -1, 1);
-      f.turn = clamp(f.turn + this.analogBrakeR - this.analogBrakeL + (this.feetTurn ? rightX : 0), -1, 1);
+      f.turn = clamp(f.turn + this.analogBrakeR - this.analogBrakeL + (this.feetTurn ? curve(rightX) : 0), -1, 1);
       f.slide = clamp(f.slide + deadzone(pad.axes[0] ?? 0), -1, 1);
       // The right stick pushed up spreads out (up on the others, the wings
       // wide), pulled down tucks in (down, the wings tight), as far as it goes.
@@ -370,7 +387,6 @@ export class InputDevices {
     }
     // The cutaway: X held, or B on the gamepad.
     const cutaway = k.has('KeyX') || ((pad?.buttons[PAD_CUTAWAY]?.pressed ?? false) && this.padCutawayArmed);
-    const now = performance.now();
     if (!cutaway) {
       this.cutawayFrom = null;
       this.cutawayFired = false;
@@ -383,7 +399,7 @@ export class InputDevices {
         this.onAction('cutaway');
       }
     }
-    // The right stick pressed: a tap locks, held it picks a target.
+    // The right stick pressed: a tap locks (or with no target, looks straight ahead again), held it picks a target.
     const lock = pad?.buttons[PAD_LOCK]?.pressed ?? false;
     if (lock) {
       this.lockFrom ??= now;
@@ -392,12 +408,12 @@ export class InputDevices {
         this.onAction('pickTarget');
       }
     } else if (this.lockFrom !== null) {
-      if (!this.lockPicked) this.onAction('lock');
+      if (!this.lockPicked) this.onAction('lockOrRecentre');
       this.lockFrom = null;
       this.lockPicked = false;
     }
     f.forward = b.forward;
-    this.lookYaw = clamp(this.mouseYaw + stickYaw, -MAX_YAW, MAX_YAW);
-    this.lookPitch = clamp(this.mousePitch + stickPitch, -MAX_PITCH_DOWN, MAX_PITCH_UP);
+    this.lookYaw = this.headYaw;
+    this.lookPitch = this.headPitch;
   }
 }

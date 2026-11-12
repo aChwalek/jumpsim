@@ -748,6 +748,7 @@ const actions: Record<Action, () => void> = {
     devices.recentre();
     say(locked ? T.cue.locked : T.cue.unlocked);
   },
+  lockOrRecentre: () => (target ? actions.lock() : devices.recentre()),
   camera: () => {
     view = view === 'eyes' ? 'outside' : 'eyes';
     chase.reset();

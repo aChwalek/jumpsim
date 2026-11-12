@@ -213,7 +213,7 @@ export const en: Strings = {
     outsideCamera: 'outside camera',
     cameraZoom: 'camera, wheel for distance',
     targetLock: 'target / lock camera',
-    targetLockPad: 'press: lock · hold: target',
+    targetLockPad: 'press: lock, no target recentre · hold: target',
   },
 
   logbook: {
@@ -512,7 +512,7 @@ export const en: Strings = {
         ['Both front risers', k('KeyW'), 'LB + RB'],
         ['Wraps (stall): keep a toggle fully pulled', `hold ${k('KeyA')} / ${k('KeyD')} / ${k('KeyS')}`, 'hold the trigger'],
         ['Hold the toggles where they are', 'Shift', '—'],
-        ['Look around', `mouse · ${k('KeyC')} recentres`, 'right stick (freefall: LB held)'],
+        ['Look around', `mouse · ${k('KeyC')} recentres`, 'right stick (freefall: LB held) · pressed with no target: recentres'],
         ['On the ground and on the ledge: walk, step sideways, turn (as in a first-person game)', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyA')} / ${k('KeyD')} · mouse`, 'left stick · right stick'],
         ['Exit the plane, then pull', 'Space', 'A'],
         ['Slider: collapse it or take it off', k('KeyG'), 'X'],

@@ -217,7 +217,7 @@ export const fr = {
     outsideCamera: 'caméra extérieure',
     cameraZoom: 'caméra, molette distance',
     targetLock: 'cible / verrou caméra',
-    targetLockPad: 'appui : verrou · maintenu : cible',
+    targetLockPad: 'appui : verrou, sans cible recentrer · maintenu : cible',
   },
 
   logbook: {
@@ -516,7 +516,7 @@ export const fr = {
         ['Les deux élévateurs avant', k('KeyW'), 'LB + RB'],
         ['Tours de commande (décrochage) : rester à fond', `tenir ${k('KeyA')} / ${k('KeyD')} / ${k('KeyS')}`, 'tenir la gâchette'],
         ['Garder les commandes où elles sont', 'Maj', '—'],
-        ['Regarder autour', `souris · ${k('KeyC')} recentre`, 'stick droit (en chute : LB maintenu)'],
+        ['Regarder autour', `souris · ${k('KeyC')} recentre`, 'stick droit (en chute : LB maintenu) · appui sans cible : recentre'],
         ['Au sol et sur la corniche : marcher, pas de côté, tourner (comme dans un FPS)', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyA')} / ${k('KeyD')} · souris`, 'stick gauche · stick droit'],
         ['Sauter de l\'avion, puis ouvrir', 'Espace', 'A'],
         ['Glisseur : le replier ou l\'enlever', k('KeyG'), 'X'],

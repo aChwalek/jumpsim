@@ -78,6 +78,8 @@ describe('right stick', () => {
     pad.axes[2] = 1;
     pad.buttons[4]!.pressed = true;
     d.poll();
+    now += 100;
+    d.poll();
     expect(d.body.turn).toBe(0);
     expect(d.lookYaw).toBeGreaterThan(0);
   });
@@ -89,10 +91,41 @@ describe('right stick', () => {
     for (const mode of ['default', 'exit'] as const) {
       d.padMode = mode;
       d.poll();
+      now += 100;
+      d.poll();
       expect(d.body.turn).toBe(0);
       expect(d.body.fall).toBe(0);
       expect(d.lookYaw).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('looking with the right stick', () => {
+  it('turns the head as fast as it is pushed, and leaves it there', () => {
+    const { d } = devices();
+    d.poll();
+    pad.axes[2] = 1;
+    now += 100;
+    d.poll();
+    const full = d.lookYaw;
+    expect(full).toBeCloseTo(0.26);
+    pad.axes[2] = 0.5;
+    now += 100;
+    d.poll();
+    // Half way over, well under half the speed, to aim.
+    const half = d.lookYaw - full;
+    expect(half).toBeGreaterThan(0);
+    expect(half).toBeLessThan(full / 3);
+    pad.axes[2] = 0;
+    now += 1000;
+    d.poll();
+    expect(d.lookYaw).toBeCloseTo(full + half);
+  });
+
+  it('pressed, locks on the target, or with none looks straight ahead again', () => {
+    const { d, actions } = devices();
+    press(d, 11);
+    expect(actions).toEqual(['lockOrRecentre']);
   });
 });
 
