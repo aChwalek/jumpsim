@@ -36,6 +36,8 @@ export interface HudData {
   freefall: boolean;
   /** What to do next, if anything, as HTML. */
   cue: string;
+  /** Following a leader: which way our place behind it is, as HTML; empty otherwise. */
+  guide: string;
   /** Colour the height: getting low for a pull, or too low. */
   heightAlert: 'none' | 'warn' | 'danger';
 }
@@ -108,6 +110,8 @@ export class Hud {
   private readonly gear = el('gear');
   private readonly cue = el('cue');
   private lastCue = '';
+  private readonly guide = el('guide');
+  private lastGuide = '';
   private readonly keys = el('keys');
   private lastKeys = '';
   private lastKeysArgs = '';
@@ -356,6 +360,9 @@ export class Hud {
     this.heightGauge.classList.toggle('danger', d.heightAlert === 'danger');
     if (d.cue !== this.lastCue) {
       this.cue.innerHTML = this.lastCue = d.cue;
+    }
+    if (d.guide !== this.lastGuide) {
+      this.guide.innerHTML = this.lastGuide = d.guide;
     }
 
     this.sinceText += frameSeconds;

@@ -41,6 +41,12 @@
       .bar .front { position: absolute; top: -9px; left: -4px; right: -4px; height: 5px; background: #6fd0ff; border-radius: 2px; opacity: 0; }
       #held { position: absolute; left: 50%; bottom: 144px; transform: translateX(-50%); font-size: 11px; letter-spacing: 0.12em; opacity: 0; }
       #cue { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); text-align: center; font-size: 13px; letter-spacing: 0.12em; }
+      #guide { position: absolute; left: 50%; top: 112px; transform: translateX(-50%); display: flex; gap: 10px; font-size: 15px; font-weight: 600; letter-spacing: 0.08em; white-space: nowrap; }
+      #guide span { padding: 4px 10px; border-radius: 6px; background: rgba(10, 16, 24, 0.55); }
+      #guide .ok { opacity: 0.55; font-weight: 400; }
+      #guide i { margin-left: 6px; font-style: normal; }
+      #guide svg.pad { display: inline-block; vertical-align: middle; }
+      #guide kbd { margin-left: 6px; padding: 0 5px; border: 1px solid rgba(255, 255, 255, 0.5); border-radius: 4px; font: inherit; font-size: 12px; }
       #cue small { display: block; margin-top: 3px; font-size: 11px; letter-spacing: 0.04em; opacity: 0.8; }
       #hud.freefall #brakes, #hud.freefall #held { display: none; }
       #keys {
@@ -133,6 +139,7 @@
       </div>
       <div id="held" class="flight">MAINTIEN</div>
       <div id="cue" class="flight"></div>
+      <div id="guide" class="flight"></div>
       <div id="keys" class="flight"></div>
       <div id="brakes" class="flight">
         <div class="bar"><div class="front" id="frontL"></div><div class="fill" id="brakeL"></div></div>

@@ -14,7 +14,7 @@ export type InputKind = 'keyboard' | 'gamepad';
 export type PadKind = 'xbox' | 'playstation';
 
 /** A gamepad control, drawn rather than spelt out. */
-type PadControl = 'a' | 'b' | 'x' | 'y' | 'start' | 'view' | 'lb' | 'rb' | 'lt' | 'rt' | 'ls' | 'rs' | 'cross' | 'up' | 'down' | 'left' | 'right';
+export type PadControl = 'a' | 'b' | 'x' | 'y' | 'start' | 'view' | 'lb' | 'rb' | 'lt' | 'rt' | 'ls' | 'rs' | 'cross' | 'up' | 'down' | 'left' | 'right';
 
 /** Keyboard keys as written on the caps, or gamepad controls; and what they do. */
 type Row = [keys: string[], what: string];
@@ -144,8 +144,9 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
     case 'freefall':
       return [
         [['ls'], t.fwdBackSlide],
-        [['rs'], t.turnUpDown],
-        [['lb'], t.lookHeld],
+        [['lt', 'rt'], t.turn],
+        [['lb', 'rb'], t.upDown],
+        [['rs'], t.look],
         [['b', 'y', 'x'], t.positionsPad],
         [['up', 'down'], t.sitHeadDown],
         [['left', 'right'], t.bellyBack],
@@ -157,8 +158,9 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
     case 'wingsuit':
       return [
         [['ls'], t.diveFlare],
-        [['rs'], t.turnWings],
-        [['lb'], t.lookHeld],
+        [['lt', 'rt'], t.turn],
+        [['lb', 'rb'], t.wingsWideTight],
+        [['rs'], t.look],
         [['left', 'right'], t.wingsuitRoll],
         [['a'], t.pullReserve],
         [['rs'], t.targetLockPad],
@@ -238,7 +240,7 @@ function cross(lit: ('up' | 'down' | 'left' | 'right')[], title: string): string
   );
 }
 
-function padIcon(c: PadControl, kind: PadKind): string {
+export function padIcon(c: PadControl, kind: PadKind): string {
   switch (c) {
     case 'a':
       // Xbox: the green A. PlayStation: the blue cross on a dark button.

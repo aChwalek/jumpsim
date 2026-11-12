@@ -11,7 +11,7 @@ import { FlightModel } from '../sim/flightModel';
 import { noBodyInputs } from '../sim/freefall';
 import { feetHeight } from '../sim/landing';
 import { SnapshotBuffer } from './interp';
-import { emptySnapshot } from './snapshot';
+import { copySnapshot, emptySnapshot, type Snapshot } from './snapshot';
 
 /** What the frame gives every other jumper: the ground, the light, the air. */
 export interface RemoteFrame {
@@ -34,6 +34,11 @@ const still = noBodyInputs();
  */
 export class RemoteJumper {
   readonly buffer = new SnapshotBuffer();
+  /**
+   * Simulated on this machine (a bot): drawn as it is right now, from this,
+   * and not a moment in the past from what came over the network.
+   */
+  live: Snapshot | null = null;
   private readonly now = emptySnapshot();
   private readonly posture = new Posture();
   /** Where they were in their jump at the last frame drawn. */
@@ -82,13 +87,14 @@ export class RemoteJumper {
     const view = this.view;
     const s = this.now;
     if (!view || !this.main || !this.reserve) return;
-    const sampled = visible && this.buffer.sample(f.now, s);
+    const sampled = visible && (this.live ? (copySnapshot(s, this.live), true) : this.buffer.sample(f.now, s));
     // Into freefall from anything but freefall, and not by a cutaway: out of the plane,
     // even if the snapshots from the door were missed.
     this.exited = sampled && this.phase !== null && this.phase !== 'freefall' && s.phase === 'freefall' && !s.cutaway;
     if (sampled) this.phase = s.phase;
-    // In their plane, which is not drawn here yet: not shown either.
-    view.object.visible = sampled && s.phase !== 'plane';
+    // In their plane, which is not drawn here yet: not shown either. A bot is in ours, which is:
+    // there in the door with us, to be seen and picked as a target before the exit.
+    view.object.visible = sampled && (s.phase !== 'plane' || this.live !== null);
     if (!view.object.visible) {
       // Back in their plane: a new canister for the next jump. The smoke left drifts on.
       if (sampled) this.smokeLitAt = null;

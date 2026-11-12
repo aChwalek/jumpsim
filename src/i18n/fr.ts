@@ -174,6 +174,8 @@ export const fr = {
     pickHint: (k: string) => `${k} : cibler ce qui est au centre de l'écran`,
     locked: 'CAMÉRA VERROUILLÉE SUR LA CIBLE',
     unlocked: 'CAMÉRA LIBRE',
+    botLeads: 'mène',
+    guide: { up: 'MONTE', down: 'DESCENDS', faster: 'ACCÉLÈRE', slower: 'FREINE', left: 'À GAUCHE', right: 'À DROITE', level: 'NIVEAU OK', near: 'DISTANCE OK', forward: 'AVANCE', back: 'RECULE', take: 'PASSE', flat: 'À PLAT' },
   },
 
   keys: {
@@ -190,8 +192,6 @@ export const fr = {
     turn: 'tourner',
     slide: 'glisser',
     upDown: 'monter / descendre',
-    turnUpDown: 'tourner, monter / descendre',
-    lookHeld: 'maintenu : regarder',
     positionsPad: 'dos / assis / tête en bas · rappui : ventre',
     sitHeadDown: 'salto (maintenu : à la suite)',
     bellyBack: 'tonneau / demi-tour (maintenu : à la suite)',
@@ -199,7 +199,6 @@ export const fr = {
     trackPress: 'appui : track / trace',
     diveFlare: 'piquer / cabrer',
     wingsWideTight: 'ailes ouvertes / serrées',
-    turnWings: 'tourner, ailes ouvertes / serrées',
     wingsuitRoll: 'tonneau, vol sur le dos',
     fwdBackSlide: 'avancer, reculer, glisser',
     pull: 'ouvrir',
@@ -503,6 +502,30 @@ export const fr = {
         step: 'Dehors sur le marchepied, accroché au cadre, déjà dans le vent : il suffit de lâcher.',
       },
       spotKeys: (fwd: string, back: string) => `Dans l'avion, ${fwd} / ${back} pour changer de place.`,
+      bots: 'SAUTANTS IA',
+      botsHint: 'en saut solo',
+      botsNone: 'Aucun',
+      botsNote: 'Ils sortent juste après toi, de l\'avion seulement, dans la même combinaison que toi.',
+      botsRoom: 'À plusieurs dans une room, pas de sautants IA.',
+      botLead: 'QUI MÈNE',
+      botLeads: { us: 'Moi', bot: 'Un sautant IA' },
+      botLeadNote: {
+        us: 'Ils se placent autour de toi et font comme toi.',
+        bot: 'Le premier vole comme il veut ; les autres se placent autour de lui, et une place t\'attend. Les aides te disent où.',
+        track: 'En dérive et en wingsuit, c\'est toujours un sautant IA qui mène.',
+      },
+      botMode: 'ILS VOLENT',
+      botModes: { formation: 'À plat', vertical: 'Vertical', track: 'Dérive' },
+      botModeNote: {
+        formation: (breakOff: string, pull: string) =>
+          `À plat, en ronde avec toi, tout près. Si tu changes de position, ils te suivent. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
+        vertical: (breakOff: string, pull: string) =>
+          `Assis dès la sortie, en ronde avec toi, tout près ; tête en bas si tu y passes. Sors assis toi aussi. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
+        track: (breakOff: string, pull: string) =>
+          `Le premier mène une dérive à 90° à droite de l'axe puis autour de la zone, et t'attend ; les autres en V derrière lui. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
+        wings: (breakOff: string, pull: string) =>
+          `En wingsuit, toujours derrière un leader : il part à 90° à droite de l'axe puis tourne autour de la zone, et t'attend ; les autres en V derrière lui. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
+      },
     },
 
     map: {
@@ -545,7 +568,7 @@ export const fr = {
         ['Les deux élévateurs avant', k('KeyW'), 'LB + RB'],
         ['Tours de commande (décrochage) : rester à fond des deux côtés', `tenir ${k('KeyS')} ou ${k('KeyA')} + ${k('KeyD')}`, 'tenir les deux gâchettes'],
         ['Garder les commandes où elles sont', 'Maj', '—'],
-        ['Regarder autour', `souris · ${k('KeyC')} recentre`, 'stick droit (en chute : LB maintenu) · appui sans cible : recentre'],
+        ['Regarder autour', `souris · ${k('KeyC')} recentre`, 'stick droit · appui sans cible : recentre'],
         ['Au sol et sur la corniche : marcher, pas de côté, tourner (comme dans un FPS)', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyA')} / ${k('KeyD')} · souris`, 'stick gauche · stick droit'],
         ['Sauter de l\'avion, puis ouvrir', 'Espace', 'A'],
         ['Glisseur : le replier ou l\'enlever', k('KeyG'), 'X'],
@@ -555,13 +578,13 @@ export const fr = {
         ['Cible : le joueur ou le sol au centre de l\'écran (le ciel : plus de cible)', k('KeyT'), 'stick droit maintenu'],
         ['Cible : joueur suivant / précédent', 'Tab / Maj+Tab', '—'],
         ['Verrouiller la caméra sur la cible, ou la libérer', `${k('KeyL')} · clic molette`, 'appui stick droit'],
-        ['En chute : tourner', `${k('KeyA')} / ${k('KeyD')}`, 'stick droit gauche / droite · gâchettes'],
+        ['En chute : tourner', `${k('KeyA')} / ${k('KeyD')}`, 'gâchettes'],
         ['En chute : avancer, reculer, glisser', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyQ')} / ${k('KeyE')}`, 'stick gauche'],
-        ['En chute : monter / descendre', `${k('KeyR')} / ${k('KeyF')}`, 'stick droit haut / bas'],
+        ['En chute : monter / descendre', `${k('KeyR')} / ${k('KeyF')}`, 'LB / RB'],
         ['En chute ou à la sortie : droit sur le dos / assis / tête en bas (le même bouton encore : à plat ventre)', '—', 'B / Y / X'],
         ['En chute : quart de salto avant / arrière vers la position suivante (deux fois : ventre → dos par la tête en bas, 4 fois : salto complet, maintenu : à la suite)', '↑ / ↓', 'croix haut / bas'],
         ['En chute : track à plat, trace debout (maintenu · un appui, puis un autre)', 'Maj', 'appui stick gauche'],
-        ['En wingsuit : piquer / cabrer, ailes ouvertes / serrées (plus lent / plus rapide)', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyR')} / ${k('KeyF')}`, 'stick gauche · stick droit haut / bas'],
+        ['En wingsuit : piquer / cabrer, ailes ouvertes / serrées (plus lent / plus rapide)', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyR')} / ${k('KeyF')}`, 'stick gauche · LB / RB'],
         ['En chute : demi-tonneau à plat (deux fois : tonneau), demi-tour vertical (maintenu : à la suite)', '← / →', 'croix gauche / droite'],
         ['Recommencer (pas en chute)', k('KeyR'), 'Y (sous voile, au sol)'],
         ['Partir en circuit / finale / avion', '1 / 2 / 3', '—'],

@@ -128,8 +128,9 @@ const PAD_CUTAWAY = 1;
 /**
  * What the gamepad is for at this moment of the jump. `exit`: in the door or
  * on the ledge, B, Y and X take the position to go out in. `freefall`: they
- * do the same, and the right stick flies (turns, up and down) unless LB is
- * held to look around.
+ * do the same, and the bumpers go up and down. The right stick looks around
+ * there as everywhere: the eyes are on whoever is flown with, and the
+ * triggers turn.
  */
 export type PadMode = 'default' | 'exit' | 'freefall';
 
@@ -385,16 +386,12 @@ export class InputDevices {
       p.frontR ||= btn(5) === 1;
       const rightX = deadzone(pad.axes[2] ?? 0);
       const rightY = deadzone(pad.axes[3] ?? 0);
-      // In freefall the right stick flies, LB held it looks around again.
-      const flies = this.padMode === 'freefall' && btn(4) === 0;
-      if (!flies) {
-        // It turns the head, and leaves it where it turned it; on foot it
-        // turns the body instead, at a walker's rate.
-        const turn = this.lookScale * dt;
-        if (!this.feetTurn) this.headYaw = clamp(this.headYaw + curve(rightX) * STICK_YAW_RATE * turn, -MAX_YAW, MAX_YAW);
-        const up = -curve(rightY) * STICK_PITCH_RATE * turn * (this.invertLook ? -1 : 1);
-        this.headPitch = clamp(this.headPitch + up, -MAX_PITCH_DOWN, MAX_PITCH_UP);
-      }
+      // The right stick turns the head, and leaves it where it turned it; on
+      // foot it turns the body instead, at a walker's rate.
+      const turn = this.lookScale * dt;
+      if (!this.feetTurn) this.headYaw = clamp(this.headYaw + curve(rightX) * STICK_YAW_RATE * turn, -MAX_YAW, MAX_YAW);
+      const up = -curve(rightY) * STICK_PITCH_RATE * turn * (this.invertLook ? -1 : 1);
+      this.headPitch = clamp(this.headPitch + up, -MAX_PITCH_DOWN, MAX_PITCH_UP);
       // The free camera of a replay: the left stick, the bumpers, the right stick to look.
       fr.forward = clamp(fr.forward - deadzone(pad.axes[1] ?? 0), -1, 1);
       fr.right = clamp(fr.right + deadzone(pad.axes[0] ?? 0), -1, 1);
@@ -402,16 +399,16 @@ export class InputDevices {
       fr.fast ||= this.analogBrakeR > 0.5;
       fr.yawRate = rightX * 1.7;
       fr.pitchRate = -rightY * 1.2 * (this.invertLook ? -1 : 1);
-      // In freefall the left stick drives; the right stick turns, and the
-      // triggers too, the way the toggles turn under canopy.
-      b.turn = clamp(b.turn + this.analogBrakeR - this.analogBrakeL + (flies ? rightX : 0), -1, 1);
+      // In freefall the left stick drives; the triggers turn, the way the
+      // toggles turn under canopy.
+      b.turn = clamp(b.turn + this.analogBrakeR - this.analogBrakeL, -1, 1);
       b.forward = clamp(b.forward - deadzone(pad.axes[1] ?? 0), -1, 1);
       b.slide = clamp(b.slide + deadzone(pad.axes[0] ?? 0), -1, 1);
       f.turn = clamp(f.turn + this.analogBrakeR - this.analogBrakeL + (this.feetTurn ? curve(rightX) : 0), -1, 1);
       f.slide = clamp(f.slide + deadzone(pad.axes[0] ?? 0), -1, 1);
-      // The right stick pushed up spreads out (up on the others, the wings
-      // wide), pulled down tucks in (down, the wings tight), as far as it goes.
-      if (flies) b.fall = clamp(b.fall + rightY, -1, 1);
+      // The bumpers go up and down: LB spreads out (up on the others, the
+      // wings wide), RB tucks in (down, the wings tight).
+      if (this.padMode === 'freefall') b.fall = clamp(b.fall + btn(5) - btn(4), -1, 1);
       // The cross held: somersaults and rolls one after the other.
       b.flip = clamp((b.flip ?? 0) + btn(12) - btn(13), -1, 1);
       b.roll = clamp((b.roll ?? 0) + btn(15) - btn(14), -1, 1);

@@ -12,7 +12,8 @@ import { PlaneView } from './render/planeView';
 import { CanopyView, type SliderState } from './render/canopyView';
 import { ChaseCamera, type ChaseTarget } from './render/chaseCamera';
 import { cycle, lockedChase, pickPlayer, pickPoint, type Target } from './render/lockOn';
-import { FREEFALL_STANCES, LegSwing, Posture, doorStance, type LegCues, type Stance } from './render/posture';
+import { deployStage, jumpStance } from './render/jumpPose';
+import { FREEFALL_STANCES, LegSwing, Posture, type LegCues, type Stance } from './render/posture';
 import { RigView, type RigFrame } from './render/rigView';
 import { RagdollView } from './render/ragdollView';
 import { SMOKE_BURN, SmokeTrail } from './render/smoke';
@@ -58,13 +59,15 @@ import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/teleme
 import { DEG, quat, rotateInv, vec3 } from './sim/vec';
 import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
-import type { KeysPhase } from './ui/keys';
+import { padIcon, type KeysPhase, type PadControl } from './ui/keys';
 import { Menu } from './ui/menu';
 import { Markers, type MarkerTarget } from './net/markers';
+import { Bots, type Others } from './bots';
+import type { Lead } from './sim/bot';
 import { Multiplayer, newRoomName, playersIn, roomFromUrl, roomLink, setRoomInUrl } from './net/multiplayer';
 import { cleanName, publicDz, publicRoom, sameShared, sharedPart } from './net/room';
 import { buildWorld, type World } from './world/build';
-import { isWet, solidOf, spawnsFor, type DzPack } from './world/dz';
+import { isWet, landingHeading, solidOf, spawnsFor, type DzPack } from './world/dz';
 import { dzInfo } from './world/dzs';
 import { MAP_HALF } from './ui/dzMap';
 
@@ -139,6 +142,12 @@ for (const m of ragdollView.materials()) if (m instanceof THREE.MeshLambertMater
 const menu = new Menu(setup, settings);
 /** Jumping with others, in the room the address names (`?room=name`). */
 let net: Multiplayer | null = null;
+/** On a jump alone, the jumpers the sim flies for company. */
+let bots: Bots | null = null;
+/** Whoever else is in the air: the room's players, or the bots. */
+const others = (): Others | null => net ?? bots;
+/** Where we are in our jump, for the bots to fly with. */
+const us: Lead = { pos: vec3(), vel: vec3(), out: false, falling: false };
 /** How many were in the room when the HUD last said. */
 let playersShown = 0;
 
@@ -309,6 +318,8 @@ function apply(next: Setup, withGear: boolean): boolean {
   const before = setup;
   setup = cloneSetup(next);
   if (!withGear) setup.gear = before.gear;
+  // Another drop zone: the bots of the last jump are not on this one.
+  if (setup.dz !== before.dz) dropBots();
   applyDz();
   applyWeather();
   if (withGear) applyGear(before.gear);
@@ -347,9 +358,15 @@ function playerName(): string {
   return settings.playerName;
 }
 
+function dropBots(): void {
+  bots?.dispose();
+  bots = null;
+}
+
 /** Goes into a room: its address becomes the page's, to share. */
 function joinRoom(name: string): void {
   leaveRoom(false);
+  dropBots();
   // A public room is at its drop zone, whoever leads it.
   const pinned = publicDz(name);
   if (pinned) menu.chooseDz(pinned);
@@ -590,6 +607,7 @@ function spawn(kind: Start): void {
   lastTrack = null;
   trackRecorder.begin(cloneSetup(setup), kind);
   airTime = 0;
+  dropBots();
   resetCanopies();
   const spots = spawnsFor(dz, setup.weather.windFromDeg, { headingDeg: runHeading(setup), height: setup.jump.exitHeight });
   const rate = setup.jump.malfunction;
@@ -598,6 +616,19 @@ function spawn(kind: Start): void {
     windAt(env.wind, setup.weather, spots.plane.height, airTime);
     const malfunction = unlucky ? 'streamer' : null;
     jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction, spot: setup.jump.exitSpot });
+    // Company on a jump alone: out of the same plane, right after us, in a suit like ours.
+    if (!net && setup.bots.count > 0) {
+      bots = new Bots(scene, light, env, {
+        ...setup.bots,
+        gear: setup.gear,
+        run: spots.plane,
+        spot: setup.jump.exitSpot,
+        landing: { x: dz.target.x, z: dz.target.z, headingDeg: landingHeading(dz, setup.weather.windFromDeg) },
+        weather: setup.weather,
+        groundAt: dz.groundAt,
+        solidAt: solid,
+      });
+    }
   } else if (kind === 'base') {
     const b = dz.base!;
     windAt(env.wind, setup.weather, b.height, airTime);
@@ -727,7 +758,7 @@ function say(text: string, small = '', ms = 1800): void {
 function targetPos(): THREE.Vector3 | null {
   if (!target) return null;
   if (target.kind === 'point') return targetAt.copy(target.pos);
-  return net?.whereIs(target.id, targetAt) ?? null;
+  return others()?.whereIs(target.id, targetAt) ?? null;
 }
 
 /** A new target, or none (which frees the camera); and the HUD says so. */
@@ -737,13 +768,13 @@ function setTarget(next: Target | null): void {
     locked = false;
     return say(T.cue.noTarget);
   }
-  const what = next.kind === 'point' ? T.cue.targetPoint : (net?.nameOf(next.id) ?? '…');
+  const what = next.kind === 'point' ? T.cue.targetPoint : (others()?.nameOf(next.id) ?? '…');
   say(`${T.cue.target} · ${what}`, locked ? '' : T.cue.lockHint(keyLabel('KeyL')));
 }
 
 /** The next or previous player in sight as the target. */
 function cycleTarget(step: 1 | -1): void {
-  const ids = net?.inSight().map((p) => p.id) ?? [];
+  const ids = others()?.inSight().map((p) => p.id) ?? [];
   const id = cycle(ids, target?.kind === 'player' ? target.id : null, step);
   if (id) setTarget({ kind: 'player', id });
   else say(T.cue.noPlayer);
@@ -816,7 +847,8 @@ const actions: Record<Action, () => void> = {
   pickTarget: () => {
     // What is in the middle of the screen: a player near it, or else the ground there.
     camera.getWorldDirection(ahead);
-    const id = net ? pickPlayer(camera.position, ahead, net.inSight()) : null;
+    const seen = others()?.inSight();
+    const id = seen ? pickPlayer(camera.position, ahead, seen) : null;
     if (id) return setTarget({ kind: 'player', id });
     const point = pickPoint(camera.position, ahead, solid);
     setTarget(point ? { kind: 'point', pos: point } : null);
@@ -1680,69 +1712,9 @@ function aimCamera(dt: number): void {
 }
 
 /** How the pilot holds the body right now. */
-function stance(): Stance {
-  if (arrival) return 'ground';
-  if (!jump) return 'hanging';
-  switch (jump.phase) {
-    case 'standing':
-      return 'ground';
-    case 'plane':
-      return doorStance(jump.spot, jump.plane!.type.doorSide);
-    case 'freefall':
-      // Just cut away: the hands are still on the handles.
-      if (jump.cutawayAt !== null && jump.time - jump.cutawayAt < 0.45) return 'cutaway';
-      return jump.body.track > 0.5 ? 'track' : jump.body.position;
-    case 'opening':
-      if (jump.inflation !== null) return 'hanging';
-      if (jump.canopy === 'reserve') return jump.log.reserveBy === 'hand' ? 'reserve' : 'belly';
-      return jump.opening?.stage === 'throw' ? 'throw' : 'belly';
-    default:
-      return 'hanging';
-  }
-}
+const stance = (): Stance => (arrival ? 'ground' : jumpStance(jump));
 
 const ease = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
-
-/** Where the pilot chute and bag of the canopy overhead are. */
-function deployStage(out: RigFrame): void {
-  out.bagOut = 0;
-  out.deployTime = 0;
-  if (!jump) {
-    // Started under canopy: it has long been open.
-    out.deploy = 'canopy';
-    out.deployTime = 10;
-    out.bagOut = 1;
-    return;
-  }
-  const reserve = jump.canopy === 'reserve';
-  const o = jump.opening;
-  if (jump.phase === 'canopy') {
-    out.deploy = reserve ? 'free' : 'canopy';
-    out.deployTime = 10;
-    out.bagOut = 1;
-  } else if (jump.phase !== 'opening' || !o) {
-    out.deploy = 'stowed';
-  } else if (o.stage === 'throw') {
-    out.deploy = 'hand';
-    out.deployTime = o.time;
-  } else if (o.stage === 'bag') {
-    // The pilot chute inflates and the bridle comes tight, then the bag lifts off.
-    const lift = o.timing.throwOut + (reserve ? 0.15 : 0.45);
-    if (o.time < lift) {
-      out.deploy = 'tow';
-      out.deployTime = o.time - o.timing.throwOut;
-    } else {
-      out.deploy = 'bag';
-      out.deployTime = o.time - lift;
-      out.bagOut = ease((o.time - lift) / Math.max(0.1, o.timing.lineStretch - lift));
-    }
-  } else {
-    // A reserve's free bag lets go once the canopy is out of it and filling.
-    out.deploy = reserve && o.inflation > 0.6 ? 'free' : 'canopy';
-    out.deployTime = o.time - o.timing.lineStretch;
-    out.bagOut = 1;
-  }
-}
 
 const rigFrame: RigFrame = {
   time: 0,
@@ -1974,6 +1946,39 @@ function cue(): string {
   return '';
 }
 
+/** Within this of our place behind a leader, m, there is nothing to say: up and down, and along and across. */
+const GUIDE_LEVEL = 1.5;
+const GUIDE_NEAR = 3;
+/** In a round the places are close: nearer than this, m. */
+const GUIDE_CLOSE = 1;
+
+/** Following a bot that leads: which way our place behind it is, how far, and the key that goes there. */
+function guideCue(): string {
+  if (!bots || !jump || jump.phase !== 'freefall' || jump.pullWhenFlat || jump.cutawayAt !== null) return '';
+  const g = bots.guide(us);
+  if (!g) return '';
+  const t = T.cue.guide;
+  const near = g.round ? GUIDE_CLOSE : GUIDE_NEAR;
+  // The key that goes there, or on the gamepad the bumper, or the left stick and which way to push it.
+  const pad = devices.lastUsed === 'gamepad';
+  const how = (code: string, control: PadControl, push = ''): string =>
+    pad ? `<i>${padIcon(control, devices.padKind)}${push}</i>` : `<kbd>${keyLabel(code)}</kbd>`;
+  const say = (text: string, m: number, by: string): string => `<span>${text} ${Math.round(Math.abs(m))} m${by}</span>`;
+  const parts = [
+    Math.abs(g.up) < GUIDE_LEVEL ? `<span class="ok">${t.level}</span>` : g.up > 0 ? say(`▲ ${t.up}`, g.up, how('KeyR', 'lb')) : say(`▼ ${t.down}`, g.up, how('KeyF', 'rb')),
+    Math.abs(g.ahead) < near
+      ? `<span class="ok">${t.near}</span>`
+      : g.ahead > 0
+        ? say(g.round ? t.forward : t.faster, g.ahead, how('KeyW', 'ls', ' ↑'))
+        : say(g.round ? t.back : t.slower, g.ahead, how('KeyS', 'ls', ' ↓')),
+  ];
+  // The leader of a round in another position than ours falls at another speed: that first.
+  const as = g.position ? T.cue.positions[g.position] || t.flat : '';
+  if (as) parts.unshift(`<span>${t.take} ${as}</span>`);
+  if (Math.abs(g.right) >= near) parts.push(`<span>${g.right > 0 ? `${t.right} →` : `← ${t.left}`} ${Math.round(Math.abs(g.right))} m</span>`);
+  return parts.join('');
+}
+
 /** The drop zone from above for the menu's map, and what it was last drawn with. */
 const topView = new TopView(renderer, scene, light.fog);
 let mapDrawn = '';
@@ -2086,6 +2091,20 @@ function frame(now: number): void {
     if (replay.done) stopReplay();
   } else if (live) {
     const seconds = Math.min(elapsed, 0.1);
+    if (bots) {
+      // Before our own step, so that they see us where we are at the same moment as they are.
+      us.pos = model.state.pos;
+      us.vel = model.state.vel;
+      const wasOut = us.out;
+      us.out = jump !== null && jump.phase !== 'plane';
+      // Out of the door behind a leader: it is the one to keep in sight, unless someone else already is.
+      const leader = bots.leader;
+      if (us.out && !wasOut && leader && target?.kind !== 'player') setTarget({ kind: 'player', id: leader });
+      us.falling = jump?.phase === 'freefall' && !impact;
+      us.headingDeg = jump?.headingDeg();
+      us.position = jump?.body.position;
+      bots.step(seconds, us, airTime);
+    }
     if (feetYaw !== 0) feetToTurn()?.turnBy(feetYaw);
     // Locked, the camera of the last frame says where the body faces; on the ground once walking.
     if (locked && onFoot()) faceTheView(arrival ? arrival.walker : (jump?.runUp ?? null));
@@ -2162,7 +2181,7 @@ function frame(now: number): void {
     rigFrame.dt = moving;
     rigFrame.wind.set(env.wind.x, env.wind.y, env.wind.z);
     rigFrame.airDensity = env.airDensity;
-    deployStage(rigFrame);
+    deployStage(jump, rigFrame);
     // The last seconds are kept, in case they end badly; a crash, until the body is still.
     if (moving > 0 && !(recorder.crashAt !== null && canReplay())) record(recorder.next(moving), shown, inflation, onRisers, heap);
     // And all of it for the logbook, until at rest: every frame while the body is thrown about.
@@ -2180,6 +2199,9 @@ function frame(now: number): void {
     if (!replay) sendJumper(net, pose, onRisers, inflation, elapsed);
     net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, setup.dz);
     if (net.players !== playersShown) showGear();
+  } else if (bots) {
+    bots.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, light);
+    for (const name of bots.exited.splice(0)) showExit(name);
   }
   if (jump?.plane) planeView.update(jump.plane);
   /** The pilot drawn: the one of the replay of the whole jump, while it plays. */
@@ -2191,7 +2213,7 @@ function frame(now: number): void {
     aimReplay(replay);
   } else magnify(Math.min(elapsed, 0.1));
   // A player who has left is no longer a target.
-  if (target?.kind === 'player' && !net?.has(target.id)) {
+  if (target?.kind === 'player' && !others()?.has(target.id)) {
     target = null;
     locked = false;
     say(T.cue.targetGone);
@@ -2219,7 +2241,7 @@ function frame(now: number): void {
     }
   }
   sky.position.copy(camera.position);
-  net?.drawMarkers(camera, target?.kind === 'player' ? target.id : null);
+  others()?.drawMarkers(camera, target?.kind === 'player' ? target.id : null);
   drawPointMarker();
   // The windsock and the flags follow the gusts at their own height.
   if (live && setup.weather.gusts !== 'none') {
@@ -2315,6 +2337,7 @@ function frame(now: number): void {
       muted: sound.muted,
       freefall: falling,
       cue: cue(),
+      guide: guideCue(),
       heightAlert: heightAlert(height),
     },
     elapsed,
@@ -2346,6 +2369,7 @@ function showWatching(w: Watching, elapsed: number): void {
       muted: sound.muted,
       freefall: falling || f.phase === 'plane' || f.phase === 'standing',
       cue: '',
+      guide: '',
       heightAlert: 'none',
     },
     elapsed,
@@ -2381,6 +2405,8 @@ if (import.meta.env.DEV) {
     replay: { get: () => replay },
     gather: { get: () => gather },
     net: { get: () => net },
+    bots: { get: () => bots },
+    target: { get: () => target },
   });
   Object.assign(window, { sim });
 }

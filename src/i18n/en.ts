@@ -170,6 +170,8 @@ export const en: Strings = {
     pickHint: (k: string) => `${k}: target what is in the middle of the screen`,
     locked: 'CAMERA LOCKED ON TARGET',
     unlocked: 'CAMERA FREE',
+    botLeads: 'leads',
+    guide: { up: 'CLIMB', down: 'SINK', faster: 'SPEED UP', slower: 'SLOW DOWN', left: 'LEFT', right: 'RIGHT', level: 'LEVEL', near: 'IN PLACE', forward: 'FORWARD', back: 'BACK', take: 'GO', flat: 'FLAT' },
   },
 
   keys: {
@@ -186,8 +188,6 @@ export const en: Strings = {
     turn: 'turn',
     slide: 'slide',
     upDown: 'up / down',
-    turnUpDown: 'turn, up / down',
-    lookHeld: 'held: look around',
     positionsPad: 'back / sit / head down · again: belly',
     sitHeadDown: 'somersault (held: in a row)',
     bellyBack: 'roll / half turn (held: in a row)',
@@ -195,7 +195,6 @@ export const en: Strings = {
     trackPress: 'press: track / angle',
     diveFlare: 'dive / flare',
     wingsWideTight: 'wings wide / tight',
-    turnWings: 'turn, wings wide / tight',
     wingsuitRoll: 'barrel roll, back flying',
     fwdBackSlide: 'forward, back, slide',
     pull: 'pull',
@@ -499,6 +498,30 @@ export const en: Strings = {
         step: 'Outside on the step, holding the frame, already in the wind: just let go.',
       },
       spotKeys: (fwd: string, back: string) => `In the plane, ${fwd} / ${back} to change places.`,
+      bots: 'AI JUMPERS',
+      botsHint: 'on a solo jump',
+      botsNone: 'None',
+      botsNote: 'They leave right after you, from the plane only, in a suit like yours.',
+      botsRoom: 'With others in a room, no AI jumpers.',
+      botLead: 'WHO LEADS',
+      botLeads: { us: 'Me', bot: 'An AI jumper' },
+      botLeadNote: {
+        us: 'They form round you and fly as you do.',
+        bot: 'The first flies as it likes; the others form round it, and a place waits for you. The guide says where.',
+        track: 'On a track and in wings, an AI jumper always leads.',
+      },
+      botMode: 'THEY FLY',
+      botModes: { formation: 'Flat', vertical: 'Upright', track: 'Track' },
+      botModeNote: {
+        formation: (breakOff: string, pull: string) =>
+          `Flat, in a round with you, close. If you change position, so do they. Break-off at ${breakOff} m, pulling around ${pull} m.`,
+        vertical: (breakOff: string, pull: string) =>
+          `Sitting from the door, in a round with you, close; head down if you go there. Leave sitting too. Break-off at ${breakOff} m, pulling around ${pull} m.`,
+        track: (breakOff: string, pull: string) =>
+          `The first leads a track 90° right of jump run, then round the landing area, and waits for you; the others in a V behind. Break-off at ${breakOff} m, pulling around ${pull} m.`,
+        wings: (breakOff: string, pull: string) =>
+          `In wings, always behind a leader: off 90° right of jump run, then round the landing area, waiting for you; the others in a V behind. Break-off at ${breakOff} m, pulling around ${pull} m.`,
+      },
     },
 
     map: {
@@ -541,7 +564,7 @@ export const en: Strings = {
         ['Both front risers', k('KeyW'), 'LB + RB'],
         ['Wraps (stall): keep both toggles fully pulled', `hold ${k('KeyS')} or ${k('KeyA')} + ${k('KeyD')}`, 'hold both triggers'],
         ['Hold the toggles where they are', 'Shift', '—'],
-        ['Look around', `mouse · ${k('KeyC')} recentres`, 'right stick (freefall: LB held) · pressed with no target: recentres'],
+        ['Look around', `mouse · ${k('KeyC')} recentres`, 'right stick · pressed with no target: recentres'],
         ['On the ground and on the ledge: walk, step sideways, turn (as in a first-person game)', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyA')} / ${k('KeyD')} · mouse`, 'left stick · right stick'],
         ['Exit the plane, then pull', 'Space', 'A'],
         ['Slider: collapse it or take it off', k('KeyG'), 'X'],
@@ -551,13 +574,13 @@ export const en: Strings = {
         ['Target: the player or the ground in the middle of the screen (the sky: no target)', k('KeyT'), 'right stick held'],
         ['Target: next / previous player', 'Tab / Shift+Tab', '—'],
         ['Lock the camera on the target, or free it', `${k('KeyL')} · middle click`, 'right stick pressed'],
-        ['Freefall: turn', `${k('KeyA')} / ${k('KeyD')}`, 'right stick left / right · triggers'],
+        ['Freefall: turn', `${k('KeyA')} / ${k('KeyD')}`, 'triggers'],
         ['Freefall: forward, back, slide', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyQ')} / ${k('KeyE')}`, 'left stick'],
-        ['Freefall: up / down', `${k('KeyR')} / ${k('KeyF')}`, 'right stick up / down'],
+        ['Freefall: up / down', `${k('KeyR')} / ${k('KeyF')}`, 'LB / RB'],
         ['Freefall or exit: straight onto the back / sit / head down (the same button again: belly)', '—', 'B / Y / X'],
         ['Freefall: quarter somersault forwards / backwards into the next position (twice: belly to back via head down, 4 times: full somersault, held: in a row)', '↑ / ↓', 'D-pad up / down'],
         ['Freefall: track flat, angle upright (held · pressed on, pressed off)', 'Shift', 'left stick pressed'],
-        ['Wingsuit: dive / flare, wings wide / tight (slower / faster)', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyR')} / ${k('KeyF')}`, 'left stick · right stick up / down'],
+        ['Wingsuit: dive / flare, wings wide / tight (slower / faster)', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyR')} / ${k('KeyF')}`, 'left stick · LB / RB'],
         ['Freefall: half roll flat (twice: barrel roll), half turn upright (held: in a row)', '← / →', 'D-pad left / right'],
         ['Go again (not in freefall)', k('KeyR'), 'Y (under canopy, on the ground)'],
         ['Start on downwind / final / plane', '1 / 2 / 3', '—'],

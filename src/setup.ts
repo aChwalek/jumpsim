@@ -7,6 +7,7 @@ import { HOUR_MAX, HOUR_MIN } from './render/daylight';
 import { CANOPY_COLORS, isCanopyColor, type CanopyColorId } from './render/canopyColors';
 import { isSmoke, type SmokeKind } from './render/smoke';
 import { DEFAULT_HELMET, DEFAULT_SUIT, OUTFIT_COLORS, isOutfitColor, type Outfit, type OutfitColor } from './render/outfit';
+import { BOTS_MAX, BOT_LEADS, BOT_MODES, type BotLead, type BotMode } from './sim/bot';
 import type { Container } from './sim/jump';
 import { EXIT_SPOTS, type ExitSpot } from './sim/plane';
 import { DEFAULT_RIG, deriveRig, reserveConfig, rigConfig, type CanopyKind, type RigParams } from './sim/rig';
@@ -108,6 +109,14 @@ export interface JumpPlan {
   exitSpot: ExitSpot;
 }
 
+/** Jumpers flown by the sim, for company on a jump on our own: how many, and what they fly. */
+export interface BotsPlan {
+  count: number;
+  mode: BotMode;
+  /** Round us, flying as we do, or round the first of them, which flies as it likes. */
+  lead: BotLead;
+}
+
 export interface Setup {
   dz: DzId;
   /** Local clock time at the drop zone, hours. */
@@ -115,6 +124,7 @@ export interface Setup {
   weather: Weather;
   gear: Gear;
   jump: JumpPlan;
+  bots: BotsPlan;
 }
 
 export const rigFor = (gear: Gear): RigParams =>
@@ -176,6 +186,7 @@ export function defaultSetup(): Setup {
       suitColor: DEFAULT_SUIT,
     },
     jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'none', exitSpot: 'low' },
+    bots: { count: 0, mode: 'formation', lead: 'us' },
   };
 }
 
@@ -226,6 +237,10 @@ export function validSetup(saved: unknown): Setup {
   if (finite(j.runDeg)) setup.jump.runDeg = validHeading(j.runDeg);
   if (oneOf(j.malfunction, MALFUNCTION_RATES)) setup.jump.malfunction = j.malfunction;
   if (oneOf(j.exitSpot, EXIT_SPOTS)) setup.jump.exitSpot = j.exitSpot;
+  const b = (s.bots ?? {}) as Partial<Record<keyof BotsPlan, unknown>>;
+  if (finite(b.count)) setup.bots.count = Math.min(BOTS_MAX, Math.max(0, Math.round(b.count)));
+  if (oneOf(b.mode, BOT_MODES)) setup.bots.mode = b.mode;
+  if (oneOf(b.lead, BOT_LEADS)) setup.bots.lead = b.lead;
   return setup;
 }
 
@@ -251,4 +266,4 @@ export function saveSetup(setup: Setup): void {
   }
 }
 
-export const cloneSetup = (s: Setup): Setup => ({ ...s, weather: { ...s.weather }, gear: { ...s.gear }, jump: { ...s.jump } });
+export const cloneSetup = (s: Setup): Setup => ({ ...s, weather: { ...s.weather }, gear: { ...s.gear }, jump: { ...s.jump }, bots: { ...s.bots } });
