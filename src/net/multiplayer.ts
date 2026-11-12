@@ -203,8 +203,33 @@ export class Multiplayer {
     }
   }
 
+  /** Whether this player is still in the room and heard from. */
+  has(id: string): boolean {
+    return this.remotes.has(id);
+  }
+
+  /** Where a player is, if drawn here. */
+  whereIs(id: string, out: THREE.Vector3): THREE.Vector3 | null {
+    return this.remotes.get(id)?.jumper.where(out) ?? null;
+  }
+
+  /** The others drawn here, in the order they joined: who can be a target. */
+  inSight(): { id: string; name: string; pos: THREE.Vector3 }[] {
+    const seen: { id: string; name: string; pos: THREE.Vector3 }[] = [];
+    for (const p of this.state.list) {
+      const pos = this.remotes.get(p.id)?.jumper.where(new THREE.Vector3());
+      if (pos) seen.push({ id: p.id, name: p.name || '…', pos });
+    }
+    return seen;
+  }
+
+  /** A player's name as shown. */
+  nameOf(id: string): string {
+    return this.state.players.get(id)?.name || '…';
+  }
+
   /** Tags over the others in sight, arrows at the edge for the rest. After the camera has moved. */
-  drawMarkers(camera: THREE.PerspectiveCamera): void {
+  drawMarkers(camera: THREE.PerspectiveCamera, targeted: string | null = null): void {
     const targets = this.targets;
     let n = 0;
     for (const [id, { jumper }] of this.remotes) {
@@ -216,7 +241,7 @@ export class Multiplayer {
       n++;
     }
     targets.length = n;
-    this.markers.update(camera, targets);
+    this.markers.update(camera, targets, targeted);
   }
 
   dispose(): void {

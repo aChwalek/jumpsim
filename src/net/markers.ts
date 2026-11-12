@@ -19,26 +19,28 @@ const NEAR = 4;
 const ABOVE = 10;
 
 const CSS = `
-#markers { position: absolute; inset: 0; overflow: hidden; }
-#markers .marker { position: absolute; left: 0; top: 0; will-change: transform; }
-#markers .tag {
+.markers { position: absolute; inset: 0; overflow: hidden; }
+.markers .marker { position: absolute; left: 0; top: 0; will-change: transform; }
+.markers .tag {
   position: absolute; left: 0; bottom: 9px; transform: translateX(-50%); white-space: nowrap;
   padding: 2px 8px 3px; border-radius: 9px; background: rgba(8, 12, 18, 0.55); border: 1px solid var(--c);
   font-size: 12.5px; font-weight: 600; line-height: 1.25; text-align: center;
 }
-#markers .tag small { display: block; font-size: 11px; font-weight: 500; opacity: 0.85; }
-#markers .pin {
+.markers .tag small { display: block; font-size: 11px; font-weight: 500; opacity: 0.85; }
+.markers .pin {
   position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; box-sizing: border-box;
   border: 2px solid var(--c); border-radius: 50%; box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
 }
-#markers .arrow {
+.markers .arrow {
   position: absolute; left: -11px; top: -11px; width: 22px; height: 22px; display: none;
   filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.7));
 }
-#markers .arrow path { fill: var(--c); stroke: rgba(0, 0, 0, 0.5); stroke-width: 1; }
-#markers .off .pin { display: none; }
-#markers .off .arrow { display: block; }
-#markers .off .tag { bottom: auto; top: 14px; }
+.markers .arrow path { fill: var(--c); stroke: rgba(0, 0, 0, 0.5); stroke-width: 1; }
+.markers .off .pin { display: none; }
+.markers .off .arrow { display: block; }
+.markers .off .tag { bottom: auto; top: 14px; }
+.markers .target .tag { box-shadow: 0 0 0 1px var(--c), 0 0 10px var(--c); }
+.markers .target .pin { left: -8px; top: -8px; width: 16px; height: 16px; border-width: 3px; }
 `;
 
 interface Item {
@@ -65,13 +67,13 @@ export class Markers {
       document.head.append(style);
     }
     this.el = document.createElement('div');
-    this.el.id = 'markers';
     // Hidden with the rest of the flight's HUD, and behind the menu.
-    this.el.className = 'flight';
+    this.el.className = 'markers flight';
     hud.prepend(this.el);
   }
 
-  update(camera: THREE.PerspectiveCamera, targets: MarkerTarget[]): void {
+  /** `targeted`: the one the camera is on, drawn brighter. */
+  update(camera: THREE.PerspectiveCamera, targets: MarkerTarget[], targeted: string | null = null): void {
     camera.updateMatrixWorld();
     const w = this.el.clientWidth;
     const h = this.el.clientHeight;
@@ -82,7 +84,8 @@ export class Markers {
       seen.add(t.id);
       const item = this.item(t.id);
       item.root.style.setProperty('--c', t.color);
-      item.name.textContent = t.name;
+      item.name.textContent = t.id === targeted ? `◎ ${t.name}` : t.name;
+      item.root.classList.toggle('target', t.id === targeted);
       const dy = t.pos.y - camera.position.y;
       item.info.textContent = `${Math.round(distance)} m${Math.abs(dy) >= ABOVE ? ` · ${dy > 0 ? '▲' : '▼'} ${Math.round(Math.abs(dy))} m` : ''}`;
 

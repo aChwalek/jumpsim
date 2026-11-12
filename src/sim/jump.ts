@@ -8,7 +8,7 @@
 // without knowing where the pilot is in the jump.
 
 import type { Controls, Environment, FlightModel } from './flightModel';
-import { Freefall, freefallParams, type BodyInputs, type BodyPosition } from './freefall';
+import { Freefall, freefallParams, noBodyInputs, type BodyInputs, type BodyPosition } from './freefall';
 import { BASE_OPENING, MAIN_OPENING, Opening, RESERVE_HANDLE_OPENING, RESERVE_OPENING, STOWED_BRAKE, type Malfunction } from './opening';
 import { Plane, type JumpRun } from './plane';
 import { ReleasedCanopy } from './released';
@@ -251,6 +251,15 @@ export class Jump {
     else if (this.phase === 'freefall') this.body.rollOver(dir);
   }
 
+  /**
+   * ↑ / ↓ in freefall (`dir` 1 / -1): a quarter somersault forwards or
+   * backwards into the next position round the loop.
+   */
+  flip(dir: -1 | 1): void {
+    if (this.pullWhenFlat || this.phase !== 'freefall') return;
+    this.body.flip(dir);
+  }
+
   /** Feet above the ground, m. */
   height(): number {
     const m = this.model;
@@ -304,6 +313,8 @@ export class Jump {
     if (this.options.rsl) this.rslAt = this.time + RSL_DELAY;
   }
 
+  private readonly calm: BodyInputs = noBodyInputs();
+
   /** Advances whatever is under way before the canopy flies. */
   step(dt: number, input: BodyInputs, env: Environment): void {
     this.plane?.step(dt);
@@ -323,6 +334,8 @@ export class Jump {
     const s = this.model.state;
     set(this.prev, s.pos.x, s.pos.y, s.pos.z);
     if (this.phase === 'freefall') {
+      // On the way to the pull, the arrows held carry on with nothing.
+      if (this.pullWhenFlat) input = Object.assign(this.calm, input, { flip: 0, roll: 0 });
       this.body.step(dt, input, env);
       this.follow();
       const b = this.body.state;

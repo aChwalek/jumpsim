@@ -11,6 +11,7 @@ import { daylight, sunPosition } from './render/daylight';
 import { PlaneView } from './render/planeView';
 import { CanopyView, type SliderState } from './render/canopyView';
 import { ChaseCamera, type ChaseTarget } from './render/chaseCamera';
+import { cycle, lockedChase, pickPlayer, pickPoint, type Target } from './render/lockOn';
 import { FREEFALL_STANCES, LegSwing, Posture, type LegCues, type Stance } from './render/posture';
 import { RigView, type RigFrame } from './render/rigView';
 import { TopView } from './render/topView';
@@ -43,6 +44,7 @@ import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
 import type { KeysPhase } from './ui/keys';
 import { Menu } from './ui/menu';
+import { Markers, type MarkerTarget } from './net/markers';
 import { Multiplayer, newRoomName, roomFromUrl, roomLink, setRoomInUrl } from './net/multiplayer';
 import { cleanName, sameShared, sharedPart } from './net/room';
 import { buildWorld, type World } from './world/build';
@@ -86,6 +88,21 @@ let sliderState: SliderState = 'open';
 let view: 'eyes' | 'outside' = 'eyes';
 const chase = new ChaseCamera();
 const chaseTarget: ChaseTarget = { focus: new THREE.Vector3(), heading: 0, distance: 10, above: 0.2 };
+/** What the camera can be locked on: another player or a point on the ground; and whether it is. */
+let target: Target | null = null;
+let locked = false;
+/** 0 free, 1 locked: the eyes turn to the target, and back, over a moment. */
+let lockBlend = 0;
+/** How long the eyes take to turn to the target or back, s. */
+const LOCK_TURN = 0.35;
+/** Where the target is, or was when last seen. */
+const targetAt = new THREE.Vector3();
+const lockedView = new THREE.Quaternion();
+const lockMatrix = new THREE.Matrix4();
+const ahead = new THREE.Vector3();
+/** The mark over a point target; players have theirs already. */
+let pointMarker: Markers | null = null;
+const pointMarks: MarkerTarget[] = [];
 const legSwing = new LegSwing();
 const legCues: LegCues = { prep: 0, fore: 0, side: 0 };
 /** A short message over the HUD's cue, until a time (performance.now ms). */
@@ -430,6 +447,11 @@ function spawn(kind: Start): void {
   posture.reset();
   legSwing.reset();
   chase.reset();
+  // Another drop zone: the point picked on the last one means nothing here.
+  if (target?.kind === 'point') {
+    target = null;
+    locked = false;
+  }
   rigView.body.setHandles(true, true);
   lastVel.x = Number.NaN;
   flash = null;
@@ -450,6 +472,47 @@ function flyInto(position: BodyPosition): void {
   const b = devices.body;
   const flat = position === 'belly' || position === 'back';
   jump.fly(position, (flat ? b.slide : b.forward) < 0 ? -1 : 1);
+}
+
+/**
+ * ↑ / ↓: in freefall a quarter somersault, forwards or backwards, into the
+ * next position; in the door, the position to go out in.
+ */
+function flyStep(dir: -1 | 1): void {
+  if (paused || !jump) return;
+  if (jump.phase === 'freefall') jump.flip(dir);
+  else flyInto(stepPosition(jump.body.position, dir > 0 ? 'up' : 'down'));
+}
+
+/** A short message over the HUD's cue. */
+function say(text: string, small = '', ms = 1800): void {
+  flash = { text: small ? `${text}<small>${small}</small>` : text, until: performance.now() + ms };
+}
+
+/** Where the target is now, if it can be seen: a player is not while in their plane. */
+function targetPos(): THREE.Vector3 | null {
+  if (!target) return null;
+  if (target.kind === 'point') return targetAt.copy(target.pos);
+  return net?.whereIs(target.id, targetAt) ?? null;
+}
+
+/** A new target, or none (which frees the camera); and the HUD says so. */
+function setTarget(next: Target | null): void {
+  target = next;
+  if (!next) {
+    locked = false;
+    return say(T.cue.noTarget);
+  }
+  const what = next.kind === 'point' ? T.cue.targetPoint : (net?.nameOf(next.id) ?? '…');
+  say(`${T.cue.target} · ${what}`, locked ? '' : T.cue.lockHint(keyLabel('KeyL')));
+}
+
+/** The next or previous player in sight as the target. */
+function cycleTarget(step: 1 | -1): void {
+  const ids = net?.inSight().map((p) => p.id) ?? [];
+  const id = cycle(ids, target?.kind === 'player' ? target.id : null, step);
+  if (id) setTarget({ kind: 'player', id });
+  else say(T.cue.noPlayer);
 }
 
 /** In freefall R goes up: it only starts again once out of it. */
@@ -475,8 +538,8 @@ const actions: Record<Action, () => void> = {
   track: () => {
     if (!paused) devices.padTrack = !devices.padTrack;
   },
-  flyUp: () => jump && flyInto(stepPosition(jump.body.position, 'up')),
-  flyDown: () => jump && flyInto(stepPosition(jump.body.position, 'down')),
+  flyUp: () => flyStep(1),
+  flyDown: () => flyStep(-1),
   toggleHud: () => hud.toggle(),
   togglePause: () => (paused = !paused),
   toggleSound: () => {
@@ -504,6 +567,23 @@ const actions: Record<Action, () => void> = {
     sliderState = setup.gear.slider === 'collapsible' ? 'collapsed' : 'stowed';
     rigView.canopy.setSlider(sliderState);
     applySliderDrag();
+  },
+  pickTarget: () => {
+    // What is in the middle of the screen: a player near it, or else the ground there.
+    camera.getWorldDirection(ahead);
+    const id = net ? pickPlayer(camera.position, ahead, net.inSight()) : null;
+    if (id) return setTarget({ kind: 'player', id });
+    const point = pickPoint(camera.position, ahead, solid);
+    setTarget(point ? { kind: 'point', pos: point } : null);
+  },
+  nextTarget: () => cycleTarget(1),
+  prevTarget: () => cycleTarget(-1),
+  lock: () => {
+    if (!target) return say(T.cue.noTarget, T.cue.pickHint(keyLabel('KeyT')));
+    locked = !locked;
+    // The mouse then turns the view about the target, from straight at it.
+    devices.recentre();
+    say(locked ? T.cue.locked : T.cue.unlocked);
   },
   camera: () => {
     view = view === 'eyes' ? 'outside' : 'eyes';
@@ -566,6 +646,8 @@ menu.onSettings = applySettings;
 // that press is spent (the menu takes it first and marks it).
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && !e.repeat && !e.defaultPrevented && !menu.isOpen) actions.openMenu();
+  // Tab picks the next player: not the next thing on the page.
+  if (e.code === 'Tab' && !menu.isOpen) e.preventDefault();
 });
 
 function resize(): void {
@@ -948,6 +1030,19 @@ function updateLegs(dt: number, hanging: boolean): void {
   legCues.side = legSwing.side;
 }
 
+/** The mark over a point target, with how far it is. */
+function drawPointMarker(): void {
+  if (target?.kind !== 'point') {
+    pointMarker?.update(camera, []);
+    return;
+  }
+  pointMarker ??= new Markers(document.getElementById('hud') ?? document.body);
+  const mark = (pointMarks[0] ??= { id: 'point', name: '', pos: new THREE.Vector3(), color: '#ffd23f' });
+  mark.name = T.cue.targetMark;
+  mark.pos.copy(target.pos);
+  pointMarker.update(camera, pointMarks, 'point');
+}
+
 /** What the outside camera frames: pilot and canopy under canopy, the jumper alone in freefall. */
 function aimChase(): ChaseTarget {
   const t = chaseTarget;
@@ -982,6 +1077,13 @@ function aimChase(): ChaseTarget {
     } else t.heading = telemetry.headingDeg * DEG;
     t.distance = arrival ? 9 : 6 + 8 * k;
     t.above = arrival ? 0.3 : 0.16;
+  }
+  // Locked: behind the jumper on the line from the target, which shows past them.
+  const at = locked ? targetPos() : null;
+  const line = at && lockedChase(t.focus, at);
+  if (line) {
+    if (line.heading !== null) t.heading = line.heading;
+    t.above = line.above;
   }
   return t;
 }
@@ -1193,6 +1295,14 @@ function frame(now: number): void {
   if (jump?.plane) planeView.update(jump.plane);
   model.pilotPoint(eye, model.rig.eyePos);
   magnify(Math.min(elapsed, 0.1));
+  // A player who has left is no longer a target.
+  if (target?.kind === 'player' && !net?.has(target.id)) {
+    target = null;
+    locked = false;
+    say(T.cue.targetGone);
+  }
+  const seen = locked ? targetPos() : null;
+  lockBlend = Math.max(0, Math.min(1, lockBlend + ((seen ? 1 : -1) * Math.min(elapsed, 0.1)) / LOCK_TURN));
   if (view === 'outside') {
     camera.layers.enable(GEAR_LAYER);
     camera.layers.enable(OUTSIDE_LAYER);
@@ -1201,9 +1311,17 @@ function frame(now: number): void {
     camera.layers.set(0);
     camera.position.set(eye.x, eye.y, eye.z);
     aimCamera(moving);
+    // Locked: the eyes on the target, the mouse turning them about it.
+    if (lockBlend > 0 && target) {
+      lockedView.setFromRotationMatrix(lockMatrix.lookAt(camera.position, targetAt, camera.up.set(0, 1, 0)));
+      lookEuler.set(devices.lookPitch, -devices.lookYaw, 0);
+      lockedView.multiply(turn.setFromEuler(lookEuler));
+      camera.quaternion.slerp(lockedView, ease(lockBlend));
+    }
   }
   sky.position.copy(camera.position);
-  net?.drawMarkers(camera);
+  net?.drawMarkers(camera, target?.kind === 'player' ? target.id : null);
+  drawPointMarker();
   // The windsock and the flags follow the gusts at their own height.
   if (live && setup.weather.gusts !== 'none') {
     const gust = windAt(air, setup.weather, 6, airTime);
