@@ -58,7 +58,7 @@ import {
   type Start,
 } from '../setup';
 import { AIRCRAFT, EXIT_SPOTS, type ExitSpot } from '../sim/plane';
-import { BOTS_MAX, BOT_MODES, botHeights, type BotMode } from '../sim/bot';
+import { BOTS_MAX, BOT_LEADS, BOT_MODES, botHeights, leaderLed, type BotLead, type BotMode } from '../sim/bot';
 import { SUIT_KINDS, SUIT_LEVELS, hasWings, suitGlide, type SuitKind, type SuitLevel } from '../sim/suit';
 import { reserveSize, type CanopyKind } from '../sim/rig';
 import { trimSpeeds } from '../sim/telemetry';
@@ -1258,6 +1258,7 @@ export class Menu {
     const noPlane = (): boolean => plan().start !== 'plane';
     const noBots = (): boolean => noPlane() || this.room !== null;
     const wings = (): boolean => hasWings(suitOf(this.setup.gear));
+    const led = (): boolean => leaderLed(this.setup.bots.mode, suitOf(this.setup.gear));
     const j = T.menu.jump;
     const compass = new Compass();
     this.updaters.push(() => compass.set(this.setup.weather.windFromDeg, this.setup.weather.windKmh, runHeading(this.setup)));
@@ -1310,6 +1311,11 @@ export class Menu {
         },
         // In wings there is always a leader: nothing to choose.
         disabled: () => noBots() || this.setup.bots.count === 0 || wings(),
+      }),
+      this.choice<BotLead>(j.botLead, options(BOT_LEADS, (l) => j.botLeads[l]), () => (led() ? 'bot' : this.setup.bots.lead), (lead) => this.setBots({ lead }), {
+        note: () => j.botLeadNote[led() ? 'track' : this.setup.bots.lead],
+        // A track, and anything in wings, is behind a bot: nothing to choose.
+        disabled: () => noBots() || this.setup.bots.count === 0 || led(),
       }),
       this.choice<boolean>(
         j.runAxis,

@@ -171,7 +171,7 @@ export const en: Strings = {
     locked: 'CAMERA LOCKED ON TARGET',
     unlocked: 'CAMERA FREE',
     botLeads: 'leads',
-    guide: { up: 'CLIMB', down: 'SINK', faster: 'SPEED UP', slower: 'SLOW DOWN', left: 'LEFT', right: 'RIGHT', level: 'LEVEL', near: 'IN PLACE' },
+    guide: { up: 'CLIMB', down: 'SINK', faster: 'SPEED UP', slower: 'SLOW DOWN', left: 'LEFT', right: 'RIGHT', level: 'LEVEL', near: 'IN PLACE', forward: 'FORWARD', back: 'BACK', take: 'GO', flat: 'FLAT' },
   },
 
   keys: {
@@ -503,10 +503,20 @@ export const en: Strings = {
       botsNone: 'None',
       botsNote: 'They leave right after you, from the plane only, in a suit like yours.',
       botsRoom: 'With others in a room, no AI jumpers.',
+      botLead: 'WHO LEADS',
+      botLeads: { us: 'Me', bot: 'An AI jumper' },
+      botLeadNote: {
+        us: 'They form round you and fly as you do.',
+        bot: 'The first flies as it likes; the others form round it, and a place waits for you. The guide says where.',
+        track: 'On a track and in wings, an AI jumper always leads.',
+      },
       botMode: 'THEY FLY',
-      botModes: { formation: 'A formation', track: 'A track' },
+      botModes: { formation: 'Flat', vertical: 'Upright', track: 'Track' },
       botModeNote: {
-        formation: (breakOff: string, pull: string) => `Flat around you, facing you. Break-off at ${breakOff} m, pulling around ${pull} m.`,
+        formation: (breakOff: string, pull: string) =>
+          `Flat, in a round with you, close. If you change position, so do they. Break-off at ${breakOff} m, pulling around ${pull} m.`,
+        vertical: (breakOff: string, pull: string) =>
+          `Sitting from the door, in a round with you, close; head down if you go there. Leave sitting too. Break-off at ${breakOff} m, pulling around ${pull} m.`,
         track: (breakOff: string, pull: string) =>
           `The first leads a track 90° right of jump run, then round the landing area, and waits for you; the others in a V behind. Break-off at ${breakOff} m, pulling around ${pull} m.`,
         wings: (breakOff: string, pull: string) =>

@@ -9,7 +9,7 @@ import { OUTFIT_COLOR_IDS } from './render/outfit';
 import type { Lighting } from './render/scene';
 import { reserveRigFor, rigFor, type Gear } from './setup';
 import { airDensityAt } from './sim/atmosphere';
-import { Bot, guideTo, type BotMode, type Guide, type Lead } from './sim/bot';
+import { Bot, guideTo, roundGuide, type BotLead, type BotMode, type Guide, type Lead } from './sim/bot';
 import type { Environment } from './sim/flightModel';
 import { feetHeight } from './sim/landing';
 import type { ExitSpot, JumpRun } from './sim/plane';
@@ -28,6 +28,7 @@ export interface Others {
 export interface BotsSpec {
   count: number;
   mode: BotMode;
+  lead: BotLead;
   /** Ours: the bots weigh what we do and fly a canopy like ours, so that they fall and fly as we do. */
   gear: Gear;
   run: JumpRun;
@@ -87,6 +88,7 @@ export class Bots implements Others {
         index,
         of: plan.count,
         mode: plan.mode,
+        lead: plan.lead,
         run: plan.run,
         spot: plan.spot,
         landing: plan.landing,
@@ -135,7 +137,10 @@ export class Bots implements Others {
   /** How far we are from our place behind the bot that leads, while it is there to follow; null with no leader. */
   guide(us: Lead): Guide | null {
     const leader = this.flown.find((f) => f.bot.leads)?.bot;
-    return leader && leader.jump.phase === 'freefall' ? guideTo(us, leader.lead) : null;
+    if (!leader || leader.jump.phase !== 'freefall') return null;
+    const lead = leader.lead;
+    // Behind the leader of a track, or in the round formed on it.
+    return lead.goingDeg !== undefined ? guideTo(us, lead) : lead.falling ? roundGuide(us, lead, this.flown.length) : null;
   }
 
   has(id: string): boolean {

@@ -1931,6 +1931,8 @@ function cue(): string {
 /** Within this of our place behind a leader, m, there is nothing to say: up and down, and along and across. */
 const GUIDE_LEVEL = 1.5;
 const GUIDE_NEAR = 3;
+/** In a round the places are close: nearer than this, m. */
+const GUIDE_CLOSE = 1;
 
 /** Following a bot that leads: which way our place behind it is, how far, and the key that goes there. */
 function guideCue(): string {
@@ -1938,6 +1940,7 @@ function guideCue(): string {
   const g = bots.guide(us);
   if (!g) return '';
   const t = T.cue.guide;
+  const near = g.round ? GUIDE_CLOSE : GUIDE_NEAR;
   // The key that goes there, or on the gamepad the bumper, or the left stick and which way to push it.
   const pad = devices.lastUsed === 'gamepad';
   const how = (code: string, control: PadControl, push = ''): string =>
@@ -1945,13 +1948,16 @@ function guideCue(): string {
   const say = (text: string, m: number, by: string): string => `<span>${text} ${Math.round(Math.abs(m))} m${by}</span>`;
   const parts = [
     Math.abs(g.up) < GUIDE_LEVEL ? `<span class="ok">${t.level}</span>` : g.up > 0 ? say(`▲ ${t.up}`, g.up, how('KeyR', 'lb')) : say(`▼ ${t.down}`, g.up, how('KeyF', 'rb')),
-    Math.abs(g.ahead) < GUIDE_NEAR
+    Math.abs(g.ahead) < near
       ? `<span class="ok">${t.near}</span>`
       : g.ahead > 0
-        ? say(t.faster, g.ahead, how('KeyW', 'ls', ' ↑'))
-        : say(t.slower, g.ahead, how('KeyS', 'ls', ' ↓')),
+        ? say(g.round ? t.forward : t.faster, g.ahead, how('KeyW', 'ls', ' ↑'))
+        : say(g.round ? t.back : t.slower, g.ahead, how('KeyS', 'ls', ' ↓')),
   ];
-  if (Math.abs(g.right) >= GUIDE_NEAR) parts.push(`<span>${g.right > 0 ? `${t.right} →` : `← ${t.left}`} ${Math.round(Math.abs(g.right))} m</span>`);
+  // The leader of a round in another position than ours falls at another speed: that first.
+  const as = g.position ? T.cue.positions[g.position] || t.flat : '';
+  if (as) parts.unshift(`<span>${t.take} ${as}</span>`);
+  if (Math.abs(g.right) >= near) parts.push(`<span>${g.right > 0 ? `${t.right} →` : `← ${t.left}`} ${Math.round(Math.abs(g.right))} m</span>`);
   return parts.join('');
 }
 
@@ -2078,6 +2084,7 @@ function frame(now: number): void {
       if (us.out && !wasOut && leader && target?.kind !== 'player') setTarget({ kind: 'player', id: leader });
       us.falling = jump?.phase === 'freefall' && !impact;
       us.headingDeg = jump?.headingDeg();
+      us.position = jump?.body.position;
       bots.step(seconds, us, airTime);
     }
     if (feetYaw !== 0) feetToTurn()?.turnBy(feetYaw);

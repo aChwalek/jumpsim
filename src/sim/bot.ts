@@ -10,7 +10,7 @@
 // then in against the wind and a flare.
 
 import { FlightModel, neutralControls, type Controls, type Environment } from './flightModel';
-import { noBodyInputs, type BodyInputs } from './freefall';
+import { noBodyInputs, type BodyInputs, type BodyPosition } from './freefall';
 import { Jump, type JumpOptions } from './jump';
 import { detectTouchdown, feetHeight, type Touchdown } from './landing';
 import { EXIT_SPOTS, type ExitSpot, type JumpRun } from './plane';
@@ -19,10 +19,17 @@ import { hasWings, type Suit } from './suit';
 import { SIM_DT } from './telemetry';
 import { DEG, clamp, rotate, set, vec3, type Vec3 } from './vec';
 
-/** Round us, belly to earth; or a track, the first bot leading. */
-export type BotMode = 'formation' | 'track';
-export const BOT_MODES: readonly BotMode[] = ['formation', 'track'];
+/**
+ * Round us and close: flat, belly to earth, or upright, sitting or head down;
+ * or a track, the first bot leading. Round us they fly as we do: flat or
+ * upright is how they leave the plane, and they take our position if we change.
+ */
+export type BotMode = 'formation' | 'vertical' | 'track';
+export const BOT_MODES: readonly BotMode[] = ['formation', 'vertical', 'track'];
 export const BOTS_MAX = 4;
+/** Who the others fly on: us, or the first of the bots. */
+export type BotLead = 'us' | 'bot';
+export const BOT_LEADS: readonly BotLead[] = ['us', 'bot'];
 
 /** Who the bots fly with: us, or for those following a track, the bot leading it. */
 export interface Lead {
@@ -36,6 +43,8 @@ export interface Lead {
   drive?: number;
   /** Compass heading it faces, degrees: the round forms in front of it. */
   headingDeg?: number;
+  /** The position it flies in: round it, the bots take the same, to fall as fast as it does. */
+  position?: BodyPosition;
   /** Stretched out into a track, for those behind to do the same; taken as so if not said. */
   tracking?: boolean;
   /** Where it means to go, compass degrees, when it knows: else it is taken to go where it is going. */
@@ -47,6 +56,8 @@ export interface BotPlan {
   index: number;
   of: number;
   mode: BotMode;
+  /** Who the round forms on: us, the bots then flying as we do; or the first bot, which flies as it likes. A track always has a bot leading. */
+  lead?: BotLead;
   run: JumpRun;
   /** Where we wait in the plane: the bots take the other places. */
   spot: ExitSpot;
@@ -105,6 +116,11 @@ const LEASH = 1100;
 const LEASH_EASE = 300;
 /** How fast the leader's line comes round, degrees per second: slow enough for the outside of the V to keep up. */
 const LEADER_TURNS = 4;
+/** Leading a round upright, a bot changes position this long after the exit at the soonest, s, then every so often. */
+const CHANGE_FROM = 18;
+const CHANGE_EVERY = 12;
+/** We have to hold a position this long, s, for the bots round us to take it: not for one we only pass through. */
+const LIKE_AFTER = 0.5;
 /** How fast the line of those behind swings round to the leader's, degrees per second. */
 const FLOCK_FOLLOWS = 40;
 
@@ -153,11 +169,41 @@ const UNSTOW_FOR = 0.6;
  */
 export const leaderLed = (mode: BotMode, suit: Suit | undefined): boolean => mode === 'track' || hasWings(suit);
 
-/** How far we are from our place behind a leader, m: to go up, forward along its line, and to its right. */
+/**
+ * How far we are from our place by a leader, m: to go up, and forward and to the right, along
+ * its line behind the leader of a track, the way we face in a round.
+ */
 export interface Guide {
   up: number;
   ahead: number;
   right: number;
+  /** A round, where forward is the way we face; else a line behind the leader, where it is the way it goes. */
+  round?: boolean;
+  /** In a round, the position the leader flies in when it is not ours: the one to take. */
+  position?: BodyPosition;
+}
+
+/** Where round a round the place of this rank is, degrees from the way the round faces: whoever it forms on first, at the back. */
+export const roundPlace = (rank: number, jumpers: number): number => 180 + (360 * rank) / jumpers;
+
+/**
+ * Our place in a round formed on a bot: the last one round, the bots having the others. `bots`
+ * is how many they are, the leader among them.
+ */
+export function roundGuide(us: Lead, leader: Lead, bots: number): Guide {
+  const facing = (leader.headingDeg ?? 0) * DEG;
+  const radius = roundRadius(bots + 1);
+  const a = facing + roundPlace(bots, bots + 1) * DEG;
+  const dx = leader.pos.x + Math.sin(facing) * radius + Math.sin(a) * radius - us.pos.x;
+  const dz = leader.pos.z - Math.cos(facing) * radius - Math.cos(a) * radius - us.pos.z;
+  const h = (us.headingDeg ?? 0) * DEG;
+  return {
+    up: leader.pos.y - us.pos.y,
+    ahead: dx * Math.sin(h) - dz * Math.cos(h),
+    right: dx * Math.cos(h) + dz * Math.sin(h),
+    round: true,
+    position: leader.position !== undefined && leader.position !== us.position ? leader.position : undefined,
+  };
 }
 
 /**
@@ -225,6 +271,14 @@ export class Bot {
   private outDeg: number;
   /** Which way the round is from us, or the flock goes, compass degrees; null until there is someone to form on. */
   private lineDeg: number | null = null;
+  /** Leading a round: the position it is going into next, and when it changes again, s after the exit. */
+  private next: BodyPosition | null = null;
+  private changeAt = 0;
+  /** The heading it holds, compass degrees; null until out. */
+  private holdDeg: number | null = null;
+  /** The position we are seen in, and for how long, s. */
+  private like: BodyPosition | null = null;
+  private likeFor = 0;
   /** Leading a track: which way round the landing area it goes once far enough out (1 clockwise), 0 before; and where it goes now. */
   private round: -1 | 0 | 1 = 0;
   private goingDeg: number;
@@ -250,9 +304,14 @@ export class Bot {
     this.wander = [random() * 6.28, random() * 6.28, 0.5 + 0.4 * random()];
   }
 
-  /** Leading the track: the others, and we, follow this one. */
+  /** A track, or whatever is flown in wings: a line behind a leader, where round us or round a bot is a round. */
+  private get line(): boolean {
+    return leaderLed(this.plan.mode, this.plan.options.suit);
+  }
+
+  /** Leading: the others, and we, follow this one. */
   get leads(): boolean {
-    return leaderLed(this.plan.mode, this.plan.options.suit) && this.plan.index === 0;
+    return this.plan.index === 0 && (this.line || this.plan.lead === 'bot');
   }
 
   /** As a lead for the bots that follow this one. */
@@ -260,7 +319,19 @@ export class Bot {
     const s = this.model.state;
     const phase = this.jump.phase;
     const falling = phase === 'freefall' && this.away === null;
-    return { pos: s.pos, vel: s.vel, out: phase !== 'plane', falling, drive: this.input.forward, tracking: this.tracking, goingDeg: this.goingDeg };
+    const b = this.jump.body;
+    return {
+      pos: s.pos,
+      vel: s.vel,
+      out: phase !== 'plane',
+      falling,
+      drive: this.input.forward,
+      tracking: this.tracking,
+      goingDeg: this.line ? this.goingDeg : undefined,
+      headingDeg: b.headingDeg(),
+      // The one it is going into, so that those round it go with it.
+      position: this.next ?? b.position,
+    };
   }
 
   /**
@@ -316,6 +387,8 @@ export class Bot {
     this.time += dt;
     input.turn = input.forward = input.slide = input.fall = 0;
     if (jump.phase === 'plane') {
+      // Upright from the door, where that is how the jump is flown.
+      if (this.plan.mode === 'vertical' && !jump.wings) jump.fly('sit');
       const first = leader ?? us;
       if (this.exitIn === null && first.out) this.exitIn = EXIT_AFTER + (leader ? 0 : EXIT_GAP * this.plan.index);
       if (this.exitIn !== null && (this.exitIn -= dt) <= 0) jump.act();
@@ -336,7 +409,7 @@ export class Bot {
     const heading = jump.body.headingDeg();
     const input = this.input;
     const p = this.model.state.pos;
-    if (this.leads) {
+    if (this.leads && this.line) {
       // Flat down the hill, then onto the track, easing off for whoever is left behind.
       if (jump.time < TRACK_FROM) return;
       this.tracking = true;
@@ -367,16 +440,20 @@ export class Bot {
       return;
     }
     const with_ = leader ?? us;
-    // Behind a leader there is no round: a V, going where the leader goes.
-    const flock = leader !== null;
-    if (this.away === null && (height < this.breakOffAt || !with_.falling) && jump.time > 1) this.away = 0;
+    // Behind the leader of a track there is no round: a V, going where the leader goes.
+    const flock = leader !== null && this.line;
+    // Leading a round, there is nobody to lose: the height alone says when to go.
+    const alone = this.leads;
+    if (this.away === null && (height < this.breakOffAt || (!alone && !with_.falling)) && jump.time > 1) this.away = 0;
     if (this.away !== null) {
-      // The break-off: turn away from the others and track, then flat until the pull.
+      // The break-off: flat again, turn away from the others and track, then flat until the pull.
       this.away += dt;
+      if (jump.body.position !== 'belly') jump.fly('belly');
       input.turn = this.turn(heading, this.outDeg);
       this.tracking = flock || (this.away < AWAY_FOR && Math.abs(turnTo(heading, this.outDeg)) < 60);
       return;
     }
+    if (alone) return this.please(heading);
     if (!with_.out) return;
     const slot = this.slot;
     const sway = this.wander;
@@ -403,21 +480,45 @@ export class Bot {
       this.outDeg = along + side * 30 * row;
       this.chase(slot, with_.vel, heading, along, this.tracking || jump.wings, with_.drive);
     } else {
+      // In our position once we have held it a moment: any other falls at another speed, and
+      // nobody stays close to someone going past at 50 km/h.
+      const like = with_.position ?? jump.body.position;
+      this.likeFor = like === this.like ? this.likeFor + dt : 0;
+      this.like = like;
+      if (this.likeFor > LIKE_AFTER && jump.body.position !== like && !jump.body.maneuvering) jump.fly(like);
       // A round: all of us on a circle, facing its middle, which is in front of us.
-      const facing = us.headingDeg ?? this.plan.run.headingDeg;
+      const facing = with_.headingDeg ?? this.plan.run.headingDeg;
       const round = (this.lineDeg = this.lineDeg === null ? facing : this.lineDeg + clamp(turnTo(this.lineDeg, facing), -ROUND_FOLLOWS * dt, ROUND_FOLLOWS * dt));
       const radius = roundRadius(this.plan.of + 1);
-      const cx = us.pos.x + Math.sin(round * DEG) * radius;
-      const cz = us.pos.z - Math.cos(round * DEG) * radius;
-      // We are at the back of it; the bots take the other places, evenly round.
-      this.outDeg = round + 180 + (360 * (this.plan.index + 1)) / (this.plan.of + 1);
+      const cx = with_.pos.x + Math.sin(round * DEG) * radius;
+      const cz = with_.pos.z - Math.cos(round * DEG) * radius;
+      // Whoever it forms on is at the back of it; the bots take the next places, evenly round,
+      // and round a bot the last one is ours.
+      this.outDeg = round + roundPlace(leader ? this.plan.index : this.plan.index + 1, this.plan.of + 1);
       const a = this.outDeg * DEG;
       const r = radius + k;
-      set(slot, cx + Math.sin(a) * r, us.pos.y + Math.cos(this.time * sway[2] * 0.7 + sway[1]) * 0.15, cz - Math.cos(a) * r);
+      set(slot, cx + Math.sin(a) * r, with_.pos.y + Math.cos(this.time * sway[2] * 0.7 + sway[1]) * 0.15, cz - Math.cos(a) * r);
       // Facing the middle, once near enough to tell.
       const far = Math.hypot(cx - p.x, cz - p.z);
-      this.chase(slot, us.vel, heading, far > 0.5 ? bearing(cx - p.x, cz - p.z) : heading, false);
+      this.chase(slot, with_.vel, heading, far > 0.5 ? bearing(cx - p.x, cz - p.z) : heading, false);
     }
+  }
+
+  /**
+   * Leading a round: as it pleases. It holds its heading, for the round not to spin, and
+   * upright goes from sitting to head down and back every so often.
+   */
+  private please(headingDeg: number): void {
+    const jump = this.jump;
+    this.holdDeg ??= headingDeg;
+    this.input.turn = this.turn(headingDeg, this.holdDeg);
+    if (this.plan.mode !== 'vertical' || jump.wings) return;
+    const random = this.plan.random ?? Math.random;
+    if (this.changeAt === 0) this.changeAt = CHANGE_FROM + CHANGE_EVERY * random();
+    if (jump.time < this.changeAt || jump.body.maneuvering) return;
+    this.changeAt = jump.time + CHANGE_EVERY * (0.7 + 0.6 * random());
+    this.next = jump.body.position === 'sit' ? 'headDown' : 'sit';
+    jump.fly(this.next);
   }
 
   private turn(headingDeg: number, toDeg: number): number {

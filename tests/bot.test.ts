@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from 'vitest';
 import { airDensityAt } from '../src/sim/atmosphere';
-import { Bot, SLOT_SPACING, botHeights, botSpot, roundRadius, type BotMode, type Lead } from '../src/sim/bot';
+import { Bot, type BotLead, SLOT_SPACING, botHeights, botSpot, roundRadius, type BotMode, type Lead } from '../src/sim/bot';
 import { FlightModel, neutralControls, type Environment } from '../src/sim/flightModel';
 import { noBodyInputs, type BodyInputs } from '../src/sim/freefall';
 import { Jump } from '../src/sim/jump';
@@ -20,18 +20,18 @@ const run = { x: 0, z: 0, height: 4000, headingDeg: 0, indicatedAirspeed: 40 };
 const FRAME = 1 / 60;
 
 /** A jump with `n` bots, we with `input` held all the way and pulling at 900 m; `each` is called every frame. */
-function fly(mode: BotMode, n: number, each: (t: number, us: FlightModel, bots: Bot[]) => void, input: BodyInputs = noBodyInputs(), windX = 0, suit?: Suit) {
+function fly(mode: BotMode, n: number, each: (t: number, us: FlightModel, bots: Bot[], jump: Jump) => void, input: BodyInputs = noBodyInputs(), windX = 0, suit?: Suit, lead?: BotLead) {
   const env: Environment = { wind: vec3(windX, 0, 0), airDensity: airDensityAt(4000) };
   const model = new FlightModel(rig);
   const jump = new Jump(model, run, env, flat, () => 0.5, { suit });
   let seed = 1;
   const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const landing = { x: 0, z: 0, headingDeg: 270 };
-  const bots = Array.from({ length: n }, (_, index) => new Bot(rig, env, { index, of: n, mode, run, spot: 'low', landing, groundAt: flat, options: { reserve, rsl: true, suit }, random }));
+  const bots = Array.from({ length: n }, (_, index) => new Bot(rig, env, { index, of: n, mode, run, spot: 'low', landing, groundAt: flat, options: { reserve, rsl: true, suit }, random, lead }));
   const air: Environment = { wind: env.wind, airDensity: env.airDensity };
   let down = false;
   for (let i = 0; i < 600 / FRAME && !bots.every((b) => b.touchdown); i++) {
-    const us: Lead = { pos: model.state.pos, vel: model.state.vel, out: jump.phase !== 'plane', falling: jump.phase === 'freefall', headingDeg: jump.headingDeg() };
+    const us: Lead = { pos: model.state.pos, vel: model.state.vel, out: jump.phase !== 'plane', falling: jump.phase === 'freefall', headingDeg: jump.headingDeg(), position: jump.body.position };
     const leader = bots.find((b) => b.leads) ?? null;
     for (const b of bots) {
       air.airDensity = airDensityAt(b.model.state.pos.y);
@@ -47,7 +47,7 @@ function fly(mode: BotMode, n: number, each: (t: number, us: FlightModel, bots: 
         down = model.state.pos.y < 2;
       }
     }
-    each(i * FRAME, model, bots);
+    each(i * FRAME, model, bots, jump);
   }
   return bots;
 }
@@ -162,14 +162,78 @@ describe('bots', () => {
     }
   });
 
+  test('upright: they sit round us, close and level, and go head down when we do', () => {
+    let worst = 0;
+    let level = 0;
+    let down = 0;
+    let turned = false;
+    fly('vertical', 3, (t, us, all, jump) => {
+      // Sitting out of the door, head down half a minute in.
+      if (jump.phase === 'plane') jump.fly('sit');
+      if (t > 28 && !turned) {
+        jump.fly('headDown');
+        turned = true;
+      }
+      if (us.state.pos.y < 1600) return;
+      for (const b of all) {
+        const off = Math.abs(b.model.state.pos.y - us.state.pos.y);
+        if (t > 24 && t <= 28) {
+          expect(b.jump.body.position).toBe('sit');
+          worst = Math.max(worst, apart(us, b.model));
+          level = Math.max(level, off);
+        } else if (t > 33) {
+          expect(b.jump.body.position).toBe('headDown');
+          down = Math.max(down, Math.hypot(apart(us, b.model), off));
+        }
+      }
+    });
+    expect(turned).toBe(true);
+    expect(worst).toBeLessThan(2 * roundRadius(4) + 1);
+    expect(level).toBeLessThan(0.5);
+    // Through the turn onto the head they scatter a little, and stay about.
+    expect(down).toBeGreaterThan(0);
+    expect(down).toBeLessThan(12);
+  });
+
+  test('upright behind a bot: it goes from sitting to head down as it likes, the others round it and as it is', () => {
+    let worst = 0;
+    let level = 0;
+    const seen = new Set<string>();
+    const bots = fly(
+      'vertical',
+      3,
+      (t, _us, all) => {
+        const lead = all[0]!;
+        if (lead.jump.phase !== 'freefall' || lead.model.state.pos.y < 1600) return;
+        seen.add(lead.jump.body.position);
+        // Once formed, and not while they turn onto the head or back.
+        if (t < 26 || all.some((b) => b.jump.body.maneuvering || b.jump.body.position !== lead.jump.body.position)) return;
+        for (const b of all.slice(1)) {
+          worst = Math.max(worst, apart(lead.model, b.model));
+          level = Math.max(level, Math.abs(b.model.state.pos.y - lead.model.state.pos.y));
+        }
+      },
+      noBodyInputs(),
+      0,
+      undefined,
+      'bot',
+    );
+    expect(bots[0]!.leads).toBe(true);
+    expect([...seen].sort()).toEqual(['headDown', 'sit']);
+    expect(worst).toBeGreaterThan(0);
+    expect(worst).toBeLessThan(2 * roundRadius(4) + 6);
+    expect(level).toBeLessThan(6);
+  });
+
   test('in the plane they take the places at the door we left free, and past those the cabin', () => {
     expect([0, 1, 2, 3].map((i) => botSpot(i, 'low'))).toEqual(['high', 'step', 'inside', 'inside']);
     expect([0, 1, 2, 3].map((i) => botSpot(i, 'inside'))).toEqual(['high', 'low', 'step', 'inside']);
   });
 
   test('how many and what they fly are kept with the setup, within bounds', () => {
-    expect(validSetup({}).bots).toEqual({ count: 0, mode: 'formation' });
-    expect(validSetup({ bots: { count: 3, mode: 'track' } }).bots).toEqual({ count: 3, mode: 'track' });
-    expect(validSetup({ bots: { count: 99, mode: 'swarm' } }).bots).toEqual({ count: 4, mode: 'formation' });
+    expect(validSetup({}).bots).toEqual({ count: 0, mode: 'formation', lead: 'us' });
+    expect(validSetup({ bots: { count: 3, mode: 'track' } }).bots).toEqual({ count: 3, mode: 'track', lead: 'us' });
+    expect(validSetup({ bots: { count: 99, mode: 'swarm' } }).bots).toEqual({ count: 4, mode: 'formation', lead: 'us' });
+    expect(validSetup({ bots: { count: 2, mode: 'vertical', lead: 'bot' } }).bots).toEqual({ count: 2, mode: 'vertical', lead: 'bot' });
   });
 });

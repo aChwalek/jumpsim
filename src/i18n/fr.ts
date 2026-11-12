@@ -175,7 +175,7 @@ export const fr = {
     locked: 'CAMÉRA VERROUILLÉE SUR LA CIBLE',
     unlocked: 'CAMÉRA LIBRE',
     botLeads: 'mène',
-    guide: { up: 'MONTE', down: 'DESCENDS', faster: 'ACCÉLÈRE', slower: 'FREINE', left: 'À GAUCHE', right: 'À DROITE', level: 'NIVEAU OK', near: 'DISTANCE OK' },
+    guide: { up: 'MONTE', down: 'DESCENDS', faster: 'ACCÉLÈRE', slower: 'FREINE', left: 'À GAUCHE', right: 'À DROITE', level: 'NIVEAU OK', near: 'DISTANCE OK', forward: 'AVANCE', back: 'RECULE', take: 'PASSE', flat: 'À PLAT' },
   },
 
   keys: {
@@ -507,10 +507,20 @@ export const fr = {
       botsNone: 'Aucun',
       botsNote: 'Ils sortent juste après toi, de l\'avion seulement, dans la même combinaison que toi.',
       botsRoom: 'À plusieurs dans une room, pas de sautants IA.',
+      botLead: 'QUI MÈNE',
+      botLeads: { us: 'Moi', bot: 'Un sautant IA' },
+      botLeadNote: {
+        us: 'Ils se placent autour de toi et font comme toi.',
+        bot: 'Le premier vole comme il veut ; les autres se placent autour de lui, et une place t\'attend. Les aides te disent où.',
+        track: 'En dérive et en wingsuit, c\'est toujours un sautant IA qui mène.',
+      },
       botMode: 'ILS VOLENT',
-      botModes: { formation: 'En formation', track: 'Une dérive' },
+      botModes: { formation: 'À plat', vertical: 'Vertical', track: 'Dérive' },
       botModeNote: {
-        formation: (breakOff: string, pull: string) => `À plat autour de toi, face à toi. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
+        formation: (breakOff: string, pull: string) =>
+          `À plat, en ronde avec toi, tout près. Si tu changes de position, ils te suivent. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
+        vertical: (breakOff: string, pull: string) =>
+          `Assis dès la sortie, en ronde avec toi, tout près ; tête en bas si tu y passes. Sors assis toi aussi. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
         track: (breakOff: string, pull: string) =>
           `Le premier mène une dérive à 90° à droite de l'axe puis autour de la zone, et t'attend ; les autres en V derrière lui. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
         wings: (breakOff: string, pull: string) =>
