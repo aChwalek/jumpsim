@@ -144,8 +144,9 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
     case 'freefall':
       return [
         [['ls'], t.fwdBackSlide],
-        [['rs'], t.turnUpDown],
-        [['lb'], t.lookHeld],
+        [['lt', 'rt'], t.turn],
+        [['lb', 'rb'], t.upDown],
+        [['rs'], t.look],
         [['b', 'y', 'x'], t.positionsPad],
         [['up', 'down'], t.sitHeadDown],
         [['left', 'right'], t.bellyBack],
