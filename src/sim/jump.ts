@@ -157,6 +157,16 @@ export class Jump {
     if (this.phase === 'plane' || this.phase === 'freefall') this.body.setPosition(position, roll);
   }
 
+  /**
+   * ← / → (`dir` -1 / 1). In the door: belly or back exit. In freefall: a half
+   * roll flat (twice is a barrel roll), a half turn upright.
+   */
+  roll(dir: -1 | 1): void {
+    if (this.pullWhenFlat) return;
+    if (this.phase === 'plane') this.body.setPosition(dir < 0 ? 'belly' : 'back');
+    else if (this.phase === 'freefall') this.body.rollOver(dir);
+  }
+
   /** Feet above the ground, m. */
   height(): number {
     const m = this.model;

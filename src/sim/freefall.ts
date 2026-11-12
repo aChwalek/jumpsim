@@ -34,6 +34,17 @@ import { DEG, clamp, quat, rotate, rotateInv, set, vec3, type Quat, type Vec3 } 
 
 export type BodyPosition = 'belly' | 'back' | 'sit' | 'headDown';
 
+/**
+ * ↑ / ↓ from where the pilot is: the head comes up or goes down one step,
+ * sit ↔ back ↔ head down. Out of belly to earth, up sits, down dives.
+ */
+export function stepPosition(from: BodyPosition, dir: 'up' | 'down'): BodyPosition {
+  if (from === 'belly') return dir === 'up' ? 'sit' : 'headDown';
+  const ladder: BodyPosition[] = ['sit', 'back', 'headDown'];
+  const i = ladder.indexOf(from) + (dir === 'up' ? -1 : 1);
+  return ladder[Math.max(0, Math.min(ladder.length - 1, i))]!;
+}
+
 /** What the pilot asks of the body, each from -1 to 1. */
 export interface BodyInputs {
   /** Left (-1) to right (1). */
@@ -137,6 +148,8 @@ export interface FreefallParams {
   settle: number;
   /** Fastest the body swings round from one position to another, rad/s. */
   swingRate: number;
+  /** A half roll flat, or a half turn upright, on ← / →, rad/s. */
+  rollRate: number;
   /** Time for arms and legs to take a new shape, s. */
   reshape: number;
   /** Time for a turn to start or stop, s. */
@@ -152,6 +165,8 @@ export function freefallParams(exitWeightKg: number): FreefallParams {
     settle: 0.25,
     // A quarter turn, belly to sitting, in about three quarters of a second.
     swingRate: 150 * DEG,
+    // A barrel roll in a little over a second.
+    rollRate: 300 * DEG,
     reshape: 0.4,
     turnLag: 0.4,
   };
@@ -190,6 +205,12 @@ export class Freefall {
    * or tips over the front, -1 the other way.
    */
   private flipSign = 1;
+  /**
+   * A roll flat or a half turn upright under way: what is left of it, rad,
+   * about `axis` in the pilot frame. A roll takes the body off the airflow:
+   * it is not settled back onto it until the roll is over.
+   */
+  private readonly maneuver = { axis: vec3(), left: 0, roll: false };
   /** Where the body is heading for: tilted off the airflow by the inputs. */
   private readonly target = vec3();
   private readonly down = vec3();
@@ -216,6 +237,36 @@ export class Freefall {
     if (position === this.position) return;
     this.position = position;
     this.flipSign = roll < 0 ? -1 : 1;
+    this.maneuver.left = 0;
+  }
+
+  /**
+   * ← / → (`dir` -1 / 1). Flat, a half roll that way onto the other side:
+   * twice in a row on the belly is a barrel roll. Upright, a half turn about
+   * the head to face the other way.
+   */
+  rollOver(dir: -1 | 1): void {
+    const m = this.maneuver;
+    const flat = this.position === 'belly' || this.position === 'back';
+    if (m.left !== 0 && m.roll !== flat) return;
+    if (flat) {
+      // About the head, always the same way for the same key, so that a
+      // second press carries on round: → on the belly, the right hand goes down.
+      set(m.axis, 0, 1, 0);
+      m.left += dir * Math.PI;
+      this.position = this.position === 'belly' ? 'back' : 'belly';
+    } else {
+      // About the axis that is up for the eyes, the way a turn goes.
+      const f = this.shape.forward;
+      set(m.axis, 0, f.z, -f.y);
+      m.left += dir * Math.PI;
+    }
+    m.roll = flat;
+  }
+
+  /** A roll or a half turn under way. */
+  get maneuvering(): boolean {
+    return this.maneuver.left !== 0;
   }
 
   /** Angle between the body and its position on the airflow, rad: 0 once settled. */
@@ -283,7 +334,8 @@ export class Freefall {
     let wx = 0;
     let wy = 0;
     let wz = 0;
-    if (speed > 3) {
+    const m = this.maneuver;
+    if (speed > 3 && !(m.left !== 0 && m.roll)) {
       // A body broader across the air than along it glides towards its low
       // edge, a slender one towards its leading end: they tilt opposite ways.
       const flowArea = along(shape.area, shape.downstream);
@@ -330,6 +382,16 @@ export class Freefall {
           wz = az * rate;
         }
       }
+    }
+
+    if (m.left !== 0) {
+      const step = Math.sign(m.left) * Math.min(Math.abs(m.left), p.rollRate * dt);
+      m.left -= step;
+      if (Math.abs(m.left) < 1e-9) m.left = 0;
+      const axis = rotate(this.local, s.att, m.axis);
+      wx += (axis.x * step) / dt;
+      wy += (axis.y * step) / dt;
+      wz += (axis.z * step) / dt;
     }
 
     // Turning: about the axis that is up for the eyes (the back belly to

@@ -33,7 +33,7 @@ import {
 import { Arrival } from './sim/arrival';
 import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
-import { noBodyInputs, type BodyPosition } from './sim/freefall';
+import { noBodyInputs, stepPosition, type BodyPosition } from './sim/freefall';
 import { Jump } from './sim/jump';
 import { detectTouchdown, feetHeight, type Touchdown } from './sim/landing';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
@@ -375,10 +375,14 @@ const actions: Record<Action, () => void> = {
   jump: () => {
     if (!paused) jump?.act();
   },
-  flyBelly: () => flyInto('belly'),
-  flyBack: () => flyInto('back'),
-  flySit: () => flyInto('sit'),
-  flyHeadDown: () => flyInto('headDown'),
+  flyLeft: () => {
+    if (!paused) jump?.roll(-1);
+  },
+  flyRight: () => {
+    if (!paused) jump?.roll(1);
+  },
+  flyUp: () => jump && flyInto(stepPosition(jump.body.position, 'up')),
+  flyDown: () => jump && flyInto(stepPosition(jump.body.position, 'down')),
   toggleHud: () => hud.toggle(),
   togglePause: () => (paused = !paused),
   toggleSound: () => {

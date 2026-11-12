@@ -20,10 +20,12 @@ export type Action =
   | 'padMenu'
   | 'cycleQuality'
   | 'toggleKeys'
-  | 'flyBelly'
-  | 'flyBack'
-  | 'flySit'
-  | 'flyHeadDown'
+  /** Flat, a half roll that way; upright, a half turn. */
+  | 'flyLeft'
+  | 'flyRight'
+  /** Head up or down one step from the current position. */
+  | 'flyUp'
+  | 'flyDown'
   /** Held a moment: the cutaway handle. */
   | 'cutaway'
   /** Collapse or take off the slider. */
@@ -48,11 +50,11 @@ const ACTIONS: Record<string, Action> = {
   Digit3: 'spawnPlane',
   Space: 'jump',
   KeyV: 'openMenu',
-  // Positions in freefall: head up, head down, belly, back.
-  ArrowUp: 'flySit',
-  ArrowDown: 'flyHeadDown',
-  ArrowLeft: 'flyBelly',
-  ArrowRight: 'flyBack',
+  // Positions in freefall: head up / down a step from where the body is, roll or turn round.
+  ArrowUp: 'flyUp',
+  ArrowDown: 'flyDown',
+  ArrowLeft: 'flyLeft',
+  ArrowRight: 'flyRight',
 };
 
 /**
@@ -64,10 +66,10 @@ const PAD_ACTIONS: [number, Action][] = [
   [3, 'reset'], // Y
   [8, 'camera'], // View / Back / Share
   [9, 'padMenu'], // Start
-  [12, 'flySit'],
-  [13, 'flyHeadDown'],
-  [14, 'flyBelly'],
-  [15, 'flyBack'],
+  [12, 'flyUp'],
+  [13, 'flyDown'],
+  [14, 'flyLeft'],
+  [15, 'flyRight'],
 ];
 
 /** How long the cutaway key or button has to be held, ms: no cutaway by a slip of the finger. */
