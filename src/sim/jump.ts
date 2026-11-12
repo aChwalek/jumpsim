@@ -30,6 +30,11 @@ export interface Ledge {
   z: number;
   /** Compass heading towards the edge, degrees. */
   headingDeg: number;
+  /**
+   * How high the exit is, m, where the ground under the edge does not say:
+   * down to the landing area from a cliff, whose foot is a slope.
+   */
+  height?: number;
 }
 
 const isLedge = (from: JumpRun | Ledge): from is Ledge => (from as Ledge).kind === 'ledge';
@@ -118,6 +123,8 @@ export class Jump {
   readonly runUp: RunUp | null;
   /** A BASE jump, off an object: the AAD is off, as for any BASE jump. */
   readonly base: boolean;
+  /** The ledge's own height, when it has one. */
+  private readonly exitHeight: number | undefined;
   /** One canopy and nothing else: a BASE container. */
   readonly single: boolean;
   readonly body: Freefall;
@@ -166,6 +173,7 @@ export class Jump {
     this.solidAt = options.solidAt ?? groundAt;
     this.body = new Freefall(freefallParams(model.rig.gravMass));
     this.base = isLedge(from);
+    this.exitHeight = isLedge(from) ? from.height : undefined;
     this.single = options.container === 'base';
     if (isLedge(from)) {
       this.phase = 'standing';
@@ -177,7 +185,7 @@ export class Jump {
       this.runUp = null;
     }
     this.log = {
-      exitHeight: isLedge(from) ? this.solidAt(from.x, from.z) - groundAt(from.x, from.z) : from.height,
+      exitHeight: isLedge(from) ? (from.height ?? this.solidAt(from.x, from.z) - groundAt(from.x, from.z)) : from.height,
       pullHeight: null,
       openHeight: 0,
       freefallSeconds: 0,
@@ -452,7 +460,7 @@ export class Jump {
     b.yawRate = 0;
     this.phase = 'freefall';
     this.time = 0;
-    this.log.exitHeight = this.height();
+    this.log.exitHeight = this.exitHeight ?? this.height();
   }
 
   /**

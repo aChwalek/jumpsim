@@ -45,7 +45,10 @@ export interface BaseExit {
   runUp: number;
   /** Width of the run marked on top, m. */
   width: number;
-  /** Height of the top above the ground at its foot, m. */
+  /**
+   * Height of the top above the ground at its foot, m; for a cliff, whose
+   * foot is a slope of fallen rock, the height down to the landing area.
+   */
   height: number;
 }
 
@@ -120,6 +123,11 @@ export interface DzPack {
   topAt?(x: number, z: number): number;
   /** An object to BASE jump from. */
   base?: BaseExit;
+  /**
+   * A square of terrain drawn finer than the rest, centred on (x, z), for a
+   * cliff: its sides on the 100 m lines of the terrain mesh.
+   */
+  terrainDetail?: { x: number; z: number; size: number; spacing: number };
   target: { x: number; z: number; radius: number };
   surfaces: Rect[];
   /** Flat surfaces of any shape. */

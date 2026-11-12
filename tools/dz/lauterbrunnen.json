@@ -1,0 +1,84 @@
+{
+ "id": "lauterbrunnen",
+ "displayName": "Lauterbrunnen",
+ "menuNote": "High Nose, sur la Mürrenfluh, au-dessus de la vallée",
+ "operator": "No drop zone: a BASE site. Landing cards and the rules: Swiss BASE Association; jump clearance from Air-Glaciers (BaseApp).",
+ "aerodrome": {
+  "name": "Lauterbrunnen valley, BASE landing field below the Mürrenfluh",
+  "icao": "BASE",
+  "elevation_m": 810,
+  "lat": 46.577912,
+  "lon": 7.910929
+ },
+ "utcOffsetSummer_h": 2,
+ "inland": true,
+ "imagery": "swissimage",
+ "overpass": ["https://overpass.osm.ch/api/interpreter"],
+ "fineRelief": {
+  "source": "swissALTI3D 2 m (swisstopo)",
+  "centre": [46.5785, 7.908],
+  "size_m": 3000,
+  "spacing_m": 6,
+  "why": "The terrain tiles round the Mürrenfluh off over a hundred metres: the cliff needs the national survey, sampled every 6 m."
+ },
+ "origin": {
+  "lat": 46.577912,
+  "lon": 7.910929,
+  "what": "middle of the meadow taken as the landing field, on the valley floor east of the Stechelberg road"
+ },
+ "boundary": [
+  [46.578429, 7.909319],
+  [46.578318, 7.912216],
+  [46.577359, 7.912323],
+  [46.577359, 7.909427]
+ ],
+ "runways": [],
+ "paved": [],
+ "landingAreas": [
+  {
+   "name": "Meadow on the valley floor below High Nose",
+   "use": "sport",
+   "surface": "grass",
+   "polygon": [
+    [46.578429, 7.909319],
+    [46.578318, 7.912216],
+    [46.577359, 7.912323],
+    [46.577359, 7.909427]
+   ]
+  }
+ ],
+ "target": {
+  "lat": 46.577912,
+  "lon": 7.910929,
+  "radius_m": 10,
+  "shown": false,
+  "evidence": "No target on a BASE landing field: the middle of the meadow is where one aims."
+ },
+ "windsocks": [[46.578244, 7.909427]],
+ "flags": [],
+ "people": [[46.578, 7.9097], [46.57802, 7.90975], [46.57797, 7.90968]],
+ "base": {
+  "name": "High Nose",
+  "lat": 46.579191,
+  "lon": 7.904817,
+  "heading_deg": 120,
+  "runUp_m": 25,
+  "width_m": 4,
+  "altitudeToLanding_m": 545,
+  "evidence": "Swiss BASE Association exit table (Lauterbrunnen guide PDF): High Nose, rock drop 7 s / 190 m, altitude to landing 585 m, on the Mürrenfluh. Its exact position is not published: this one is the nose of the Mürrenfluh found in swissALTI3D at 46.57908, 7.90510 (edge, 1355 m): a wooded top sloping gently to the edge, a 190 m drop (1349 m to 1160 m within 6 m), then the face and the scree down to the valley floor at 810 m, 545 m below. The run starts 25 m back from the edge, heading 120 (ESE), straight at the meadow 470 m away."
+ },
+ "wind": {
+  "usual": {"fromDeg": 0, "kmh": 9},
+  "description": "INFERRED: the valley wind blows up the valley, from the north, on summer afternoons; mornings are calm, which is when most jump."
+ },
+ "invented": [
+  "Exit position: High Nose's coordinates are not published; the nose used here matches its published rock drop (190 m) and nearly its altitude to landing (545 m against 585 m).",
+  "Landing field: the official landing fields are given out with the landing card; this meadow on the valley floor in line with the exit stands in for them.",
+  "Pattern and wind: inferred from the shape of the valley."
+ ],
+ "sources": [
+  "https://www.swissbaseassociation.org/high-nose: rock drop 7 s, 190 m; altitude to landing 585 m; clearance through the BaseApp or Air-Glaciers",
+  "https://www.swissbaseassociation.org/_files/ugd/c40a48_942b4b41dde74f4b940668e55a595962.pdf: exit table of the Lauterbrunnen valley",
+  "swisstopo swissALTI3D (2 m) and SWISSIMAGE: relief and orthophotos, free geodata (OGD), © swisstopo"
+ ]
+}
