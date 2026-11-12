@@ -35,6 +35,8 @@ export type Action =
   | 'slider'
   /** Eyes, or outside. */
   | 'camera'
+  /** The end of the jump again, in slow motion; or back from it. */
+  | 'replay'
   /** The player or the point in the middle of the screen becomes the target; nothing there, no target. */
   | 'pickTarget'
   /** The next or previous player as the target. */

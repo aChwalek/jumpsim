@@ -60,7 +60,16 @@ function jumpRows(log: JumpLog): string {
   return rows.join('');
 }
 
-const hint = (): string => `<p class="hint">${T.hud.again(keyLabel)}</p>`;
+/** What can be done once down: go again, change the jump, or see the end of it again. */
+const hint = (): string => `
+  <div class="actions">
+    <button data-act="retry">${T.hud.retry}</button>
+    <button data-act="change">${T.hud.change}</button>
+    <button data-act="replay" class="replayBtn">${T.hud.watchAgain}</button>
+  </div>
+  <p class="hint">${T.hud.again(keyLabel)}</p>`;
+
+export type CardAction = 'retry' | 'change' | 'replay';
 
 export class Hud {
   private readonly root = el('hud');
@@ -85,9 +94,35 @@ export class Hud {
   private sinceText = 1;
   /** Frame rate and render scale in the corner. */
   showFps = true;
+  /** A button of the card at the end of the jump. */
+  onCard: (action: CardAction) => void = () => {};
+
+  constructor() {
+    this.result.addEventListener('click', (e) => {
+      const act = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act;
+      if (act) this.onCard(act as CardAction);
+    });
+  }
+
+  /** Whether the end of the jump can be seen again; and walking about, the card out of the way. */
+  setCard(replayable: boolean, walking: boolean): void {
+    this.result.classList.toggle('noReplay', !replayable);
+    this.result.classList.toggle('compact', walking);
+  }
+
+  /** Whether the card at the end of the jump is up. */
+  get cardShown(): boolean {
+    return this.result.style.display === 'block';
+  }
 
   toggle(): void {
     this.root.classList.toggle('hidden');
+  }
+
+  /** A crash shown again: only the replay's own badge on screen. */
+  setReplay(on: boolean): void {
+    this.root.classList.toggle('replaying', on);
+    if (on) el('replay').innerHTML = `${T.hud.replay}<small>${T.hud.skipReplay}</small>`;
   }
 
   /** Nothing of the HUD shows behind the menu. */

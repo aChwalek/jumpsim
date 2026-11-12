@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import type { RigParams } from '../sim/rig';
 import { GEAR_LAYER, OUTSIDE_LAYER } from './scene';
+import { JOINTS, type Joint } from '../sim/ragdoll';
 
 const UPPER_ARM = 0.3;
 const FOREARM = 0.28;
@@ -202,6 +203,8 @@ export class Body {
   private readonly d = new THREE.Vector3();
   private readonly e = new THREE.Vector3();
   private readonly basis = new THREE.Matrix4();
+  /** A point at each joint, for the ragdoll to start from (see `joints`). */
+  private readonly marks: Record<Joint, THREE.Object3D>;
 
   constructor(rig: RigParams) {
     this.eye = new THREE.Vector3(rig.eyePos.x, rig.eyePos.y, rig.eyePos.z);
@@ -271,6 +274,17 @@ export class Body {
     );
     glass.position.copy(helmet.position);
     this.trunk.add(neck, head, helmet, glass);
+    const marks = {} as Record<Joint, THREE.Object3D>;
+    const mark = (joint: Joint, parent: THREE.Object3D, x: number, y: number, z: number): void => {
+      const m = new THREE.Object3D();
+      m.position.set(x, y, z);
+      parent.add(m);
+      marks[joint] = m;
+    };
+    mark('head', this.trunk, 0, head.position.y, head.position.z);
+    mark('neck', this.trunk, neckFoot.x, neckFoot.y, neckFoot.z);
+    mark('shoulderL', this.trunk, -SHOULDER.x, SHOULDER.y, SHOULDER.z);
+    mark('shoulderR', this.trunk, SHOULDER.x, SHOULDER.y, SHOULDER.z);
 
     // Legs: thigh and shin turn at hip and knee, the shoe at the end.
     const pilotY = rig.pilotPos.y;
@@ -293,7 +307,14 @@ export class Body {
       );
       this.trunk.add(thigh);
       this.legs.push({ thigh, shin });
+      const L = side < 0 ? 'L' : 'R';
+      mark(`hip${L}`, this.trunk, side * HIP_APART, pilotY - HIP_DROP, HIP_BACK);
+      mark(`knee${L}`, shin, 0, 0, 0);
+      mark(`foot${L}`, shin, 0, -shinLength, 0);
     }
+    mark('pelvis', this.trunk, 0, pilotY - HIP_DROP + 0.04, HIP_BACK + 0.02);
+    for (const joint of ['elbowL', 'elbowR', 'handL', 'handR'] as const) mark(joint, this.group, 0, 0, 0);
+    this.marks = marks;
     this.group.add(this.trunk);
 
     // Arms, stretched from shoulder to elbow to hand each time they move.
@@ -333,6 +354,26 @@ export class Body {
   /** Where a hand is, pilot frame, after the last pose. */
   handPoint(out: THREE.Vector3, right: boolean): THREE.Vector3 {
     return out.copy(this.arms[right ? 1 : 0]!.hand.position);
+  }
+
+  /**
+   * Where each joint is, pilot frame, after the last pose, in the order of
+   * JOINTS. The hands on the risers are where the risers are.
+   */
+  joints(onRisers: { left: THREE.Vector3; right: THREE.Vector3 } | null): THREE.Vector3[] {
+    const [left, right] = [this.arms[0]!, this.arms[1]!];
+    this.marks.elbowL.position.copy(left.elbow);
+    this.marks.elbowR.position.copy(right.elbow);
+    this.marks.handL.position.copy(onRisers ? onRisers.left : left.hand.position);
+    this.marks.handR.position.copy(onRisers ? onRisers.right : right.hand.position);
+    if (onRisers) {
+      // Elbows out and down from hands up on the risers.
+      this.marks.elbowL.position.lerpVectors(this.a.set(-SHOULDER.x, SHOULDER.y, SHOULDER.z), onRisers.left, 0.5).x -= 0.12;
+      this.marks.elbowR.position.lerpVectors(this.a.set(SHOULDER.x, SHOULDER.y, SHOULDER.z), onRisers.right, 0.5).x += 0.12;
+    }
+    this.group.updateWorldMatrix(true, true);
+    const inverse = this.basis.copy(this.group.matrixWorld).invert();
+    return JOINTS.map((joint) => this.marks[joint].getWorldPosition(new THREE.Vector3()).applyMatrix4(inverse));
   }
 
   /** Shows or hides the free arms (and the altimeter on them). */

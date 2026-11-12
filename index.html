@@ -70,6 +70,25 @@
       .card td { padding: 3px 10px; }
       .card td:first-child { font-weight: 650; white-space: nowrap; }
       .card .hint { margin-top: 12px; font-size: 12px; opacity: 0.7; }
+      .card .actions { display: flex; gap: 10px; justify-content: center; margin-top: 16px; pointer-events: auto; }
+      .card button {
+        font: 600 14px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #fff; cursor: pointer;
+        padding: 10px 18px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.35); background: rgba(255, 255, 255, 0.08);
+      }
+      .card button:hover { background: rgba(255, 255, 255, 0.2); }
+      .card button[data-act='retry'] { background: #ffd84a; color: #14181e; border-color: #ffd84a; }
+      .card.noReplay .replayBtn { display: none; }
+      /* Walking about: out of the way at the bottom, the verdict and the buttons only. */
+      .card.compact { top: auto; bottom: 18px; transform: translateX(-50%); padding: 12px 18px; }
+      .card.compact h1 { font-size: 18px; margin: 0; }
+      .card.compact p, .card.compact table { display: none; }
+      .card.compact .actions { margin-top: 10px; }
+      #replay { position: absolute; left: 26px; top: 22px; display: none; font: 700 22px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.14em; }
+      #replay::before { content: ''; display: inline-block; width: 13px; height: 13px; margin-right: 9px; border-radius: 50%; background: #ff3b30; animation: rec 1s steps(2) infinite; }
+      #replay small { display: block; margin: 6px 0 0 22px; font: 500 11px/1 -apple-system, sans-serif; letter-spacing: 0.04em; opacity: 0.75; }
+      @keyframes rec { 50% { opacity: 0; } }
+      #hud.replaying #replay { display: block; }
+      #hud.replaying .flight, #hud.replaying .card { visibility: hidden; }
     </style>
   </head>
   <body>
@@ -90,6 +109,7 @@
         <div class="bar"><div class="front" id="frontR"></div><div class="fill" id="brakeR"></div></div>
       </div>
       <div class="card" id="result"></div>
+      <div id="replay"></div>
     </div>
     <div id="menu"></div>
     <script type="module" src="/src/main.ts"></script>

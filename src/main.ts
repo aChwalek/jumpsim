@@ -14,6 +14,8 @@ import { ChaseCamera, type ChaseTarget } from './render/chaseCamera';
 import { cycle, lockedChase, pickPlayer, pickPoint, type Target } from './render/lockOn';
 import { FREEFALL_STANCES, LegSwing, Posture, type LegCues, type Stance } from './render/posture';
 import { RigView, type RigFrame } from './render/rigView';
+import { RagdollView } from './render/ragdollView';
+import { copyPose, type Pose } from './render/body';
 import { TopView } from './render/topView';
 import { FIELD_OF_VIEW, GEAR_LAYER, OUTSIDE_LAYER, Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
 import { logJump, type Outcome } from './logbook';
@@ -32,6 +34,8 @@ import {
   type Start,
 } from './setup';
 import { Arrival } from './sim/arrival';
+import { J, JOINT_COUNT, PART, Ragdoll } from './sim/ragdoll';
+import { Recorder, type Replay, type ReplayFrame } from './crashReplay';
 import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
 import { noBodyInputs, stepPosition, type BodyPosition } from './sim/freefall';
@@ -39,7 +43,7 @@ import { Jump, type JumpOptions } from './sim/jump';
 import { detectTouchdown, feetHeight, type Touchdown } from './sim/landing';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
-import { DEG, rotateInv, vec3 } from './sim/vec';
+import { DEG, quat, rotateInv, vec3 } from './sim/vec';
 import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
 import type { KeysPhase } from './ui/keys';
@@ -109,6 +113,10 @@ const legCues: LegCues = { prep: 0, fore: 0, side: 0 };
 let flash: { text: string; until: number } | null = null;
 const planeView = new PlaneView();
 scene.add(planeView.object);
+/** The body thrown about by a crash, drawn in place of the pilot's own. */
+const ragdollView = new RagdollView();
+scene.add(ragdollView.object);
+for (const m of ragdollView.materials()) if (m instanceof THREE.MeshLambertMaterial) light.clouds.shade(m, 'light');
 const menu = new Menu(setup, settings);
 /** Jumping with others, in the room the address names (`?room=name`). */
 let net: Multiplayer | null = null;
@@ -361,6 +369,26 @@ const still = noBodyInputs();
 const hands = neutralControls();
 /** Seconds flown under canopy on this jump, for the logbook. */
 let canopyTime = 0;
+/** A crash: the body goes limp and the ground does the rest. */
+let ragdoll: Ragdoll | null = null;
+/** The ragdoll's hits already heard. */
+let hitsHeard = 0;
+let cried = 0;
+let groaned = false;
+/** The last seconds of the jump, and all of a crash. */
+const recorder = new Recorder();
+/** The end of the jump being shown again, and whether a crash has been once already. */
+let replay: Replay | null = null;
+let replayed = false;
+/** The live state of the pilot, kept while a replay takes the model over. */
+const kept = { pos: vec3(), vel: vec3(), att: quat(), pilotAtt: quat(), deflationL: 0, deflationR: 0 };
+/** On the ground: how far the canopy has been gathered up into the arms, 0 to 1; null before it starts. */
+let gather: number | null = null;
+/** Seconds to gather a canopy up off the ground. */
+const GATHER_TIME = 3.5;
+/** Where the crash happened and the way the pilot was going, for the replay's camera. */
+const crashPoint = new THREE.Vector3();
+let crashHeading = 0;
 
 /** Writes the jump that just ended in the logbook. */
 function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distance?: number, wet?: boolean): void {
@@ -443,6 +471,7 @@ function spawn(kind: Start): void {
   arrival = null;
   verdict = null;
   stepsHeard = 0;
+  endCrash();
   canopyTime = 0;
   posture.reset();
   legSwing.reset();
@@ -520,14 +549,18 @@ const inFreefall = (): boolean => jump !== null && (jump.phase === 'freefall' ||
 
 const actions: Record<Action, () => void> = {
   reset: () => {
-    if (!inFreefall()) spawn(scenario);
+    if (!inFreefall() || impact) spawn(scenario);
   },
   spawnPattern: () => spawn('pattern'),
   spawnFinal: () => spawn('final'),
   spawnPlane: () => spawn('plane'),
   spawnBase: () => spawn('base'),
   jump: () => {
-    if (!paused) jump?.act();
+    if (paused) return;
+    // Space skips a replay, and on the ground gathers the canopy up.
+    if (replay) stopReplay();
+    else if (arrival?.canWalk && gather === null && !rigView.detached && arrival.time > 2) gather = 0;
+    else jump?.act();
   },
   flyLeft: () => {
     if (!paused) jump?.roll(-1);
@@ -542,6 +575,10 @@ const actions: Record<Action, () => void> = {
   flyDown: () => flyStep(-1),
   toggleHud: () => hud.toggle(),
   togglePause: () => (paused = !paused),
+  replay: () => {
+    if (replay) stopReplay();
+    else if (canReplay()) playReplay();
+  },
   toggleSound: () => {
     settings.sound = !settings.sound;
     applySettings();
@@ -606,6 +643,15 @@ const actions: Record<Action, () => void> = {
   padMenu: () => {
     if (!menu.isOpen) actions.openMenu();
   },
+};
+hud.onCard = (action) => {
+  if (menu.isOpen) return;
+  if (action === 'retry') {
+    actions.reset();
+    devices.capture();
+  }
+  else if (action === 'change') actions.openMenu();
+  else actions.replay();
 };
 // Flight keys do nothing while the menu is up, except the one that closes it.
 devices.onAction = (action) => {
@@ -720,11 +766,17 @@ function simulate(seconds: number): void {
       // On the ground the canopy is blown by the wind at its own height.
       windAt(env.wind, setup.weather, canopyAboveFeet(), airTime);
       arrival = new Arrival(model, landed, { groundAt: solid, wet, wind: vec3(env.wind.x, env.wind.y, env.wind.z) });
-      verdict = () => hud.showResult(landed, distance, wet, log);
+      verdict = () => {
+        hud.showResult(landed, distance, wet, log);
+        // The mouse, for the card's buttons.
+        devices.release();
+      };
+      recorder.crash();
       logThisJump(landed.rating, landed.sink, landed.groundSpeed, distance, wet);
       sound.land({ sink: landed.sink, groundSpeed: landed.groundSpeed, wet });
       // What is left of the frame is spent on the ground.
       arrival.update(left);
+      if (landed.rating === 'hard' || landed.rating === 'crash') startRagdoll(true);
     }
   }
 }
@@ -749,6 +801,8 @@ function hitSide(): boolean {
   s.vel.x = s.vel.y = s.vel.z = 0;
   sound.land({ sink: speed, groundSpeed: 0, wet: false });
   hud.showStrike('canopy', speed, jump?.log ?? null);
+  recorder.crash();
+  devices.release();
   logThisJump('impact', speed, 0);
   return true;
 }
@@ -759,11 +813,250 @@ function hitWithoutCanopy(j: Jump): void {
   const s = model.state;
   const speed = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
   s.pos.y -= Math.min(0, j.clearance()) - 0.05;
+  // Into open ground, the body goes on without the pilot.
+  if (!j.struck) startRagdoll(j.inflation !== null);
+  recorder.crash();
+  devices.release();
   s.vel.x = s.vel.y = s.vel.z = 0;
   sound.land({ sink: speed, groundSpeed: 0, wet: false });
   if (j.struck) hud.showStrike(j.phase === 'opening' ? 'opening' : 'freefall', speed, j.log);
   else hud.showImpact(j.log, j.phase === 'opening', speed, j.opening?.malfunction ?? null);
   logThisJump('impact', speed, 0);
+}
+
+/** Where the hands are on the risers, pilot frame: up by the rings. */
+const ON_RISERS = { left: new THREE.Vector3(-0.2, 0.12, -0.02), right: new THREE.Vector3(0.2, 0.12, -0.02) };
+/** The trunk's attitude in the pilot frame as the ragdoll took over, and the middle of its spine there. */
+const trunkStart = new THREE.Quaternion();
+const spineStart = new THREE.Vector3();
+const basis = new THREE.Matrix4();
+const qa = new THREE.Quaternion();
+const va = new THREE.Vector3();
+const vb = new THREE.Vector3();
+const vc = new THREE.Vector3();
+const vd = new THREE.Vector3();
+
+/** The trunk's attitude from its neck, pelvis and shoulders. */
+function trunkAttitude(out: THREE.Quaternion, neck: THREE.Vector3, pelvis: THREE.Vector3, l: THREE.Vector3, r: THREE.Vector3): THREE.Quaternion {
+  const up = va.subVectors(neck, pelvis).normalize();
+  const right = vb.subVectors(r, l);
+  right.addScaledVector(up, -right.dot(up)).normalize();
+  const back = vc.crossVectors(right, up);
+  return out.setFromRotationMatrix(basis.makeBasis(right, up, back));
+}
+
+/** The body as drawn right now goes limp, with the speed each part of it has. */
+function startRagdoll(onRisers: boolean): void {
+  const joints = rigView.body.joints(onRisers ? ON_RISERS : null);
+  const pos = joints.map((j) => model.pilotPoint(vec3(), j));
+  const vel = joints.map((j) => model.pilotPointVelocity(vec3(), j));
+  ragdoll = new Ragdoll(pos, vel, solid);
+  trunkAttitude(trunkStart, joints[J.neck]!, joints[J.pelvis]!, joints[J.shoulderL]!, joints[J.shoulderR]!);
+  spineStart.lerpVectors(joints[J.neck]!, joints[J.pelvis]!, 0.5);
+  hitsHeard = 0;
+  cried = 0;
+  groaned = false;
+  replayed = false;
+  recorder.crash();
+  const s = model.state;
+  crashPoint.set(s.pos.x, solid(s.pos.x, s.pos.z), s.pos.z);
+  const over = Math.hypot(s.vel.x, s.vel.z);
+  const ahead = over > 0.5 ? va.set(s.vel.x, 0, s.vel.z) : va.set(0, 0, -1).applyQuaternion(qa.set(s.pilotAtt.x, s.pilotAtt.y, s.pilotAtt.z, s.pilotAtt.w));
+  crashHeading = Math.atan2(ahead.x, -ahead.z);
+}
+
+/** The pilot follows the ragdoll: the flight model's state is put where its trunk is. */
+function followRagdoll(r: Ragdoll): void {
+  const p = r.pos;
+  const at = (i: number, v: THREE.Vector3) => v.set(p[i]!.x, p[i]!.y, p[i]!.z);
+  const neck = at(J.neck, new THREE.Vector3());
+  const pelvis = at(J.pelvis, new THREE.Vector3());
+  trunkAttitude(qa, neck, pelvis, at(J.shoulderL, new THREE.Vector3()), at(J.shoulderR, vd));
+  // The pilot frame turned as the trunk has turned since the start.
+  qa.multiply(new THREE.Quaternion().copy(trunkStart).invert());
+  const s = model.state;
+  s.pilotAtt.x = qa.x;
+  s.pilotAtt.y = qa.y;
+  s.pilotAtt.z = qa.z;
+  s.pilotAtt.w = qa.w;
+  const spine = neck.lerp(pelvis, 0.5).sub(va.copy(spineStart).applyQuaternion(qa));
+  s.pos.x = spine.x;
+  s.pos.y = spine.y;
+  s.pos.z = spine.z;
+  const v = r.velocity(vec3(), J.pelvis);
+  s.vel.x = v.x;
+  s.vel.y = v.y;
+  s.vel.z = v.z;
+  s.pilotOmega.x = s.pilotOmega.y = s.pilotOmega.z = 0;
+}
+
+/** What the crash sounds like: every knock, the bones that go, and the pilot's comments. */
+function hearRagdoll(r: Ragdoll): void {
+  const ouch = (kind: 'hit' | 'crack' | 'cry' | 'groan', level: number) => {
+    sound.ouch(kind, level);
+    recorder.hear(kind, level);
+  };
+  for (; hitsHeard < r.hits.length; hitsHeard++) {
+    const h = r.hits[hitsHeard]!;
+    const part = PART[h.joint];
+    ouch('hit', Math.min(1, 0.15 + h.speed / 9) * (part === 'arm' ? 0.5 : 1));
+    if (h.broke) ouch('crack', 1);
+    else if (part !== 'trunk' && h.speed > 4.5 && Math.random() < 0.3) ouch('crack', 0.55);
+    // A cry at the first real blow, another at a break, no more than three.
+    if (cried < 3 && (h.broke || (cried === 0 && h.speed > 2.5))) {
+      ouch('cry', 1);
+      cried++;
+    }
+  }
+  if (r.settled && !groaned) {
+    groaned = true;
+    ouch('groan', 1);
+  }
+}
+
+/** The crash is over: back to the pilot's own body. */
+function endCrash(): void {
+  ragdoll = null;
+  gather = null;
+  if (!rigView.detached) rigView.canopy.setGather(0);
+  replay = null;
+  replayed = false;
+  recorder.clear();
+  ragdollView.update(null);
+  rigView.body.group.visible = true;
+  hud.setReplay(false);
+}
+
+/** The jump has ended and all of its end is on record. */
+function canReplay(): boolean {
+  if (recorder.crashAt === null) return false;
+  if (ragdoll) return ragdoll.settled;
+  return arrival ? arrival.done : impact;
+}
+
+function playReplay(): void {
+  replay = recorder.replay();
+  replayed = true;
+  if (!replay) return;
+  const s = model.state;
+  Object.assign(kept.pos, s.pos);
+  Object.assign(kept.vel, s.vel);
+  Object.assign(kept.att, s.att);
+  Object.assign(kept.pilotAtt, s.pilotAtt);
+  kept.deflationL = model.deflationL;
+  kept.deflationR = model.deflationR;
+  if (!rigView.detached) rigView.canopy.setGather(0);
+  hud.setReplay(true);
+  chase.reset();
+}
+
+/** Back from the replay to the pilot as they are. */
+function stopReplay(): void {
+  if (!replay) return;
+  replay = null;
+  const s = model.state;
+  Object.assign(s.pos, kept.pos);
+  Object.assign(s.vel, kept.vel);
+  Object.assign(s.att, kept.att);
+  Object.assign(s.pilotAtt, kept.pilotAtt);
+  model.deflationL = kept.deflationL;
+  model.deflationR = kept.deflationR;
+  hud.setReplay(false);
+  chase.reset();
+}
+
+const liveJoints = new Float32Array(3 * JOINT_COUNT);
+function jointArray(r: Ragdoll, out: Float32Array): Float32Array {
+  r.pos.forEach((p, i) => {
+    out[3 * i] = p.x;
+    out[3 * i + 1] = p.y;
+    out[3 * i + 2] = p.z;
+  });
+  return out;
+}
+
+const bundle = new THREE.Vector3();
+const walkedTo = new THREE.Vector3();
+const carryL = new THREE.Vector3(-0.17, -0.5, -0.3);
+const carryR = new THREE.Vector3(0.17, -0.5, -0.3);
+
+/** The canopy gathered up off the ground into the arms, `k` of the way, and held there. */
+function carryCanopy(pose: Pose, k: number): void {
+  const p = model.pilotPoint(vec3(), vec3(0, -0.55, -0.42));
+  rigView.canopy.setGather(k, bundle.set(p.x, p.y, p.z));
+  // The hands go out to the lines, then hold the bundle against the belly.
+  const hold = Math.min(1, k * 3);
+  pose.handL.lerp(carryL, hold);
+  pose.handR.lerp(carryR, hold);
+  rigView.body.setPose(pose);
+}
+
+/** This frame as drawn, for a replay. */
+function record(f: ReplayFrame, pose: Pose, inflation: number | null, onRisers: boolean, heap: number): void {
+  const s = model.state;
+  Object.assign(f.pos, s.pos);
+  Object.assign(f.vel, s.vel);
+  Object.assign(f.att, s.att);
+  Object.assign(f.pilotAtt, s.pilotAtt);
+  f.deflationL = model.deflationL;
+  f.deflationR = model.deflationR;
+  Object.assign(f.controls, applied);
+  Object.assign(f.hands, hands);
+  copyPose(f.pose, pose);
+  f.inflation = inflation;
+  f.onRisers = onRisers;
+  f.deploy = rigFrame.deploy;
+  f.deployTime = rigFrame.deployTime;
+  f.bagOut = rigFrame.bagOut;
+  f.heap = heap;
+  f.hasJoints = ragdoll !== null;
+  if (ragdoll) jointArray(ragdoll, f.joints);
+}
+
+/** Draws the jumper as the replay has them. */
+function showReplay(f: ReplayFrame): void {
+  const s = model.state;
+  Object.assign(s.pos, f.pos);
+  Object.assign(s.vel, f.vel);
+  Object.assign(s.att, f.att);
+  Object.assign(s.pilotAtt, f.pilotAtt);
+  model.deflationL = f.deflationL;
+  model.deflationR = f.deflationR;
+  rigView.setInflation(f.inflation);
+  rigView.setArms(f.onRisers && !f.hasJoints);
+  rigView.body.setPose(f.pose);
+  rigView.body.showArms(!f.onRisers);
+  rigView.body.group.visible = !f.hasJoints;
+  ragdollView.update(f.hasJoints ? f.joints : null);
+  if (!rigView.detached) rigView.canopy.setHeap(f.heap, heapFrom, fallTo);
+  rigFrame.deploy = f.deploy;
+  rigFrame.deployTime = f.deployTime;
+  rigFrame.bagOut = f.bagOut;
+}
+
+/**
+ * The replay's camera, as on television: on a tripod beside where it
+ * happened, a long lens following the jumper in, turning slowly round once
+ * they are down.
+ */
+function aimReplay(r: Replay): void {
+  const s = model.state;
+  const focus = va.set(0, model.rig.pilotPos.y, 0).applyQuaternion(qa.set(s.pilotAtt.x, s.pilotAtt.y, s.pilotAtt.z, s.pilotAtt.w));
+  focus.add(vb.set(s.pos.x, s.pos.y, s.pos.z));
+  const turn = crashHeading + 1.25 + 0.12 * Math.max(0, r.time - r.crashAt);
+  const tripod = vc.set(crashPoint.x + Math.sin(turn) * 6, 0, crashPoint.z - Math.cos(turn) * 6);
+  tripod.y = solid(tripod.x, tripod.z) + 1.4;
+  camera.position.copy(tripod);
+  camera.up.set(0, 1, 0);
+  camera.lookAt(focus);
+  // Framing some 4 m, at any distance.
+  const fov = (2 * Math.atan(2 / Math.max(1, tripod.distanceTo(focus)))) / DEG;
+  const wanted = Math.max(2, Math.min(FIELD_OF_VIEW, fov));
+  if (camera.fov !== wanted) {
+    camera.fov = gearCamera.fov = wanted;
+    camera.updateProjectionMatrix();
+    gearCamera.updateProjectionMatrix();
+  }
 }
 
 const eye = vec3();
@@ -1070,7 +1363,8 @@ function aimChase(): ChaseTarget {
     const up = releasedTop.set(0, model.rig.canopyPos.y * 0.42 * k, 0).applyQuaternion(rigView.canopy.object.quaternion);
     t.focus.add(up);
     // On the ground the canopy tips over: the pilot's own heading then.
-    if (arrival) {
+    if (ragdoll) t.heading = crashHeading + 0.9;
+    else if (arrival) {
       const q = model.state.pilotAtt;
       const ahead = releasedAir.set(0, 0, -1).applyQuaternion(releasedAtt.set(q.x, q.y, q.z, q.w));
       t.heading = Math.atan2(ahead.x, -ahead.z);
@@ -1239,62 +1533,97 @@ function frame(now: number): void {
   menu.poll();
   hud.setMenuOpen(menu.isOpen);
   const live = !waiting && !paused;
-  if (live) {
+  if (live && replay) {
+    replay.advance(Math.min(elapsed, 0.1), (kind, level, rate) => sound.ouch(kind, level, rate));
+    if (replay.done) stopReplay();
+  } else if (live) {
     const seconds = Math.min(elapsed, 0.1);
     if (arrival) {
       airTime += seconds;
-      arrival.update(seconds);
+      // On the feet again: walking, but not while gathering the canopy up.
+      const gathering = gather !== null && gather < 1;
+      arrival.update(seconds, ragdoll || gathering ? null : devices.feet);
+      if (gather !== null) gather = Math.min(1, gather + seconds / GATHER_TIME);
     } else simulate(seconds);
+    if (ragdoll) {
+      ragdoll.update(seconds);
+      followRagdoll(ragdoll);
+      hearRagdoll(ragdoll);
+      // Once still, the crash is shown again.
+      if (ragdoll.settled && !replayed) playReplay();
+    }
     if (arrival) {
-      for (; stepsHeard < arrival.steps; stepsHeard++) sound.step(arrival.speed);
-      if (arrival.done && verdict) {
+      for (; stepsHeard < arrival.steps && !ragdoll; stepsHeard++) sound.step(arrival.speed);
+      if (arrival.done && verdict && (!ragdoll || (ragdoll.settled && replayed))) {
         verdict();
         verdict = null;
       }
     }
   }
 
-  // The main cut away goes its own way; the reserve takes its place overhead.
-  if (jump?.released && !releasedView) releaseMain();
-  if (jump && jump.canopy === 'reserve' && !rigView.canopy.reserve) attachReserve();
-  const inflation = jump ? jump.inflation : 1;
-  rigView.setInflation(inflation);
+  const moving = live && !replay ? Math.min(elapsed, 0.1) : 0;
+  const pose = stance();
+  const inflation = replay ? replay.frame.inflation : jump ? jump.inflation : 1;
   // The hands are on the risers from line stretch until they let go on the
   // ground; otherwise they are free, and the body shows them.
-  const onRisers = inflation !== null && !(arrival && arrival.time >= 0.25);
-  rigView.setArms(onRisers);
-  const pose = stance();
-  const moving = live ? Math.min(elapsed, 0.1) : 0;
-  const run = jump?.phase === 'standing' ? jump.runUp : null;
-  const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : run ? [run.legL, run.legR] : undefined;
-  updateLegs(moving, pose === 'hanging' && !touchdown);
-  rigView.body.setPose(posture.update(moving, pose, FREEFALL_STANCES.has(pose) ? devices.body : still, legs, legCues));
-  rigView.body.showArms(!onRisers);
-  rigView.body.setHeight(feetHeight(model, solid));
-  // A BASE container has neither handle.
-  if (singleCanopy()) rigView.body.setHandles(false, false);
-  else if (jump) rigView.body.setHandles(jump.cutawayAt === null, !(jump.canopy === 'reserve' && jump.log.reserveBy === 'hand'));
-  // On the ground the canopy empties and goes down in a heap.
-  if (arrival && !rigView.detached) {
-    if (arrival.time < 0.05) heapFrom.set(model.state.pos.x, model.state.pos.y, model.state.pos.z);
-    fallTo.set(arrival.fallTo.x, 0, arrival.fallTo.z);
-    rigView.canopy.setHeap(ease((arrival.time - 0.3) / 2.2), heapFrom, fallTo);
-  } else if (!rigView.detached) rigView.canopy.setHeap(0);
-  rigFrame.time = airTime;
-  rigFrame.dt = moving;
-  rigFrame.wind.set(env.wind.x, env.wind.y, env.wind.z);
-  rigFrame.airDensity = env.airDensity;
-  deployStage(rigFrame);
-  rigView.update(model, applied, solid, light, hands, rigFrame);
-  drawReleased(moving);
+  const onRisers = replay ? replay.frame.onRisers : inflation !== null && !(arrival && arrival.time >= 0.25) && !ragdoll;
+  if (replay) {
+    showReplay(replay.frame);
+    rigFrame.time = airTime;
+    rigFrame.dt = Math.min(elapsed, 0.1) * replay.speed();
+    rigFrame.wind.set(env.wind.x, env.wind.y, env.wind.z);
+    rigFrame.airDensity = env.airDensity;
+    rigView.update(model, replay.frame.controls, solid, light, replay.frame.hands, rigFrame);
+  } else {
+    // The main cut away goes its own way; the reserve takes its place overhead.
+    if (jump?.released && !releasedView) releaseMain();
+    if (jump && jump.canopy === 'reserve' && !rigView.canopy.reserve) attachReserve();
+    rigView.setInflation(inflation);
+    rigView.setArms(onRisers);
+    const run = jump?.phase === 'standing' ? jump.runUp : null;
+    const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : run ? [run.legL, run.legR] : undefined;
+    updateLegs(moving, pose === 'hanging' && !touchdown);
+    const shown = posture.update(moving, pose, FREEFALL_STANCES.has(pose) ? devices.body : still, legs, legCues);
+    rigView.body.setPose(shown);
+    rigView.body.showArms(!onRisers);
+    rigView.body.setHeight(feetHeight(model, solid));
+    // A BASE container has neither handle.
+    if (singleCanopy()) rigView.body.setHandles(false, false);
+    else if (jump) rigView.body.setHandles(jump.cutawayAt === null, !(jump.canopy === 'reserve' && jump.log.reserveBy === 'hand'));
+    // On the ground the canopy empties and goes down in a heap.
+    const heap = arrival ? ease((arrival.time - 0.3) / 2.2) : 0;
+    if (arrival && !rigView.detached) {
+      if (arrival.time < 0.05) heapFrom.set(model.state.pos.x, model.state.pos.y, model.state.pos.z);
+      fallTo.set(arrival.fallTo.x, 0, arrival.fallTo.z);
+      rigView.canopy.setHeap(heap, heapFrom, fallTo);
+    } else if (!rigView.detached) rigView.canopy.setHeap(0);
+    if (arrival?.walker && !rigView.detached) rigView.canopy.dragHeap(walkedTo.set(model.state.pos.x, 0, model.state.pos.z));
+    if (gather !== null && !rigView.detached) carryCanopy(shown, gather);
+    rigView.body.group.visible = !ragdoll;
+    ragdollView.update(ragdoll ? jointArray(ragdoll, liveJoints) : null);
+    hud.setCard(canReplay(), !!arrival?.walker);
+    rigFrame.time = airTime;
+    rigFrame.dt = moving;
+    rigFrame.wind.set(env.wind.x, env.wind.y, env.wind.z);
+    rigFrame.airDensity = env.airDensity;
+    deployStage(rigFrame);
+    // The last seconds are kept, in case they end badly; a crash, until the body is still.
+    if (moving > 0 && !(recorder.crashAt !== null && canReplay())) record(recorder.next(moving), shown, inflation, onRisers, heap);
+    rigView.update(model, applied, solid, light, hands, rigFrame);
+    drawReleased(moving);
+  }
   if (net) {
-    sendJumper(net, pose, onRisers, inflation, elapsed);
+    if (!replay) sendJumper(net, pose, onRisers, inflation, elapsed);
     net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, setup.dz);
     if (net.players !== playersShown) showGear();
   }
   if (jump?.plane) planeView.update(jump.plane);
   model.pilotPoint(eye, model.rig.eyePos);
-  magnify(Math.min(elapsed, 0.1));
+  if (replay) {
+    camera.layers.enable(GEAR_LAYER);
+    camera.layers.enable(OUTSIDE_LAYER);
+    aimReplay(replay);
+  } else magnify(Math.min(elapsed, 0.1));
   // A player who has left is no longer a target.
   if (target?.kind === 'player' && !net?.has(target.id)) {
     target = null;
@@ -1303,7 +1632,9 @@ function frame(now: number): void {
   }
   const seen = locked ? targetPos() : null;
   lockBlend = Math.max(0, Math.min(1, lockBlend + ((seen ? 1 : -1) * Math.min(elapsed, 0.1)) / LOCK_TURN));
-  if (view === 'outside') {
+  if (replay) {
+    // Placed above.
+  } else if (view === 'outside') {
     camera.layers.enable(GEAR_LAYER);
     camera.layers.enable(OUTSIDE_LAYER);
     chase.update(camera, aimChase(), Math.min(elapsed, 0.1), devices.lookYaw, devices.lookPitch, devices.zoom, solid);
@@ -1331,7 +1662,7 @@ function frame(now: number): void {
   world.update(camera.position, now / 1000);
   drawMap(now);
   renderer.render(scene, camera);
-  if (view === 'eyes') {
+  if (view === 'eyes' && !replay) {
     // The gear in the hands goes on top, from the same eye.
     gearCamera.position.copy(camera.position);
     gearCamera.quaternion.copy(camera.quaternion);
@@ -1436,6 +1767,9 @@ if (import.meta.env.DEV) {
     releasedView: { get: () => releasedView },
     view: { get: () => view, set: (v: 'eyes' | 'outside') => (view = v) },
     arrival: { get: () => arrival },
+    ragdoll: { get: () => ragdoll },
+    replay: { get: () => replay },
+    gather: { get: () => gather },
     net: { get: () => net },
   });
   Object.assign(window, { sim });

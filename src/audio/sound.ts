@@ -1,6 +1,7 @@
 // What the pilot hears: the air rushing past the ears, the canopy flapping
-// overhead, and the landing. All of it is shaped from noise on the spot, there
-// are no sound files.
+// overhead, and the landing. All of it is shaped from noise on the spot. The
+// one exception is optional: sounds of a crash (bones, cries) dropped in
+// public/sfx and listed in its index.json play instead of the made-up ones.
 //
 // The wind is the instrument here. It gets louder and sharper with airspeed,
 // so a dive can be heard building up and a flare can be heard dying down.
@@ -380,6 +381,214 @@ export function playStep(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioNo
   burst(ctx, noise, out, { type: 'bandpass', from: 1400, to: 700, level: 0.25 + 0.5 * run, seconds: 0.12 });
 }
 
+/**
+ * How a crash sounds: the body hitting the ground, bones going, and the
+ * pilot's opinion of it. `rate` slows it all down for a slow-motion replay,
+ * 1 at normal speed.
+ */
+export type Ouch = 'hit' | 'crack' | 'cry' | 'groan';
+
+/** One knock of the body on the ground, duller and longer for the trunk. */
+export function playBodyHit(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioNode, level: number, rate = 1): void {
+  const now = ctx.currentTime;
+  const tone = ctx.createOscillator();
+  tone.frequency.setValueAtTime(120 * rate, now);
+  tone.frequency.exponentialRampToValueAtTime(38 * rate, now + 0.18 / rate);
+  const fade = ctx.createGain();
+  fade.gain.setValueAtTime(0.0001, now);
+  fade.gain.exponentialRampToValueAtTime(0.9 * level, now + 0.004);
+  fade.gain.exponentialRampToValueAtTime(0.0001, now + 0.32 / rate);
+  tone.connect(fade);
+  fade.connect(out);
+  tone.start(now);
+  tone.stop(now + 0.4 / rate);
+  burst(ctx, noise, out, { type: 'lowpass', from: 1800 * rate, to: 250 * rate, level: 1.4 * level, seconds: 0.18 / rate });
+}
+
+/**
+ * A bone going: a sharp snap with a splintering crackle after it, like a
+ * stick of celery broken in a towel.
+ */
+export function playCrack(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioNode, level: number, rate = 1): void {
+  const now = ctx.currentTime;
+  const snaps = 3 + Math.floor(Math.random() * 4);
+  let at = now;
+  for (let i = 0; i < snaps; i++) {
+    const source = ctx.createBufferSource();
+    source.buffer = noise;
+    const tone = ctx.createBiquadFilter();
+    tone.type = 'bandpass';
+    tone.Q.value = 1.6;
+    tone.frequency.value = (1800 + Math.random() * 2600) * rate;
+    const bright = ctx.createBiquadFilter();
+    bright.type = 'highpass';
+    bright.frequency.value = 700 * rate;
+    const fade = ctx.createGain();
+    const first = i === 0;
+    const peak = level * (first ? 5 : 1.2 + Math.random() * 1.8);
+    const length = (first ? 0.035 : 0.008 + Math.random() * 0.018) / rate;
+    fade.gain.setValueAtTime(0.0001, at);
+    fade.gain.exponentialRampToValueAtTime(peak, at + 0.0015);
+    fade.gain.exponentialRampToValueAtTime(0.0001, at + length);
+    source.connect(tone);
+    tone.connect(bright);
+    bright.connect(fade);
+    fade.connect(out);
+    source.start(at, Math.random() * (NOISE_SECONDS - 0.2));
+    source.stop(at + length + 0.02);
+    at += (first ? 0.012 : 0.006 + Math.random() * 0.03) / rate;
+  }
+  // The wooden knock of it under the snap.
+  const knock = ctx.createOscillator();
+  knock.type = 'triangle';
+  knock.frequency.setValueAtTime(420 * rate, now);
+  knock.frequency.exponentialRampToValueAtTime(160 * rate, now + 0.06 / rate);
+  const fade = ctx.createGain();
+  fade.gain.setValueAtTime(0.0001, now);
+  fade.gain.exponentialRampToValueAtTime(0.7 * level, now + 0.002);
+  fade.gain.exponentialRampToValueAtTime(0.0001, now + 0.09 / rate);
+  knock.connect(fade);
+  fade.connect(out);
+  knock.start(now);
+  knock.stop(now + 0.12 / rate);
+}
+
+/** Formants of a few vowels, Hz, and how loud each is. */
+const VOWELS = {
+  a: [800, 1250, 2600],
+  e: [450, 1900, 2600],
+  i: [300, 2300, 3000],
+  o: [470, 820, 2500],
+  u: [330, 750, 2400],
+} as const;
+type Vowel = keyof typeof VOWELS;
+
+/** A voice made of a buzz through three formants: crude, but it says it. */
+function voice(
+  ctx: BaseAudioContext,
+  out: AudioNode,
+  noise: AudioBuffer,
+  rate: number,
+  level: number,
+  pitch: [number, number][],
+  vowels: [number, Vowel][],
+  seconds: number,
+): void {
+  const now = ctx.currentTime;
+  const end = now + seconds / rate;
+  const at = (t: number) => now + t / rate;
+  const glottis = ctx.createOscillator();
+  glottis.type = 'sawtooth';
+  glottis.frequency.setValueAtTime(pitch[0]![1] * rate, now);
+  for (const [t, f] of pitch.slice(1)) glottis.frequency.linearRampToValueAtTime(f * rate, at(t));
+  // A strained, shaky voice.
+  const shake = ctx.createOscillator();
+  shake.frequency.value = 7 + Math.random() * 3;
+  const shakeDepth = ctx.createGain();
+  shakeDepth.gain.value = 6 * rate;
+  shake.connect(shakeDepth);
+  shakeDepth.connect(glottis.frequency);
+  // Some breath in it.
+  const breath = ctx.createBufferSource();
+  breath.buffer = noise;
+  const breathLevel = ctx.createGain();
+  breathLevel.gain.value = 0.25;
+  breath.connect(breathLevel);
+
+  const envelope = ctx.createGain();
+  envelope.gain.setValueAtTime(0.0001, now);
+  envelope.gain.exponentialRampToValueAtTime(level, at(0.04));
+  envelope.gain.setValueAtTime(level, at(seconds * 0.6));
+  envelope.gain.exponentialRampToValueAtTime(0.0001, end);
+  envelope.connect(out);
+
+  const gains = [1, 0.5, 0.18];
+  for (let f = 0; f < 3; f++) {
+    const formant = ctx.createBiquadFilter();
+    formant.type = 'bandpass';
+    formant.Q.value = 6 + 4 * f;
+    const [t0, v0] = vowels[0]!;
+    formant.frequency.setValueAtTime(VOWELS[v0][f]! * Math.sqrt(rate), at(t0));
+    for (const [t, v] of vowels.slice(1)) formant.frequency.linearRampToValueAtTime(VOWELS[v][f]! * Math.sqrt(rate), at(t));
+    const gain = ctx.createGain();
+    gain.gain.value = gains[f]! * 4;
+    glottis.connect(formant);
+    breathLevel.connect(formant);
+    formant.connect(gain);
+    gain.connect(envelope);
+  }
+  glottis.start(now);
+  shake.start(now);
+  breath.start(now, Math.random() * (NOISE_SECONDS - seconds / rate - 0.1));
+  glottis.stop(end + 0.05);
+  shake.stop(end + 0.05);
+  breath.stop(end + 0.05);
+}
+
+/** A cry on the hit: "aïe!", "ouh!" or "ah!", high and short. */
+export function playCry(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioNode, level: number, rate = 1): void {
+  const base = 210 + Math.random() * 60;
+  const cries: [[number, number][], [number, Vowel][], number][] = [
+    // Aïe
+    [[[0, base * 1.3], [0.12, base * 1.7], [0.5, base * 1.1]], [[0, 'a'], [0.22, 'a'], [0.4, 'i']], 0.55],
+    // Ouh
+    [[[0, base * 1.6], [0.1, base * 1.8], [0.45, base]], [[0, 'u'], [0.45, 'o']], 0.5],
+    // Aaah
+    [[[0, base * 1.5], [0.15, base * 1.9], [0.7, base * 1.2]], [[0, 'a'], [0.7, 'e']], 0.75],
+  ];
+  const [pitch, vowels, seconds] = cries[Math.floor(Math.random() * cries.length)]!;
+  voice(ctx, out, noise, rate, 0.18 * level, pitch, vowels, seconds);
+}
+
+/** Lying there afterwards: a long, low "ooohhh". */
+export function playGroan(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioNode, level: number, rate = 1): void {
+  const base = 120 + Math.random() * 25;
+  voice(ctx, out, noise, rate, 0.4 * level, [[0, base * 1.15], [0.4, base * 1.25], [1.6, base * 0.85]], [[0, 'o'], [0.9, 'o'], [1.6, 'u']], 1.6);
+}
+
+/** Sounds dropped in public/sfx, by kind: the file names listed in its index.json. */
+type Samples = Partial<Record<Ouch, AudioBuffer[]>>;
+
+async function loadSamples(ctx: BaseAudioContext): Promise<Samples> {
+  const base = `${import.meta.env.BASE_URL}sfx/`;
+  const found: Samples = {};
+  try {
+    const response = await fetch(`${base}index.json`);
+    if (!response.ok) return found;
+    const index = (await response.json()) as Partial<Record<Ouch, string[]>>;
+    await Promise.all(
+      (Object.keys(index) as Ouch[]).map(async (kind) => {
+        const buffers = await Promise.all(
+          (index[kind] ?? []).map(async (name) => {
+            try {
+              const file = await fetch(base + name);
+              return file.ok ? await ctx.decodeAudioData(await file.arrayBuffer()) : null;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        const usable = buffers.filter((b): b is AudioBuffer => b !== null);
+        if (usable.length) found[kind] = usable;
+      }),
+    );
+  } catch {
+    // No index, or not JSON (a dev server answers with the page): none.
+  }
+  return found;
+}
+
+function playSample(ctx: BaseAudioContext, out: AudioNode, buffer: AudioBuffer, level: number, rate: number): void {
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.playbackRate.value = rate;
+  const gain = ctx.createGain();
+  gain.gain.value = level;
+  source.connect(gain);
+  gain.connect(out);
+  source.start();
+}
+
 /** A run of beeps from the piezo of an audible altimeter. */
 export interface Beeps {
   count: number;
@@ -424,6 +633,7 @@ export class Sound {
   private noise: AudioBuffer | null = null;
   private wind: ((h: Hearing) => void) | null = null;
   private engine: ((e: EngineHearing | null) => void) | null = null;
+  private samples: Samples = {};
 
   constructor() {
     // The picture stops when the tab is hidden; so must the wind.
@@ -443,6 +653,7 @@ export class Sound {
       this.noise = makeNoise(this.ctx, 2);
       this.wind = buildWind(this.ctx, this.noise, this.volume);
       this.engine = buildEngine(this.ctx, this.noise, this.volume);
+      void loadSamples(this.ctx).then((found) => (this.samples = found));
     }
     if (this.ctx.state === 'suspended' && !document.hidden) void this.ctx.resume();
   }
@@ -476,6 +687,22 @@ export class Sound {
   /** The audible altimeter going off. */
   beep(b: Beeps): void {
     if (this.ctx && this.volume) playBeeps(this.ctx, this.volume, b);
+  }
+
+  /**
+   * A crash sound, `level` 0 to 1, slowed down by `rate` for a slow-motion
+   * replay. One of the sounds in public/sfx if there are any of that kind.
+   */
+  ouch(kind: Ouch, level: number, rate = 1): void {
+    const { ctx, noise, volume } = this;
+    if (!ctx || !noise || !volume) return;
+    const files = this.samples[kind];
+    if (files) {
+      playSample(ctx, volume, files[Math.floor(Math.random() * files.length)]!, level, rate);
+      return;
+    }
+    const play = { hit: playBodyHit, crack: playCrack, cry: playCry, groan: playGroan }[kind];
+    play(ctx, noise, volume, level, rate);
   }
 
   /** A footfall on the ground, at this ground speed in m/s. */

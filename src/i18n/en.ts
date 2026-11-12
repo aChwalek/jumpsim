@@ -48,6 +48,11 @@ export const en: Strings = {
 
   hud: {
     vario: 'VARIO',
+    replay: 'REPLAY',
+    skipReplay: 'Space to skip',
+    retry: 'Go again',
+    change: 'Change',
+    watchAgain: 'Replay',
     groundSpeed: 'GROUND SPEED',
     held: 'HOLD',
     titles: {
@@ -168,6 +173,8 @@ export const en: Strings = {
     bothFronts: 'both front risers',
     hold: 'hold the toggles',
     restart: 'go again',
+    walk: 'walk / back up',
+    gather: 'gather the canopy',
     starts: 'pattern / final / plane',
     run: 'run / back up',
     sidestep: 'step sideways',

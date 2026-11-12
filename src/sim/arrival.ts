@@ -6,7 +6,9 @@
 // the camera, the rig and its shadows follow it as they follow the flight.
 
 import type { FlightModel } from './flightModel';
+import type { BodyInputs } from './freefall';
 import type { Touchdown } from './landing';
+import { RunUp } from './runUp';
 import {
   clamp,
   quat,
@@ -47,6 +49,7 @@ const WADING = 0.65;
 const ease = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
 const AXIS_X = vec3(1, 0, 0);
+const STAND_STILL: BodyInputs = { turn: 0, forward: 0, slide: 0, fall: 0 };
 const AXIS_Y = vec3(0, 1, 0);
 const AXIS_Z = vec3(0, 0, 1);
 
@@ -70,6 +73,13 @@ export class Arrival {
   legR = LEGS_HANGING;
   /** The pilot has come to rest and the result can be shown. */
   done = false;
+  /** Once at rest, on their feet again and walking about; null until then. */
+  walker: RunUp | null = null;
+  /** Seconds since the pilot started walking. */
+  private walked = 0;
+  /** Shoulders above the ground when the walk started, m. */
+  private walkFrom = 0;
+  private lastSwing = 0;
 
   private readonly violent: boolean;
   private readonly sink: number;
@@ -124,11 +134,24 @@ export class Arrival {
     set(this.fallTo, to.x, 0, to.z);
   }
 
-  /** Moves the pilot and the canopy on by `dt` seconds. */
-  update(dt: number): void {
+  /** Can get up and walk once at rest: not after a crash. */
+  get canWalk(): boolean {
+    return this.done && this.kind !== 'tumble';
+  }
+
+  /**
+   * Moves the pilot and the canopy on by `dt` seconds. `feet`: once at rest,
+   * what the pilot's feet are asked to do (walk, back up, turn, step aside).
+   */
+  update(dt: number, feet: BodyInputs | null = null): void {
     const s = this.model.state;
     this.time += dt;
     const t = this.time;
+    if (this.walker || (feet && this.canWalk && (feet.forward !== 0 || feet.turn !== 0 || feet.slide !== 0))) {
+      this.walk(dt, feet);
+      this.dropCanopy();
+      return;
+    }
 
     this.speed = Math.max(0, this.speed - BRAKING[this.kind] * dt);
     s.pos.x += this.travel.x * this.speed * dt;
@@ -215,10 +238,57 @@ export class Arrival {
     this.legL = LEGS_HANGING + (legL - LEGS_HANGING) * k;
     this.legR = LEGS_HANGING + (legR - LEGS_HANGING) * k;
 
-    // The canopy stays up a moment, then tips over until it lies on the ground.
+    this.dropCanopy();
+  }
+
+  /** The canopy stays up a moment, then tips over until it lies on the ground. */
+  private dropCanopy(): void {
+    const s = this.model.state;
+    const above = s.pos.y - this.setting.groundAt(s.pos.x, s.pos.z);
     const canopy = this.model.rig.canopyPos.y;
     const flat = Math.PI / 2 + Math.asin(clamp((above - 0.3) / canopy, -1, 1));
-    quatFromAxisAngle(this.turn, this.fall, flat * ease((t - 0.25) / 1.9));
+    quatFromAxisAngle(this.turn, this.fall, flat * ease((this.time - 0.25) / 1.9));
     quatMultiply(s.att, this.turn, this.canopy0);
+  }
+
+  /** Up on the feet if sitting, and walking where the keys say. */
+  private walk(dt: number, feet: BodyInputs | null): void {
+    const s = this.model.state;
+    if (!this.walker) {
+      const ahead = rotate(this.tmp, s.pilotAtt, set(this.tmp, 0, 0, -1));
+      const heading = Math.atan2(ahead.x, -ahead.z) / (Math.PI / 180);
+      this.walker = new RunUp(this.setting.groundAt, s.pos.x, s.pos.z, heading);
+      this.walkFrom = s.pos.y - this.setting.groundAt(s.pos.x, s.pos.z);
+      this.attitude0.x = s.pilotAtt.x;
+      this.attitude0.y = s.pilotAtt.y;
+      this.attitude0.z = s.pilotAtt.z;
+      this.attitude0.w = s.pilotAtt.w;
+      this.walked = 0;
+    }
+    const w = this.walker;
+    this.walked += dt;
+    // Getting up takes a moment, and nobody walks meanwhile.
+    const up = ease(this.walked / (this.kind === 'slide' ? 0.8 : 0.25));
+    if (up >= 1) {
+      // Down a step, a kerb, the side of a dyke: walked down, not fallen off.
+      // With nothing asked (hands full), the feet come to a stop.
+      if (w.step(dt, feet ?? STAND_STILL)) w.y = this.setting.groundAt(w.x, w.z);
+    }
+    // Wading, the pond stops the feet short.
+    const stand = this.stand - (this.kind === 'splash' ? WADING : 0);
+    s.pos.x = w.x;
+    s.pos.z = w.z;
+    s.pos.y = this.setting.groundAt(w.x, w.z) + this.walkFrom + (stand - this.walkFrom) * up;
+    set(s.vel, w.vel.x, 0, w.vel.z);
+    this.speed = Math.hypot(w.vel.x, w.vel.z);
+    const lean = -0.03 * clamp(w.forward / 3, -1, 1);
+    quatFromAxisAngle(this.target, AXIS_Y, -w.headingDeg * (Math.PI / 180));
+    quatMultiply(this.target, this.target, quatFromAxisAngle(this.turn, AXIS_X, lean));
+    quatSlerp(s.pilotAtt, this.attitude0, this.target, up);
+    this.legL = this.legL + (w.legL - this.legL) * up;
+    this.legR = this.legR + (w.legR - this.legR) * up;
+    // A foot put down at each swing through the middle.
+    if (Math.sign(w.legL) !== Math.sign(this.lastSwing) && this.speed > 0.3) this.steps++;
+    this.lastSwing = w.legL;
   }
 }
