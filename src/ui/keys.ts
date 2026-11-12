@@ -50,6 +50,7 @@ function keyboardRows(phase: KeysPhase): Row[] {
         [[k('KeyR'), k('KeyF')], t.upDown],
         [['↑', '↓'], t.sitHeadDown],
         [['←', '→'], t.bellyBack],
+        [[t.shift], t.track],
         [[t.space], t.pullReserve],
         [[k('KeyB')], t.outsideCamera],
       ];
@@ -102,6 +103,7 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
         [['lb', 'rb'], t.upDown],
         [['up', 'down'], t.sitHeadDown],
         [['left', 'right'], t.bellyBack],
+        [['ls'], t.trackPress],
         [['a'], t.pullReserve],
         [['view'], t.camera],
       ];

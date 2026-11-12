@@ -10,7 +10,7 @@ import { BODY_SHAPES, Freefall, freefallParams, noBodyInputs, stepPosition, type
 import { Jump } from '../src/sim/jump';
 import { DEFAULT_RIG, deriveRig } from '../src/sim/rig';
 import { SIM_DT } from '../src/sim/telemetry';
-import { rotate, set, vec3 } from '../src/sim/vec';
+import { DEG, rotate, set, vec3 } from '../src/sim/vec';
 
 const POSITIONS: BodyPosition[] = ['belly', 'back', 'sit', 'headDown'];
 
@@ -185,6 +185,69 @@ describe('going from one position to another', () => {
   });
 });
 
+describe('tracking', () => {
+  /** Settled in a position, then stretched out into a track for a while. */
+  function tracking(position: BodyPosition, input: Partial<BodyInputs> = {}, seconds = 40) {
+    const { body, env } = flying(position);
+    const { ahead } = axes(body);
+    body.tracking = true;
+    for (let i = 0; i < seconds / SIM_DT; i++) {
+      body.step(SIM_DT, { ...noBodyInputs(), ...input }, env);
+      body.state.pos.y = 1500;
+    }
+    const v = body.state.vel;
+    const along = v.x * ahead.x + v.z * ahead.z;
+    const flat = Math.hypot(v.x, v.z);
+    return { body, env, along, glide: flat / -v.y, horizontal: flat * 3.6, fall: -v.y * 3.6 };
+  }
+
+  test('flat, a track: about a metre forward for every metre down, the fall much slowed', () => {
+    const belly = tracking('belly');
+    expect(belly.glide).toBeGreaterThan(0.9);
+    expect(belly.glide).toBeLessThan(1.25);
+    expect(belly.horizontal).toBeGreaterThan(140);
+    expect(belly.fall).toBeLessThan(175);
+    // Head first, where the eyes look.
+    expect(belly.along / (belly.horizontal / 3.6)).toBeGreaterThan(0.99);
+    // On the back, head first too: away from where the eyes look, past the feet.
+    const back = tracking('back');
+    expect(back.glide).toBeGreaterThan(0.85);
+    expect(back.glide).toBeLessThan(belly.glide);
+    expect(back.along / (back.horizontal / 3.6)).toBeLessThan(-0.99);
+  });
+
+  test('upright, an angle: steeper and faster than a track, going where it leads', () => {
+    const flat = tracking('belly');
+    for (const p of ['sit', 'headDown'] as BodyPosition[]) {
+      const angle = tracking(p);
+      expect(angle.glide, p).toBeGreaterThan(0.5);
+      expect(angle.glide, p).toBeLessThan(0.8);
+      expect(angle.fall, p).toBeGreaterThan(flat.fall + 50);
+      expect(angle.horizontal, p).toBeGreaterThan(130);
+      expect(angle.along / (angle.horizontal / 3.6), p).toBeGreaterThan(0.99);
+    }
+  });
+
+  test('pushed, the track dives: faster on all counts', () => {
+    const neutral = tracking('belly');
+    const dive = tracking('belly', { forward: 1 });
+    expect(dive.horizontal).toBeGreaterThan(neutral.horizontal + 10);
+    expect(dive.fall).toBeGreaterThan(neutral.fall);
+  });
+
+  test('let go, the body comes back to its position and its fall rate', () => {
+    const { body, env } = tracking('belly');
+    body.tracking = false;
+    for (let i = 0; i < 30 / SIM_DT; i++) {
+      body.step(SIM_DT, noBodyInputs(), env);
+      body.state.pos.y = 1500;
+    }
+    expect(body.track).toBeLessThan(0.01);
+    expect(body.offPosition()).toBeLessThan(2 * DEG);
+    expect(Math.hypot(body.state.vel.x, body.state.vel.z)).toBeLessThan(5);
+  });
+});
+
 describe('pulling out of freefly', () => {
   /** Out of the door, into a position, and down to 1500 m. */
   function freeflyTo(position: BodyPosition) {
@@ -220,6 +283,36 @@ describe('pulling out of freefly', () => {
     expect(jump.body.offPosition()).toBeLessThan((25 * Math.PI) / 180);
     expect(jump.log.pullHeight).toBeLessThan(1500);
     expect(jump.log.pullHeight).toBeGreaterThan(1400);
+  });
+
+  test('Space in a track: out of it to belly to earth first, then the pull', () => {
+    const { jump, step } = freeflyTo('belly');
+    jump.trackIt(true);
+    for (let i = 0; i < 8 / SIM_DT; i++) step();
+    expect(jump.body.track).toBeGreaterThan(0.9);
+    expect(jump.body.offPosition()).toBeGreaterThan(30 * DEG);
+    jump.act();
+    expect(jump.phase).toBe('freefall');
+    expect(jump.pullWhenFlat).toBe(true);
+    // Shift still held: no track on the way to the pull.
+    jump.trackIt(true);
+    expect(jump.body.tracking).toBe(false);
+    let t = 0;
+    while (jump.phase === 'freefall' && t < 30) {
+      jump.trackIt(true);
+      step();
+      t += SIM_DT;
+    }
+    expect(jump.phase).toBe('opening');
+    expect(t).toBeLessThan(3);
+  });
+
+  test('no track in the plane', () => {
+    const model = new FlightModel(deriveRig(DEFAULT_RIG));
+    const env: Environment = { wind: vec3(), airDensity: airDensityAt(4000) };
+    const jump = new Jump(model, { x: 0, z: 0, height: 4000, headingDeg: 270, indicatedAirspeed: 40 }, env, () => 0, () => 0.5);
+    jump.trackIt(true);
+    expect(jump.body.tracking).toBe(false);
   });
 
   test('the AAD fires the reserve head down too, and it opens in time', () => {
