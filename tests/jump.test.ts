@@ -6,9 +6,9 @@ import { describe, expect, test } from 'vitest';
 import { airDensityAt } from '../src/sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from '../src/sim/flightModel';
 import { Freefall, freefallParams, noBodyInputs, type BodyInputs } from '../src/sim/freefall';
-import { AAD_HEIGHT, Jump } from '../src/sim/jump';
+import { AAD_HEIGHT, AAD_SPEED, Jump, type JumpOptions } from '../src/sim/jump';
 import { MAIN_OPENING, Opening, STOWED_BRAKE } from '../src/sim/opening';
-import { DEFAULT_RIG, deriveRig } from '../src/sim/rig';
+import { DEFAULT_RIG, deriveRig, reserveConfig } from '../src/sim/rig';
 import { SIM_DT } from '../src/sim/telemetry';
 import { rotate, set, vec3 } from '../src/sim/vec';
 
@@ -197,5 +197,114 @@ describe('the opening', () => {
     jump.holdStows(after);
     expect(after.brakeL).toBe(0);
     expect(after.brakeR).toBe(STOWED_BRAKE);
+  });
+});
+
+describe('cutaway and reserve', () => {
+  /** Out of the plane, pulled at 1500 m, flown until the main is overhead (or has had time to be). */
+  function underMain(options: JumpOptions) {
+    const model = new FlightModel(deriveRig(DEFAULT_RIG));
+    const env = calm();
+    const reserve = deriveRig(reserveConfig(90));
+    const jump = new Jump(model, { x: 0, z: 0, height: 4000, headingDeg: 270, indicatedAirspeed: 40 }, env, flat, () => 0.5, {
+      reserve,
+      ...options,
+    });
+    const step = () => {
+      env.airDensity = airDensityAt(model.state.pos.y);
+      jump.step(SIM_DT, noBodyInputs(), env);
+      if (jump.phase === 'canopy') model.step(SIM_DT, neutralControls(), env);
+    };
+    for (let i = 0; i < 2 / SIM_DT; i++) step();
+    jump.act();
+    for (let i = 0; i < 3 / SIM_DT; i++) step();
+    jump.body.state.pos.y = 1500;
+    jump.act();
+    for (let i = 0; i < 9 / SIM_DT && jump.phase !== 'canopy'; i++) step();
+    return { jump, model, env, reserve, step };
+  }
+
+  test('with an RSL, a cutaway has the reserve flying some fifty metres lower', () => {
+    const { jump, model, reserve, step } = underMain({ rsl: true });
+    expect(jump.phase).toBe('canopy');
+    jump.cutaway();
+    expect(jump.phase).toBe('freefall');
+    for (let i = 0; i < 8 / SIM_DT && jump.phase !== 'canopy'; i++) step();
+    expect(jump.phase).toBe('canopy');
+    expect(jump.canopy).toBe('reserve');
+    expect(model.rig).toBe(reserve);
+    expect(jump.log.reserveBy).toBe('rsl');
+    const lost = jump.log.cutawayHeight! - jump.log.openHeight;
+    expect(lost).toBeGreaterThan(25);
+    expect(lost).toBeLessThan(110);
+    // It opens on its own stowed brakes.
+    expect(jump.stowedL && jump.stowedR).toBe(true);
+  });
+
+  test('without one, the reserve waits for its handle', () => {
+    const { jump, step } = underMain({ rsl: false });
+    jump.cutaway();
+    for (let i = 0; i < 2 / SIM_DT; i++) step();
+    expect(jump.phase).toBe('freefall');
+    expect(jump.canopy).toBe('main');
+    jump.act();
+    expect(jump.canopy).toBe('reserve');
+    expect(jump.log.reserveBy).toBe('hand');
+    for (let i = 0; i < 8 / SIM_DT && jump.phase !== 'canopy'; i++) step();
+    expect(jump.phase).toBe('canopy');
+  });
+
+  test('the main, once cut away, drifts down slowly and is soon far from the pilot', () => {
+    const { jump, model, step } = underMain({ rsl: false });
+    jump.cutaway();
+    for (let i = 0; i < 4 / SIM_DT; i++) step();
+    const main = jump.released!;
+    expect(-main.vel.y).toBeLessThan(10);
+    const s = model.state.pos;
+    expect(Math.hypot(main.pos.x - s.x, main.pos.y - s.y, main.pos.z - s.z)).toBeGreaterThan(40);
+  });
+
+  test('a streamer never flies, falls at 70 to 120 km/h, and only a cutaway gets out of it', () => {
+    const { jump, model, step } = underMain({ malfunction: 'streamer', rsl: true });
+    expect(jump.phase).toBe('opening');
+    expect(jump.log.malfunction).toBe('streamer');
+    const fall = -model.state.vel.y * 3.6;
+    expect(fall).toBeGreaterThan(70);
+    expect(fall).toBeLessThan(120);
+    // Too slow for the AAD.
+    expect(fall / 3.6).toBeLessThan(AAD_SPEED);
+    jump.cutaway();
+    for (let i = 0; i < 8 / SIM_DT && jump.phase !== 'canopy'; i++) step();
+    expect(jump.canopy).toBe('reserve');
+    expect(jump.phase).toBe('canopy');
+  });
+
+  test('no cutaway before the main is out of its bag, nor of the reserve', () => {
+    const { jump, step } = underMain({ rsl: true });
+    jump.cutaway();
+    for (let i = 0; i < 8 / SIM_DT && jump.phase !== 'canopy'; i++) step();
+    jump.cutaway();
+    expect(jump.phase).toBe('canopy');
+    expect(jump.canopy).toBe('reserve');
+  });
+});
+
+describe('the slider', () => {
+  test('collapsed it glides a little further, taken off further still', () => {
+    const glide = (delta: number) => {
+      const model = new FlightModel(deriveRig(DEFAULT_RIG));
+      model.dragAreaDelta = delta;
+      set(model.state.vel, 0, -5, -12);
+      for (let i = 0; i < 40 / SIM_DT; i++) model.step(SIM_DT, neutralControls(), calm());
+      const v = model.state.vel;
+      return { glide: Math.hypot(v.x, v.z) / -v.y, sink: -v.y };
+    };
+    const open = glide(0);
+    const collapsed = glide(-0.1);
+    const off = glide(-0.15);
+    expect(collapsed.glide / open.glide).toBeGreaterThan(1.02);
+    expect(collapsed.glide / open.glide).toBeLessThan(1.08);
+    expect(collapsed.sink).toBeLessThan(open.sink);
+    expect(off.glide).toBeGreaterThan(collapsed.glide);
   });
 });

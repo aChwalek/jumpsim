@@ -120,13 +120,25 @@ test('jump run goes into the wind by default, or on the heading chosen, beside t
 
 test('the jump plan is checked when read back, and the run follows the wind until a heading is chosen', () => {
   const setup = validSetup({ jump: { start: 'final', exitHeight: 9000, runDeg: -45 } });
-  expect(setup.jump).toEqual({ start: 'final', exitHeight: 4500, runDeg: 315 });
-  expect(validSetup({ jump: { start: 'moon', exitHeight: 1234 } }).jump).toEqual({ start: 'plane', exitHeight: 1200, runDeg: null });
+  expect(setup.jump).toEqual({ start: 'final', exitHeight: 4500, runDeg: 315, malfunction: 'none' });
+  expect(validSetup({ jump: { start: 'moon', exitHeight: 1234, malfunction: 'often' } }).jump).toEqual({
+    start: 'plane',
+    exitHeight: 1200,
+    runDeg: null,
+    malfunction: 'none',
+  });
+  expect(validSetup({ jump: { malfunction: 'always' } }).jump.malfunction).toBe('always');
   const plan = defaultSetup();
   plan.weather.windFromDeg = 200;
   expect(runHeading(plan)).toBe(200);
   plan.jump.runDeg = 120;
   expect(runHeading(plan)).toBe(120);
+});
+
+test('slider and RSL are read back, old setups get a collapsible slider and an RSL', () => {
+  expect(validSetup({}).gear).toMatchObject({ slider: 'collapsible', rsl: true });
+  expect(validSetup({ gear: { slider: 'removable', rsl: false } }).gear).toMatchObject({ slider: 'removable', rsl: false });
+  expect(validSetup({ gear: { slider: 'velcro', rsl: 'yes' } }).gear).toMatchObject({ slider: 'collapsible', rsl: true });
 });
 
 test('the audible altimeter sounds each circuit height once on the way down', () => {

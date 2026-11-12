@@ -1,6 +1,7 @@
 import type { AltimeterKind } from '../setup';
 import type { Controls } from '../sim/flightModel';
-import type { JumpLog } from '../sim/jump';
+import type { JumpLog, ReserveBy } from '../sim/jump';
+import type { Malfunction } from '../sim/opening';
 import type { LandingRating, Touchdown } from '../sim/landing';
 import { Altimeter } from './altimeter';
 import { keysHtml, type InputKind, type KeysPhase, type PadKind } from './keys';
@@ -59,15 +60,30 @@ export interface HudData {
 /** A height in metres with a thin space in the thousands, as French altimeters print. */
 const metres = (m: number): string => Math.round(m).toLocaleString('fr-FR');
 
+const RESERVE_BY: Record<ReserveBy, string> = {
+  hand: 'à la poignée',
+  rsl: 'par le RSL',
+  aad: 'par le déclencheur de sécurité',
+};
+
 /** What the jump itself was, for the card at the end. */
 function jumpRows(log: JumpLog): string {
-  const pull = log.aad
-    ? `<tr><td>${metres(log.openHeight)} m</td><td>ouvert par le déclencheur de sécurité</td></tr>`
-    : `<tr><td>${metres(log.pullHeight ?? 0)} m</td><td>hauteur d'ouverture, voile en vol à ${metres(log.openHeight)} m</td></tr>`;
-  return `
-    <tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>de chute libre, jusqu'à ${(log.topSpeed * 3.6).toFixed(0)} km/h</td></tr>
-    ${pull}
-    <tr><td>${log.openingLoad.toFixed(1)} g</td><td>à l'ouverture</td></tr>`;
+  const rows: string[] = [
+    `<tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>de chute libre, jusqu'à ${(log.topSpeed * 3.6).toFixed(0)} km/h</td></tr>`,
+  ];
+  if (log.pullHeight !== null) {
+    const main = log.cutawayHeight === null ? `, voile en vol à ${metres(log.openHeight)} m` : '';
+    rows.push(`<tr><td>${metres(log.pullHeight)} m</td><td>hauteur d'ouverture${main}</td></tr>`);
+  }
+  if (log.malfunction === 'streamer') rows.push(`<tr><td>torche</td><td>la principale ne s'est pas gonflée</td></tr>`);
+  if (log.cutawayHeight !== null) rows.push(`<tr><td>${metres(log.cutawayHeight)} m</td><td>principale libérée</td></tr>`);
+  if (log.reserveBy !== null && log.reserveHeight !== null) {
+    rows.push(
+      `<tr><td>${metres(log.reserveHeight)} m</td><td>secours tiré ${RESERVE_BY[log.reserveBy]}, en vol à ${metres(log.openHeight)} m</td></tr>`,
+    );
+  }
+  rows.push(`<tr><td>${log.openingLoad.toFixed(1)} g</td><td>à l'ouverture</td></tr>`);
+  return rows.join('');
 }
 
 const HINT = '<p class="hint">R ou Y pour recommencer · 1 circuit · 2 finale · 3 avion · V, Échap ou Start pour le menu</p>';
@@ -127,11 +143,20 @@ export class Hud {
     this.gear.textContent = text;
   }
 
-  /** Hit the ground with no canopy over the head. `opening`: one was coming out. */
-  showImpact(log: JumpLog, opening: boolean, speed: number): void {
+  /**
+   * Hit the ground with no canopy over the head. `opening`: one was coming
+   * out; `malfunction`: and had gone wrong.
+   */
+  showImpact(log: JumpLog, opening: boolean, speed: number, malfunction: Malfunction | null = null): void {
+    const [title, text] =
+      opening && malfunction === 'streamer'
+        ? ['Torche non libérée', 'La principale ne s\'est jamais gonflée : il fallait libérer (X maintenu) et ouvrir le secours.']
+        : opening
+          ? ['Ouverture trop basse', 'La voile n\'a pas eu le temps de s\'ouvrir.']
+          : ['Pas d\'ouverture', log.cutawayHeight !== null ? 'Libéré, mais pas de secours : Espace pour la poignée.' : 'Impact en chute libre.'];
     this.result.innerHTML = `
-      <h1>${opening ? 'Ouverture trop basse' : 'Pas d\'ouverture'}</h1>
-      <p>${opening ? 'La voile n\'a pas eu le temps de s\'ouvrir.' : 'Impact en chute libre.'}</p>
+      <h1>${title}</h1>
+      <p>${text}</p>
       <table>
         <tr><td>${(speed * 3.6).toFixed(0)} km/h</td><td>à l'impact</td></tr>
         <tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>de chute libre</td></tr>

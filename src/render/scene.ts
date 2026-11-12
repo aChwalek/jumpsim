@@ -20,6 +20,8 @@ export function createCamera(): THREE.PerspectiveCamera {
 
 /** Layer of what the pilot has within arm's reach: risers, toggles, arms. */
 export const GEAR_LAYER = 1;
+/** Layer of what only an outside camera sees: the head the eyes are in. */
+export const OUTSIDE_LAYER = 2;
 
 /**
  * Same eye, same lens, but for the gear a hand's width from the face, which
@@ -154,7 +156,10 @@ export function createScene(): SceneParts {
   scene.add(light.skyLight, light.sunLight);
   // Lights only reach what shares a layer with the camera drawing it.
   scene.traverse((node) => {
-    if ((node as THREE.Light).isLight) node.layers.enable(GEAR_LAYER);
+    if ((node as THREE.Light).isLight) {
+      node.layers.enable(GEAR_LAYER);
+      node.layers.enable(OUTSIDE_LAYER);
+    }
   });
   const sky = buildSky(light);
   scene.add(sky, light.clouds.layer);

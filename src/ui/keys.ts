@@ -10,7 +10,7 @@ export type InputKind = 'keyboard' | 'gamepad';
 export type PadKind = 'xbox' | 'playstation';
 
 /** A gamepad control, drawn rather than spelt out. */
-type PadControl = 'a' | 'y' | 'start' | 'lb' | 'rb' | 'lt' | 'rt' | 'ls' | 'rs' | 'cross' | 'up' | 'down' | 'left' | 'right';
+type PadControl = 'a' | 'b' | 'x' | 'y' | 'start' | 'view' | 'lb' | 'rb' | 'lt' | 'rt' | 'ls' | 'rs' | 'cross' | 'up' | 'down' | 'left' | 'right';
 
 /** Keyboard keys as written on the caps, or gamepad controls; and what they do. */
 type Row = [keys: string[], what: string];
@@ -20,6 +20,7 @@ const KEYBOARD: Record<KeysPhase, Row[]> = {
     [['Espace'], 'sauter'],
     [['↑', '↓', '←', '→'], 'position de sortie'],
     [['Souris'], 'regarder'],
+    [['B'], 'caméra extérieure'],
   ],
   freefall: [
     [['Z', 'S'], 'avancer / reculer'],
@@ -28,7 +29,8 @@ const KEYBOARD: Record<KeysPhase, Row[]> = {
     [['R', 'F'], 'monter / descendre'],
     [['↑', '↓'], 'assis / tête en bas'],
     [['←', '→'], 'à plat / dos'],
-    [['Espace'], 'ouvrir'],
+    [['Espace'], 'ouvrir · secours'],
+    [['B'], 'caméra extérieure'],
   ],
   canopy: [
     [['Q', 'D'], 'commande gauche / droite'],
@@ -36,11 +38,15 @@ const KEYBOARD: Record<KeysPhase, Row[]> = {
     [['A', 'E'], 'avant gauche / droit'],
     [['Z'], 'les deux avants'],
     [['Maj'], 'maintenir les commandes'],
+    [['G'], 'glisseur'],
+    [['X'], 'libérer (maintenir)'],
     [['Souris'], 'regarder, C recentrer'],
+    [['B'], 'caméra, molette distance'],
   ],
   ground: [
     [['R'], 'recommencer'],
     [['1', '2', '3'], 'circuit / finale / avion'],
+    [['B'], 'caméra extérieure'],
   ],
 };
 
@@ -49,6 +55,7 @@ const GAMEPAD: Record<KeysPhase, [PadControl[], string][] | null> = {
     [['a'], 'sauter'],
     [['cross'], 'position de sortie'],
     [['rs'], 'regarder'],
+    [['view'], 'caméra'],
   ],
   freefall: [
     [['ls'], 'avancer, reculer, glisser'],
@@ -56,15 +63,20 @@ const GAMEPAD: Record<KeysPhase, [PadControl[], string][] | null> = {
     [['lb', 'rb'], 'monter / descendre'],
     [['up', 'down'], 'assis / tête en bas'],
     [['left', 'right'], 'à plat / dos'],
-    [['a'], 'ouvrir'],
+    [['a'], 'ouvrir · secours'],
+    [['view'], 'caméra'],
   ],
   canopy: [
     [['lt', 'rt'], 'commande gauche / droite'],
     [['lb', 'rb'], 'avant gauche / droit'],
+    [['x'], 'glisseur'],
+    [['b'], 'libérer (maintenir)'],
     [['rs'], 'regarder'],
+    [['view'], 'caméra'],
   ],
   ground: [
     [['y'], 'recommencer'],
+    [['view'], 'caméra'],
     [['start'], 'menu'],
   ],
 };
@@ -110,6 +122,21 @@ function padIcon(c: PadControl, kind: PadKind): string {
             `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><path d="M8.5 8.5 L17.5 17.5 M17.5 8.5 L8.5 17.5" stroke="#8fb4ff" stroke-width="2.4" stroke-linecap="round"/>`,
             'croix',
           );
+    case 'b':
+      // Xbox: the red B. PlayStation: the red circle.
+      return kind === 'xbox'
+        ? svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="#c4332b" stroke="${LINE}"/><text x="13" y="18" font-size="14" ${FONT}>B</text>`, 'B')
+        : svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><circle cx="13" cy="13" r="5.5" fill="none" stroke="#ff6b6b" stroke-width="2.2"/>`, 'rond');
+    case 'x':
+      // Xbox: the blue X. PlayStation: the pink square.
+      return kind === 'xbox'
+        ? svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="#2b6fc4" stroke="${LINE}"/><text x="13" y="18" font-size="14" ${FONT}>X</text>`, 'X')
+        : svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><rect x="8.5" y="8.5" width="9" height="9" fill="none" stroke="#f19bd4" stroke-width="2"/>`, 'carré');
+    case 'view': {
+      // The small button on the left: View on an Xbox pad, Share / Create on a PlayStation one.
+      const name = kind === 'xbox' ? 'View' : 'Share';
+      return svg(46, 20, `<rect x="1.5" y="2.5" width="43" height="15" rx="7.5" fill="${BODY}" stroke="${LINE}"/><text x="23" y="14" font-size="9.5" ${FONT}>${name}</text>`, name);
+    }
     case 'y':
       // Xbox: the yellow Y. PlayStation: the green triangle.
       return kind === 'xbox'

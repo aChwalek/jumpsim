@@ -30,10 +30,13 @@ import {
   type AltimeterKind,
   type Gear,
   type JumpPlan,
+  type MalfunctionRate,
+  type SliderKind,
+  MALFUNCTION_ODDS,
   type Setup,
   type Start,
 } from '../setup';
-import type { CanopyKind } from '../sim/rig';
+import { reserveSize, type CanopyKind } from '../sim/rig';
 import { trimSpeeds } from '../sim/telemetry';
 import {
   WIND_MAX_KMH,
@@ -82,6 +85,21 @@ const ALTIMETERS: Option<AltimeterKind>[] = [
   { value: 'none', label: 'Aucun' },
   { value: 'analog', label: 'À aiguille' },
   { value: 'digital', label: 'Digital' },
+];
+const SLIDERS: Option<SliderKind>[] = [
+  { value: 'fixed', label: 'Fixe' },
+  { value: 'collapsible', label: 'Rétractable' },
+  { value: 'removable', label: 'Amovible' },
+];
+const SLIDER_NOTES: Record<SliderKind, string> = {
+  fixed: 'Il reste sur les maillons et claque au vent tout le vol.',
+  collapsible: 'G (manette : X) sous voile pour le replier sur les maillons : moins de traînée, moins de bruit.',
+  removable: 'G (manette : X) sous voile pour l\'enlever et le ranger : la voile vole un peu plus vite.',
+};
+const MALFUNCTIONS: Option<MalfunctionRate>[] = [
+  { value: 'none', label: 'Jamais' },
+  { value: 'sometimes', label: `1 sur ${MALFUNCTION_ODDS}` },
+  { value: 'always', label: 'À chaque saut' },
 ];
 const YES_NO: Option<boolean>[] = [
   { value: false, label: 'Non' },
@@ -608,7 +626,7 @@ export class Menu {
         return `
           <span class="big">${gear.canopyAreaFt2} ft² <small>${kind}</small>${swatch(gear.color)}</span>
           <span>${gear.exitWeightKg} kg · ${num(rig.wingLoading, 2)} lb/ft² · ${loadingLabel(rig.wingLoading)}</span>
-          <span class="dim">${alti} · ${gear.audible ? 'altison' : 'sans altison'}</span>`;
+          <span class="dim">${alti} · ${gear.audible ? 'altison' : 'sans altison'} · glisseur ${SLIDERS.find((o) => o.value === gear.slider)!.label.toLowerCase()}${gear.rsl ? ' · RSL' : ''}</span>`;
       }
       case 'dz': {
         return `
@@ -690,6 +708,16 @@ export class Menu {
       this.choice<AltimeterKind>('ALTIMÈTRE', ALTIMETERS, () => gear().altimeter, (altimeter) => this.setGear({ altimeter })),
       this.choice<boolean>('ALTISON', YES_NO, () => gear().audible, (audible) => this.setGear({ audible }), {
         hint: 'bips sous voile à 300, 200 et 100 m',
+      }),
+      this.choice<SliderKind>('GLISSEUR', SLIDERS, () => gear().slider, (slider) => this.setGear({ slider }), {
+        note: () => SLIDER_NOTES[gear().slider],
+      }),
+      this.choice<boolean>('RSL', YES_NO, () => gear().rsl, (rsl) => this.setGear({ rsl }), {
+        hint: 'la libération tire le secours',
+        note: () =>
+          `Secours ${reserveSize(gear().exitWeightKg)} ft², 7 caissons. ${
+            gear().rsl ? 'Libérer (X maintenu) ouvre le secours tout seul.' : 'Après la libération, Espace pour tirer la poignée de secours.'
+          }`,
       }),
     );
     screen.append(this.detailHints());
@@ -839,6 +867,13 @@ export class Menu {
         },
         compass.el,
       ),
+      this.choice<MalfunctionRate>('INCIDENT À L\'OUVERTURE', MALFUNCTIONS, () => plan().malfunction, (malfunction) => this.setJump({ malfunction }), {
+        note: () =>
+          plan().malfunction === 'none'
+            ? 'La principale s\'ouvre toujours bien.'
+            : 'La principale peut partir en torche : X maintenu pour libérer, puis le secours.',
+        disabled: noPlane,
+      }),
     );
     screen.append(this.detailHints());
     return screen;
@@ -903,6 +938,10 @@ export class Menu {
       ['Garder les commandes où elles sont', 'Maj', '—'],
       ['Regarder autour', 'souris · C recentre', 'stick droit'],
       ['Sauter de l\'avion, puis ouvrir', 'Espace', 'A'],
+      ['Glisseur : le replier ou l\'enlever', 'G', 'X'],
+      ['Libérer la principale (maintenir)', 'X', 'B'],
+      ['Poignée de secours, une fois libéré', 'Espace', 'A'],
+      ['Caméra : yeux / extérieure (molette : distance)', 'B', 'View'],
       ['En chute : tourner', 'Q / D', 'gâchettes'],
       ['En chute : avancer, reculer, glisser', 'Z / S · A / E', 'stick gauche'],
       ['En chute : monter / descendre', 'R / F', 'LB / RB'],
@@ -912,7 +951,7 @@ export class Menu {
       ['Partir en circuit / finale / avion', '1 / 2 / 3', '—'],
       ['Menu', 'V ou Échap', 'Start'],
       ['Masquer l\'affichage · pause', 'H · P', '—'],
-      ['Qualité · son · touches à l\'écran', 'G · M · K', '—'],
+      ['Son · touches à l\'écran', 'M · K', '—'],
     ];
     const table = h('table', 'controls');
     table.innerHTML = `<thead><tr><th></th><th>Clavier</th><th>Manette</th></tr></thead><tbody>${rows

@@ -23,14 +23,22 @@ export type Action =
   | 'flyBelly'
   | 'flyBack'
   | 'flySit'
-  | 'flyHeadDown';
+  | 'flyHeadDown'
+  /** Held a moment: the cutaway handle. */
+  | 'cutaway'
+  /** Collapse or take off the slider. */
+  | 'slider'
+  /** Eyes, or outside. */
+  | 'camera';
 
 const ACTIONS: Record<string, Action> = {
   KeyR: 'reset',
   KeyH: 'toggleHud',
   KeyP: 'togglePause',
   KeyC: 'recentre',
-  KeyG: 'cycleQuality',
+  // G as in glisseur.
+  KeyG: 'slider',
+  KeyB: 'camera',
   KeyK: 'toggleKeys',
   // M sits in a different place on AZERTY and QWERTY: take both.
   KeyM: 'toggleSound',
@@ -52,7 +60,9 @@ const ACTIONS: Record<string, Action> = {
  * poll). The cross does the same as the arrows: up, down, left, right.
  */
 const PAD_ACTIONS: [number, Action][] = [
+  [2, 'slider'], // X
   [3, 'reset'], // Y
+  [8, 'camera'], // View / Back / Share
   [9, 'padMenu'], // Start
   [12, 'flySit'],
   [13, 'flyHeadDown'],
@@ -60,6 +70,8 @@ const PAD_ACTIONS: [number, Action][] = [
   [15, 'flyBack'],
 ];
 
+/** How long the cutaway key or button has to be held, ms: no cutaway by a slip of the finger. */
+export const CUTAWAY_HOLD = 350;
 const MOUSE_SENSITIVITY = 0.0022;
 const MAX_YAW = 2.6;
 const MAX_PITCH_UP = 1.45;
@@ -93,6 +105,10 @@ export class InputDevices {
   lastUsed: 'keyboard' | 'gamepad' = 'keyboard';
   /** Whose gamepad it is, to name its buttons. */
   padKind: 'xbox' | 'playstation' = 'xbox';
+  /** How far an outside camera stands back, as a multiple of its usual distance: the wheel. */
+  zoom = 1;
+  /** How long the cutaway has been held, 0 to 1 once it goes. */
+  cutawayHeld = 0;
   onAction: (action: Action) => void = () => {};
 
   private readonly keys = new Set<string>();
@@ -102,6 +118,9 @@ export class InputDevices {
   private readonly padDown = new Set<number>();
   private mouseYaw = 0;
   private mousePitch = 0;
+  /** When the cutaway key or button went down, ms, and whether this hold has fired. */
+  private cutawayFrom: number | null = null;
+  private cutawayFired = false;
 
   constructor(private readonly surface: HTMLElement) {
     window.addEventListener('keydown', (e) => {
@@ -115,6 +134,13 @@ export class InputDevices {
     window.addEventListener('blur', () => this.keys.clear());
 
     surface.addEventListener('click', () => this.capture());
+    surface.addEventListener(
+      'wheel',
+      (e) => {
+        this.zoom = clamp(this.zoom * Math.exp(e.deltaY * 0.0012), 0.3, 4);
+      },
+      { passive: true },
+    );
     document.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement !== surface) return;
       const speed = MOUSE_SENSITIVITY * this.sensitivity;
@@ -197,6 +223,21 @@ export class InputDevices {
         if (down && !this.padDown.has(index)) this.onAction(action);
         if (down) this.padDown.add(index);
         else this.padDown.delete(index);
+      }
+    }
+    // The cutaway: X held, or B on the gamepad.
+    const cutaway = k.has('KeyX') || (pad?.buttons[1]?.pressed ?? false);
+    const now = performance.now();
+    if (!cutaway) {
+      this.cutawayFrom = null;
+      this.cutawayFired = false;
+      this.cutawayHeld = 0;
+    } else {
+      this.cutawayFrom ??= now;
+      this.cutawayHeld = Math.min(1, (now - this.cutawayFrom) / CUTAWAY_HOLD);
+      if (this.cutawayHeld >= 1 && !this.cutawayFired) {
+        this.cutawayFired = true;
+        this.onAction('cutaway');
       }
     }
     this.lookYaw = clamp(this.mouseYaw + stickYaw, -MAX_YAW, MAX_YAW);

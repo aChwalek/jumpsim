@@ -7,18 +7,33 @@
 
 import type { Controls, Environment, FlightModel } from './flightModel';
 import { Freefall, freefallParams, type BodyInputs, type BodyPosition } from './freefall';
-import { MAIN_OPENING, Opening, RESERVE_OPENING, STOWED_BRAKE } from './opening';
+import { MAIN_OPENING, Opening, RESERVE_HANDLE_OPENING, RESERVE_OPENING, STOWED_BRAKE, type Malfunction } from './opening';
 import { DOOR_EYE, Plane, type JumpRun } from './plane';
+import { ReleasedCanopy } from './released';
+import type { RigParams } from './rig';
 import { DEG, quatFromYaw, rotate, set, vec3 } from './vec';
 
 export type JumpPhase = 'plane' | 'freefall' | 'opening' | 'canopy';
+/** The canopy out, or coming out. */
+export type CanopyId = 'main' | 'reserve';
+/** What pulled the reserve: the pilot's hand, the static line from the main risers, or the AAD. */
+export type ReserveBy = 'hand' | 'rsl' | 'aad';
+
+export interface JumpOptions {
+  /** The reserve, flown once out. Without it the reserve flies as the main does. */
+  reserve?: RigParams;
+  /** A reserve static line: cutting the main away pulls the reserve. */
+  rsl?: boolean;
+  /** What goes wrong with the main as it opens, if anything. */
+  malfunction?: Malfunction | null;
+}
 
 /**
  * The automatic activation device fires the reserve below this height when
  * still falling fast (a Cypres in its expert mode).
  */
 export const AAD_HEIGHT = 225;
-const AAD_SPEED = 35;
+export const AAD_SPEED = 35;
 /** The pull is not taken in the first moments out of the door: no pilot chute over the tail. */
 const CLEAR_OF_THE_PLANE = 1.5;
 /** How hard the jumper pushes off out of the door, m/s. */
@@ -29,6 +44,10 @@ const OFF_HEADING = 25;
 const UNSTOW = 0.08;
 /** Near enough belly to earth to pull, rad. */
 const FLAT_ENOUGH = 25 * DEG;
+/** From the cutaway until the static line has the reserve pin out, s. */
+const RSL_DELAY = 0.2;
+/** Time to fall away from hanging under a canopy to flat on the air, for the eyes, s. */
+const FALL_AWAY = 0.8;
 
 const ease = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
@@ -46,6 +65,13 @@ export interface JumpLog {
   /** Highest load of the opening, g. */
   openingLoad: number;
   aad: boolean;
+  /** Where the main was cut away, m, or null if it was not. */
+  cutawayHeight: number | null;
+  /** Where the reserve was pulled, m, and what pulled it; null if it stayed in. */
+  reserveHeight: number | null;
+  reserveBy: ReserveBy | null;
+  /** The main that came out went wrong this way. */
+  malfunction: Malfunction | null;
 }
 
 export class Jump {
@@ -65,6 +91,14 @@ export class Jump {
   private openedAt = 0;
   /** Asked to pull out of another position: back to belly to earth first. */
   pullWhenFlat = false;
+  /** The canopy out or coming out: the main, then after a cutaway or the AAD, the reserve. */
+  canopy: CanopyId = 'main';
+  /** When the main was cut away, s after the exit, or null. */
+  cutawayAt: number | null = null;
+  /** The main once cut away, drifting down on its own. */
+  released: ReleasedCanopy | null = null;
+  /** When the static line pulls the reserve, s after the exit. */
+  private rslAt: number | null = null;
 
   private readonly tmp = vec3();
   private readonly eye = vec3();
@@ -75,6 +109,7 @@ export class Jump {
     env: Environment,
     private readonly groundAt: (x: number, z: number) => number,
     private readonly random: () => number = Math.random,
+    private readonly options: JumpOptions = {},
   ) {
     this.plane = new Plane(run, env.wind, groundAt(run.x, run.z));
     this.body = new Freefall(freefallParams(model.rig.gravMass));
@@ -86,6 +121,10 @@ export class Jump {
       topSpeed: 0,
       openingLoad: 0,
       aad: false,
+      cutawayHeight: null,
+      reserveHeight: null,
+      reserveBy: null,
+      malfunction: null,
     };
     this.ride();
   }
@@ -97,7 +136,10 @@ export class Jump {
    */
   act(): void {
     if (this.phase === 'plane') this.exit();
-    else if (this.phase === 'freefall' && this.time > CLEAR_OF_THE_PLANE) {
+    else if (this.phase === 'freefall' && this.cutawayAt !== null) {
+      // The reserve handle, right after the cutaway, whatever the position.
+      this.pull(false);
+    } else if (this.phase === 'freefall' && this.time > CLEAR_OF_THE_PLANE) {
       if (this.body.position === 'belly' && this.body.offPosition() < FLAT_ENOUGH) this.pull(false);
       else {
         this.body.setPosition('belly');
@@ -122,6 +164,38 @@ export class Jump {
     return this.tmp.y - this.groundAt(this.tmp.x, this.tmp.z);
   }
 
+  /**
+   * The cutaway handle: the main and its risers go, and the pilot falls
+   * free again, to pull the reserve (or have the static line pull it).
+   * Only once the main is out of its bag.
+   */
+  cutaway(): void {
+    const o = this.opening;
+    const out = this.phase === 'canopy' || (this.phase === 'opening' && o !== null && o.stage === 'inflation');
+    if (this.canopy !== 'main' || !out || this.impact) return;
+    const s = this.model.state;
+    const rig = this.model.rig;
+    this.released = new ReleasedCanopy(
+      { pos: s.pos, vel: s.vel, att: s.att },
+      rig.area,
+      rig.canopy.weight / 9.80665 + 1.2,
+      this.groundAt,
+    );
+    this.cutawayAt = this.time;
+    this.log.cutawayHeight = this.height();
+    // Falling free from hanging upright: the body goes back to the arch.
+    const b = this.body.state;
+    set(b.pos, s.pos.x, s.pos.y, s.pos.z);
+    set(b.vel, s.vel.x, s.vel.y, s.vel.z);
+    Object.assign(b.att, s.pilotAtt);
+    b.yawRate = 0;
+    this.body.setPosition('belly');
+    this.pullWhenFlat = false;
+    this.opening = null;
+    this.phase = 'freefall';
+    if (this.options.rsl) this.rslAt = this.time + RSL_DELAY;
+  }
+
   /** Advances whatever is under way before the canopy flies. */
   step(dt: number, input: BodyInputs, env: Environment): void {
     this.plane.step(dt);
@@ -129,6 +203,7 @@ export class Jump {
       this.ride();
       return;
     }
+    this.released?.step(dt, env);
     if (this.impact) return;
     this.time += dt;
     if (this.phase === 'canopy') return;
@@ -138,6 +213,7 @@ export class Jump {
       const b = this.body.state;
       this.log.topSpeed = Math.max(this.log.topSpeed, -b.vel.y);
       if (this.height() < AAD_HEIGHT && -b.vel.y > AAD_SPEED) this.pull(true);
+      else if (this.rslAt !== null && this.time >= this.rslAt) this.pull(false, 'rsl');
       else if (this.pullWhenFlat && this.body.offPosition() < FLAT_ENOUGH) this.pull(false);
     } else if (this.opening) {
       this.opening.step(dt, env);
@@ -169,7 +245,10 @@ export class Jump {
   /** How far the pilot has swung from flat on the air to hanging under the canopy, 0 to 1. */
   get hang(): number {
     if (this.phase === 'canopy') return 1;
-    return this.phase === 'opening' && this.opening ? this.opening.hang : 0;
+    if (this.phase === 'opening' && this.opening) return this.opening.hang;
+    // Just cut away: the eyes leave the hanging view over a moment.
+    if (this.phase === 'freefall' && this.cutawayAt !== null) return 1 - ease((this.time - this.cutawayAt) / FALL_AWAY);
+    return 0;
   }
 
   /**
@@ -224,17 +303,38 @@ export class Jump {
     this.log.exitHeight = this.height();
   }
 
-  private pull(aad: boolean): void {
+  /**
+   * The main's pilot chute, or the reserve once the main is gone or when the
+   * AAD fires. `by`: what pulled a reserve, when not the AAD.
+   */
+  private pull(aad: boolean, by: ReserveBy = 'hand'): void {
     if (this.phase !== 'freefall') return;
-    this.log.pullHeight = aad ? null : this.height();
-    this.log.freefallSeconds = this.time;
-    this.log.aad = aad;
+    const reserve = aad || this.cutawayAt !== null;
+    if (reserve && this.canopy === 'reserve') return;
+    this.rslAt = null;
     this.pullWhenFlat = false;
+    if (this.cutawayAt === null) {
+      this.log.pullHeight = aad ? null : this.height();
+      this.log.freefallSeconds = this.time;
+    }
+    this.log.aad = aad;
     // The AAD fires whatever the position: the body goes flat as the bag leaves.
     this.body.setPosition('belly');
     // Triangular spread: most canopies open near the heading.
     const off = (this.random() + this.random() - 1) * OFF_HEADING;
-    this.opening = new Opening(this.body, this.model, aad ? RESERVE_OPENING : MAIN_OPENING, off);
+    if (reserve) {
+      this.canopy = 'reserve';
+      this.log.reserveHeight = this.height();
+      this.log.reserveBy = aad ? 'aad' : by;
+      if (this.options.reserve) this.model.rig = this.options.reserve;
+      this.stowedL = this.stowedR = true;
+      const timing = aad || by === 'rsl' ? RESERVE_OPENING : RESERVE_HANDLE_OPENING;
+      this.opening = new Opening(this.body, this.model, timing, off);
+    } else {
+      const malfunction = this.options.malfunction ?? null;
+      this.log.malfunction = malfunction;
+      this.opening = new Opening(this.body, this.model, MAIN_OPENING, off, malfunction);
+    }
     this.phase = 'opening';
   }
 

@@ -48,6 +48,8 @@ export interface RigConfig {
   pilotDragArea: number;
   /** Total suspension line length times diameter, as drag area per m^2 of canopy. */
   lineDragPerArea: number;
+  /** Cells across the span, for the picture only: 9 on a sport main, 7 on most reserves. */
+  cells: number;
 }
 
 export const DEFAULT_RIG: RigConfig = {
@@ -63,6 +65,7 @@ export const DEFAULT_RIG: RigConfig = {
   canopyCd0: 0.075,
   pilotDragArea: 0.6,
   lineDragPerArea: 0.0125,
+  cells: 9,
 };
 
 export type CanopyKind = 'classic' | 'triCell';
@@ -84,6 +87,40 @@ export const TRI_CELL: Partial<RigConfig> = {
   canopyCd0: 0.055,
   lineDragPerArea: 0.008,
 };
+
+/**
+ * A reserve: seven cells of low-porosity fabric, broader and blunter than a
+ * main, built to open fast and land gently rather than to fly fast. Estimates
+ * again, from what reserves are known to do: slower and a little steeper than
+ * a main of the same size.
+ */
+export const RESERVE: Partial<RigConfig> = {
+  cells: 7,
+  chambersPerCell: 2,
+  aspectRatio: 2.2,
+  spanEfficiency: 0.78,
+  canopyCd0: 0.085,
+  lineDragPerArea: 0.014,
+};
+
+/** Reserve sizes on sale, ft². */
+export const RESERVE_SIZES = [113, 126, 143, 160, 176, 193, 218, 235, 253, 281];
+/** The most a reserve is loaded with here, lb/ft²: reserves are chosen to land anyone gently. */
+const RESERVE_MAX_LOADING = 1.25;
+
+/** The reserve a jumper of this weight packs: the smallest that keeps the loading gentle. */
+export function reserveSize(exitWeightKg: number): number {
+  const lb = exitWeightKg * KG_TO_LB;
+  return RESERVE_SIZES.find((size) => lb / size <= RESERVE_MAX_LOADING) ?? RESERVE_SIZES[RESERVE_SIZES.length - 1]!;
+}
+
+/** The reserve's configuration under a weight. */
+export const reserveConfig = (exitWeightKg: number): RigConfig => ({
+  ...DEFAULT_RIG,
+  ...RESERVE,
+  canopyAreaFt2: reserveSize(exitWeightKg),
+  exitWeightKg,
+});
 
 /** The full configuration of a canopy of a kind and size under a weight. */
 export const rigConfig = (kind: CanopyKind, canopyAreaFt2: number, exitWeightKg: number): RigConfig => ({

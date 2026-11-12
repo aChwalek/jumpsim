@@ -124,7 +124,14 @@ export class FlightModel {
   private ry = 0;
   private rz = 0;
 
-  constructor(readonly rig: RigParams) {}
+  /**
+   * Drag area added at the links, m²: the calibration flies with the slider
+   * down and open, so collapsing it or taking it off makes this negative.
+   */
+  dragAreaDelta = 0;
+
+  /** The canopy flown: the reserve takes over from the main after a cutaway. */
+  constructor(public rig: RigParams) {}
 
   step(dt: number, c: Controls, env: Environment): void {
     const s = this.state;
@@ -225,6 +232,7 @@ export class FlightModel {
       (aero.cnr * 0.5 * rig.span * w.y - aero.cnBeta * cx - pull * speed);
 
     this.addBluffDrag(rig.linePos, halfRho * rig.lineDragArea);
+    if (this.dragAreaDelta !== 0) this.addBluffDrag(rig.linksPos, halfRho * this.dragAreaDelta);
 
     // The pilot's drag, at the pilot's centre of mass, pilot frame.
     const canopy = rig.canopy;

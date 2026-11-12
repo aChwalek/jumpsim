@@ -82,6 +82,8 @@ export class Arrival {
   private readonly height0: number;
   /** Horizontal axis the canopy turns about as it falls. */
   private readonly fall = vec3();
+  /** Level direction the canopy falls towards, world frame. */
+  readonly fallTo = vec3();
   private readonly stand: number;
   private phase = 0;
   /** Seconds spent at rest. */
@@ -119,6 +121,7 @@ export class Arrival {
     const wind = Math.hypot(setting.wind.x, setting.wind.z);
     const to = wind > 1 ? set(this.tmp, setting.wind.x / wind, 0, setting.wind.z / wind) : this.travel;
     set(this.fall, to.z, 0, -to.x); // up x to
+    set(this.fallTo, to.x, 0, to.z);
   }
 
   /** Moves the pilot and the canopy on by `dt` seconds. */

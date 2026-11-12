@@ -16,7 +16,7 @@ import type { Environment, FlightModel } from './flightModel';
 import { type Freefall, noBodyInputs } from './freefall';
 import { GRAVITY } from './rig';
 import { initTrimmed, trimmedFlight, type Trimmed } from './telemetry';
-import { DEG, quat, quatFromYaw, quatSlerp, set, vec3, type Quat, type Vec3 } from './vec';
+import { DEG, quat, quatFromYaw, quatMultiply, quatSlerp, set, vec3, type Quat, type Vec3 } from './vec';
 
 export interface OpeningTiming {
   /** From the pull until the pilot chute is thrown into the air, s. */
@@ -36,6 +36,22 @@ export const MAIN_OPENING: OpeningTiming = { throwOut: 0.6, lineStretch: 1.9, sw
  * pilot chute at once, and reserves are built to open fast.
  */
 export const RESERVE_OPENING: OpeningTiming = { throwOut: 0, lineStretch: 0.8, swing: 0.6, inflation: 1.6 };
+/** A reserve pulled by hand: the time to peel the handle out, then the same spring. */
+export const RESERVE_HANDLE_OPENING: OpeningTiming = { throwOut: 0.25, lineStretch: 1.05, swing: 0.6, inflation: 1.6 };
+
+/**
+ * What can go wrong with a main as it comes out. A streamer ("torche"): the
+ * canopy leaves the bag but never fills, and trails overhead flapping. It
+ * slows the fall to some 90 km/h, too slow for the AAD and far too fast to
+ * land: the only way out is to cut it away and pull the reserve.
+ */
+export type Malfunction = 'streamer';
+/** How far a streamer gets, as a fraction of the inflation. */
+const STREAMER_INFLATION = 0.16;
+/** Drag area of a streamer, per m² of canopy. */
+const STREAMER_AREA = 0.16;
+/** A streamer turns slowly about the airflow, rad/s. */
+const STREAMER_SPIN = 0.9;
 
 /** Drag area of a pilot chute in tow, m²: a 36-inch one, partly in the wake of the back. */
 const PILOT_CHUTE = 0.35;
@@ -123,6 +139,7 @@ export class Opening {
   private readonly target: Trimmed = { vel: vec3(), att: quat(), pilotAtt: quat() };
   private readonly flow = vec3();
   private readonly ahead = vec3();
+  private readonly spin = quat();
   private startArea = 0;
 
   /**
@@ -134,6 +151,8 @@ export class Opening {
     private readonly model: FlightModel,
     readonly timing: OpeningTiming,
     private readonly offHeadingDeg = 0,
+    /** Goes wrong this way, or opens. */
+    readonly malfunction: Malfunction | null = null,
   ) {}
 
   get done(): boolean {
@@ -165,7 +184,8 @@ export class Opening {
 
     if (this.stage !== 'inflation') this.lineStretch(env);
     const since = t - timing.lineStretch;
-    const tau = Math.min(1, since / timing.inflation);
+    const streamer = this.malfunction === 'streamer';
+    const tau = Math.min(streamer ? STREAMER_INFLATION : 1, since / timing.inflation);
     const rig = this.model.rig;
     const mass = rig.gravMass;
     const target = trimmedFlight(rig, this.headingDeg, env, STOWED_BRAKE, this.target);
@@ -177,7 +197,9 @@ export class Opening {
     const az = target.vel.z - env.wind.z;
     const openArea = (2 * mass * GRAVITY) / (env.airDensity * (ax * ax + ay * ay + az * az));
     const glide = Math.atan2(-ay, Math.hypot(ax, az));
-    const area = this.startArea + (openArea - this.startArea) * tau ** GROWTH;
+    const area = streamer
+      ? this.startArea + (STREAMER_AREA * rig.area - this.startArea) * ease(since / 1.2)
+      : this.startArea + (openArea - this.startArea) * tau ** GROWTH;
     // Through the air: flow is where the air goes past the pilot.
     const ux = env.wind.x - s.vel.x;
     const uy = env.wind.y - s.vel.y;
@@ -195,7 +217,7 @@ export class Opening {
     ly /= ln;
     lz /= ln;
     // From pure drag at line stretch to the trim's lift over drag once flying.
-    const turn = (Math.PI / 2 - glide) * ease((tau - SURGE) / (1 - SURGE));
+    const turn = streamer ? 0 : (Math.PI / 2 - glide) * ease((tau - SURGE) / (1 - SURGE));
     const q = 0.5 * env.airDensity * speed * speed * area;
     const drag = (q * Math.cos(turn)) / (mass * speed);
     const lift = (q * Math.sin(turn)) / mass;
@@ -209,7 +231,7 @@ export class Opening {
     // Once fully open it settles onto the steady glide by itself; a gentle
     // pull keeps the small difference between this and the flight model
     // from lasting.
-    const blend = 1 - Math.exp(-SETTLE * ease((since / timing.inflation - 1) / 0.3) * dt);
+    const blend = streamer ? 0 : 1 - Math.exp(-SETTLE * ease((since / timing.inflation - 1) / 0.3) * dt);
     s.vel.x += (target.vel.x - s.vel.x) * blend;
     s.vel.y += (target.vel.y - s.vel.y) * blend;
     s.vel.z += (target.vel.z - s.vel.z) * blend;
@@ -221,6 +243,13 @@ export class Opening {
     quatSlerp(s.pilotAtt, this.pilot0, target.pilotAtt, this.hang);
     quatSlerp(s.att, this.canopy0, target.att, ease(tau ** 0.7));
     this.inflation = tau;
+    if (streamer) {
+      // Canopy and pilot turn slowly together under the streamer.
+      quatFromYaw(this.spin, -STREAMER_SPIN * since);
+      quatMultiply(s.att, this.spin, s.att);
+      quatMultiply(s.pilotAtt, this.spin, s.pilotAtt);
+      return;
+    }
 
     // The flight model takes over once flying steadily enough not to notice.
     const off = Math.hypot(s.vel.x - target.vel.x, s.vel.y - target.vel.y, s.vel.z - target.vel.z);

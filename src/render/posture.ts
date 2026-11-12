@@ -6,7 +6,7 @@
 import type { BodyInputs, BodyPosition } from '../sim/freefall';
 import { blendPose, copyPose, makePose, type Pose } from './body';
 
-export type Stance = 'door' | BodyPosition | 'throw' | 'hanging' | 'ground';
+export type Stance = 'door' | BodyPosition | 'throw' | 'hanging' | 'ground' | 'cutaway' | 'reserve';
 
 /** The stances that follow the freefall inputs. */
 export const FREEFALL_STANCES: ReadonlySet<Stance> = new Set(['belly', 'back', 'sit', 'headDown']);
@@ -24,6 +24,8 @@ const SETTLE: Record<Stance, number> = {
   throw: 0.12,
   hanging: 0.35,
   ground: 0.15,
+  cutaway: 0.1,
+  reserve: 0.1,
 };
 
 /** The inputs split into the halves each pose reacts to. */
@@ -145,11 +147,31 @@ function throwOut(p: Pose): void {
   p.elbowL.set(-1, 0, 0.4);
 }
 
-function hanging(p: Pose): void {
+/** Peeling the cutaway pillow out with the right hand, the left already on the reserve handle. */
+function cutaway(p: Pose): void {
+  hanging(p, 0);
+  p.handR.set(0.3, -0.44, -0.3);
+  p.elbowR.set(1, -0.3, 0.3);
+  p.handL.set(-0.1, -0.34, -0.05);
+  p.elbowL.set(-1, -0.4, 0.3);
+}
+
+/** The reserve handle pulled out to arm's length, the right arm out to keep flat. */
+function reservePull(p: Pose): void {
+  box(p, { turn: 0, forward: 0, slide: 0, fall: 0 });
+  p.handL.set(-0.34, -0.3, -0.32);
+  p.elbowL.set(-1, -0.2, 0.3);
+}
+
+/**
+ * Hanging in the harness. `prep`: getting ready to land, from 0 to 1: feet
+ * and knees together, knees a little bent, feet slightly forward.
+ */
+function hanging(p: Pose, prep: number): void {
   p.lean = p.bow = 0;
-  p.hipL = p.hipR = HANGING_HIPS;
-  p.kneeL = p.kneeR = 0.12;
-  p.spread = 0.06;
+  p.hipL = p.hipR = HANGING_HIPS + 0.16 * prep;
+  p.kneeL = p.kneeR = 0.12 + 0.2 * prep;
+  p.spread = 0.06 * (1 - prep) + 0.01;
   // The hands are on the risers then; these only matter on the way there.
   p.handL.set(-0.25, 0.25, -0.05);
   p.handR.set(0.25, 0.25, -0.05);
@@ -170,16 +192,66 @@ function ground(p: Pose, hipL: number, hipR: number): void {
   p.elbowR.set(1, 0, 0.6);
 }
 
+/** What the legs do on top of the stance: the landing coming, and the way they swing. */
+export interface LegCues {
+  /** Ready to land, 0 to 1. */
+  prep: number;
+  /** The legs swung forward and to the right of the body, rad. */
+  fore: number;
+  side: number;
+}
+
+/**
+ * The legs as pendulums from the hips: they lag behind what the body does,
+ * swinging back when it surges forward, forward in a flare, out of a turn.
+ */
+export class LegSwing {
+  fore = 0;
+  side = 0;
+  private foreRate = 0;
+  private sideRate = 0;
+
+  /**
+   * `ahead`, `right`: the push the body feels from its harness, beyond
+   * holding it up, along its own forward and right, m/s².
+   */
+  update(dt: number, ahead: number, right: number): void {
+    if (dt <= 0) return;
+    // Legs about 0.9 m long hanging from the hips, and damping themselves a little.
+    const w = Math.sqrt(9.81 / 0.9);
+    const zeta = 0.3;
+    const h = Math.min(dt, 0.05);
+    const toFore = Math.max(-0.5, Math.min(0.5, Math.atan(-ahead / 9.81)));
+    const toSide = Math.max(-0.4, Math.min(0.4, Math.atan(-right / 9.81)));
+    this.foreRate += (w * w * (toFore - this.fore) - 2 * zeta * w * this.foreRate) * h;
+    this.sideRate += (w * w * (toSide - this.side) - 2 * zeta * w * this.sideRate) * h;
+    this.fore += this.foreRate * h;
+    this.side += this.sideRate * h;
+  }
+
+  reset(): void {
+    this.fore = this.side = this.foreRate = this.sideRate = 0;
+  }
+}
+
 export class Posture {
   readonly pose = makePose();
   private readonly target = makePose();
+  private readonly out = makePose();
   private stance: Stance | null = null;
 
   /**
    * Moves the pose on towards the stance. `legs`: hip angles on the ground,
-   * which the landing animates itself and are followed at once.
+   * which the landing animates itself and are followed at once. `cues`:
+   * under canopy, what the legs do on top of hanging.
    */
-  update(dt: number, stance: Stance, input: BodyInputs, legs: [number, number] = [HANGING_HIPS, HANGING_HIPS]): Pose {
+  update(
+    dt: number,
+    stance: Stance,
+    input: BodyInputs,
+    legs: [number, number] = [HANGING_HIPS, HANGING_HIPS],
+    cues: LegCues = { prep: 0, fore: 0, side: 0 },
+  ): Pose {
     const t = this.target;
     switch (stance) {
       case 'door':
@@ -201,7 +273,13 @@ export class Posture {
         throwOut(t);
         break;
       case 'hanging':
-        hanging(t);
+        hanging(t, cues.prep);
+        break;
+      case 'cutaway':
+        cutaway(t);
+        break;
+      case 'reserve':
+        reservePull(t);
         break;
       case 'ground':
         ground(t, legs[0], legs[1]);
@@ -214,6 +292,14 @@ export class Posture {
       this.pose.hipR = legs[1];
     }
     this.stance = stance;
+    if (stance === 'hanging') {
+      // The swing goes on top of the pose, and is not eased: it is the swing.
+      copyPose(this.out, this.pose);
+      this.out.hipL += cues.fore;
+      this.out.hipR += cues.fore;
+      this.out.sway = cues.side;
+      return this.out;
+    }
     return this.pose;
   }
 
