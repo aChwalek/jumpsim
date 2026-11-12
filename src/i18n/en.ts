@@ -304,8 +304,8 @@ export const en: Strings = {
       intoWind: 'Into the wind',
       custom: 'Custom',
       runHeading: 'JUMP RUN HEADING',
-      runNote: (how: string, height: string, kmh: string, from: string) =>
-        `${how} · wind at ${height} m: ${kmh} km/h from ${from} · the target passes on the door side, on the left`,
+      runNote: (how: string, height: string, kmh: string, from: string, plane: string, left: boolean) =>
+        `${how} · wind at ${height} m: ${kmh} km/h from ${from} · ${plane}: the target passes on the door side, on the ${left ? 'left' : 'right'}`,
       malfunction: 'OPENING MALFUNCTION',
       never: 'Never',
       oneIn: (n: string) => `1 in ${n}`,

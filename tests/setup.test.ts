@@ -99,23 +99,27 @@ test('the starts are placed with the wind', () => {
 
 test('jump run goes into the wind by default, or on the heading chosen, beside the target', () => {
   const dz = createValbrise();
-  // Westerly: the run heads west from 500 m east of the target, the target 60 m off the left door.
+  // Westerly: the run heads west from 500 m east of the target, the target 60 m off the Porter's right door.
   const west = spawnsFor(dz, 270).plane;
   expect(west.headingDeg).toBe(270);
   expect(west.x).toBeCloseTo(500, 6);
-  expect(west.z).toBeCloseTo(-60, 6);
+  expect(west.z).toBeCloseTo(60, 6);
   expect(west.height).toBe(4000);
-  // Heading north across a westerly at 1500 m: it starts south of the target, the target on the left.
+  // Heading north across a westerly at 1500 m: it starts south of the target, the target on the right.
   const north = spawnsFor(dz, 270, { headingDeg: 0, height: 1500 }).plane;
   expect(north.headingDeg).toBe(0);
   expect(north.height).toBe(1500);
-  expect(north.x).toBeCloseTo(60, 6);
+  expect(north.x).toBeCloseTo(-60, 6);
   expect(north.z).toBeCloseTo(500, 6);
   // Downwind the run starts further out: the jumpers go before the target and drift back.
   expect(runLeadIn(500, 90, 270)).toBeCloseTo(1500, 6);
   expect(runLeadIn(500, 0, 270)).toBeCloseTo(500, 6);
   const tail = spawnsFor(dz, 270, { headingDeg: 90 }).plane;
   expect(tail.x).toBeCloseTo(-1500, 6);
+  // The Dornier's door is on the left: the run passes the target the other way round.
+  const dornier = spawnsFor({ ...dz, jumpRun: { ...dz.jumpRun, aircraft: 'do28' } }, 270).plane;
+  expect(dornier.aircraft).toBe('do28');
+  expect(dornier.z).toBeCloseTo(-60, 6);
 });
 
 test('the jump plan is checked when read back, and the run follows the wind until a heading is chosen', () => {

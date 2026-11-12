@@ -50,6 +50,7 @@ import {
   type Setup,
   type Start,
 } from '../setup';
+import { AIRCRAFT } from '../sim/plane';
 import { reserveSize, type CanopyKind } from '../sim/rig';
 import { trimSpeeds } from '../sim/telemetry';
 import {
@@ -951,11 +952,14 @@ export class Menu {
           note: () => {
             const { weather } = this.setup;
             const aloft = Math.round(weather.windKmh * windGradient(plan().exitHeight));
+            const plane = AIRCRAFT[dzInfo(this.setup.dz).aircraft];
             return j.runNote(
               windOnRun(runHeading(this.setup), weather.windFromDeg, weather.windKmh),
               num(plan().exitHeight),
               String(aloft),
               heading(weather.windFromDeg),
+              plane.name,
+              plane.doorSide < 0,
             );
           },
           disabled: () => noPlane() || plan().runDeg === null,
