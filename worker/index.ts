@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { MAX_PEERS, ROOM_NAME, type ClientMessage, type ServerMessage } from '../src/net/protocol';
+import { MAX_PEERS, ROOM_NAME, type ClientMessage, type Member, type ServerMessage } from '../src/net/protocol';
 
 /** Secrets for the TURN relay (`wrangler secret put`); without them, STUN only. */
 interface Secrets {
@@ -73,12 +73,12 @@ export class Room extends DurableObject<Env> {
     const others = this.ctx.getWebSockets();
     if (others.length >= MAX_PEERS) return new Response('Room full', { status: 403 });
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
-    const id = crypto.randomUUID().slice(0, 8);
+    const you: Member = { id: crypto.randomUUID().slice(0, 8), joined: Date.now() };
     // Tagged with its id, to find it again when a message is for it.
-    this.ctx.acceptWebSocket(server, [id]);
-    server.serializeAttachment(id);
-    send(server, { type: 'welcome', id, peers: others.map(peerId) });
-    for (const ws of others) send(ws, { type: 'join', id });
+    this.ctx.acceptWebSocket(server, [you.id]);
+    server.serializeAttachment(you);
+    send(server, { type: 'welcome', you, peers: others.map(member) });
+    for (const ws of others) send(ws, { type: 'join', member: you });
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -90,9 +90,13 @@ export class Room extends DurableObject<Env> {
     } catch {
       return;
     }
-    if (message.type !== 'signal' || typeof message.to !== 'string') return;
-    const to = this.ctx.getWebSockets(message.to)[0];
-    if (to) send(to, { type: 'signal', from: peerId(ws), data: message.data });
+    const from = member(ws).id;
+    if (message.type === 'broadcast') {
+      for (const other of this.ctx.getWebSockets()) if (other !== ws) send(other, { type: 'broadcast', from, data: message.data });
+    } else if (message.type === 'signal' && typeof message.to === 'string') {
+      const to = this.ctx.getWebSockets(message.to)[0];
+      if (to) send(to, { type: 'signal', from, data: message.data });
+    }
   }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
@@ -104,7 +108,7 @@ export class Room extends DurableObject<Env> {
   }
 
   private left(ws: WebSocket): void {
-    const id = peerId(ws);
+    const { id } = member(ws);
     for (const other of this.ctx.getWebSockets()) if (other !== ws) send(other, { type: 'leave', id });
     try {
       ws.close();
@@ -114,7 +118,7 @@ export class Room extends DurableObject<Env> {
   }
 }
 
-const peerId = (ws: WebSocket): string => ws.deserializeAttachment() as string;
+const member = (ws: WebSocket): Member => ws.deserializeAttachment() as Member;
 
 function send(ws: WebSocket, message: ServerMessage): void {
   try {

@@ -73,13 +73,15 @@ import {
   ICON_COG,
   ICON_DZ,
   ICON_GLOBE,
+  ICON_LOCK,
   ICON_MORE,
+  ICON_PEOPLE,
   ICON_PLANE,
   ICON_WEATHER,
   LOGO,
 } from './icons';
 import { Nav } from './nav';
-import { roomFromUrl } from '../net/multiplayer';
+import type { SharedSetup } from '../net/room';
 
 export type { Start } from '../setup';
 
@@ -234,6 +236,26 @@ interface RowOptions {
 
 // ---------------------------------------------------------------- menu
 
+/** The room, as the home screen shows it. */
+export interface RoomView {
+  room: string;
+  /** The address to give the others. */
+  link: string;
+  /** In the room: the server has said who is there. */
+  online: boolean;
+  isHost: boolean;
+  hostName: string;
+  ready: boolean;
+  players: { name: string; ready: boolean; self: boolean; host: boolean }[];
+}
+
+/** What the DZ, weather and jump cards are: set by whoever leads a room. */
+const ICON_PEOPLE_EL = (): Element => html(ICON_PEOPLE);
+
+const SHARED: ReadonlySet<ScreenId> = new Set<ScreenId>(['dz', 'weather', 'jump']);
+/** Time to click again to start without everyone ready, ms. */
+const ARM_MS = 4000;
+
 export class Menu {
   isOpen = false;
   /** Called with the chosen setup when the jump starts. */
@@ -244,6 +266,15 @@ export class Menu {
   onPreview: (setup: Setup) => void = () => {};
   /** Called when a setting changes: it is already in the settings object. */
   onSettings: () => void = () => {};
+  /** Called when anything the room shares changes (drop zone, hour, weather, jump). */
+  onSetupChange: (setup: Setup) => void = () => {};
+  onCreateRoom: () => void = () => {};
+  onLeaveRoom: () => void = () => {};
+  onRename: () => void = () => {};
+  /** In a room, the jump button: ready for the next jump, or no longer. */
+  onReady: (ready: boolean) => void = () => {};
+  /** Leading a room: everyone goes now, ready or not. */
+  onStartNow: () => void = () => {};
   /** The drop zone from above, beside the panel. */
   readonly map = new DzMap();
 
@@ -263,6 +294,8 @@ export class Menu {
   private cornerLanguage!: HTMLButtonElement;
   private logbookBody!: HTMLElement;
   private clearArmed = 0;
+  private room: RoomView | null = null;
+  private startArmed = 0;
 
   constructor(
     initial: Setup,
@@ -329,6 +362,35 @@ export class Menu {
     this.nav.refresh();
   }
 
+  /** Shows the room on the home screen; null when not in one. */
+  setRoom(room: RoomView | null): void {
+    this.room = room;
+    // Not leading: the screens for what the room shares are not ours to open.
+    if (this.locked && SHARED.has(this.screen)) this.show('home');
+    else this.refresh();
+  }
+
+  /** What whoever leads the room set: taken as if chosen here, the gear apart. */
+  applyShared(shared: SharedSetup): void {
+    this.setup.dz = shared.dz;
+    this.setup.hour = shared.hour;
+    this.setup.weather = { ...shared.weather };
+    this.setup.jump = { ...shared.jump };
+    this.refresh();
+    this.onPreview(this.current);
+  }
+
+  /** The room goes: with its setup, from where it says. */
+  startShared(shared: SharedSetup, start: Start): void {
+    this.applyShared(shared);
+    this.go(start, true);
+  }
+
+  /** In a room and not leading it. */
+  private get locked(): boolean {
+    return this.room !== null && !this.room.isHost;
+  }
+
   /** For the screenshots: straight to a screen. */
   debugShow(id: ScreenId): void {
     this.show(id);
@@ -393,6 +455,7 @@ export class Menu {
   // ------------------------------------------------------------ moving around
 
   private show(id: ScreenId, focus?: HTMLElement | null): void {
+    if (this.locked && SHARED.has(id)) return;
     const from = this.screen;
     this.screen = id;
     for (const [key, el] of this.screens) el.hidden = key !== id;
@@ -437,8 +500,19 @@ export class Menu {
     (document.activeElement as HTMLElement | null)?.blur();
   }
 
-  /** Starts the jump: from where the setup says, or from `start`, which it then remembers. */
-  private go(start?: Start): void {
+  /**
+   * Starts the jump: from where the setup says, or from `start`, which it then
+   * remembers. In a room, says ready or no longer; `now` when the room goes.
+   */
+  private go(start?: Start, now = false): void {
+    if (this.room && !now) {
+      if (this.locked) return this.onReady(!this.room.ready);
+      if (start && start !== this.setup.jump.start) {
+        this.setup.jump.start = start;
+        this.changedSetup();
+      }
+      return this.onReady(start ? true : !this.room.ready);
+    }
     if (start) this.setup.jump.start = start;
     saveSetup(this.setup);
     this.close();
@@ -459,6 +533,12 @@ export class Menu {
   private changedScenery(): void {
     this.refresh();
     this.onPreview(this.current);
+    this.onSetupChange(this.current);
+  }
+
+  private changedSetup(): void {
+    this.refresh();
+    this.onSetupChange(this.current);
   }
 
   private setDz(dz: DzId): void {
@@ -496,7 +576,7 @@ export class Menu {
     Object.assign(plan, change);
     plan.exitHeight = validExitHeight(plan.exitHeight);
     if (plan.runDeg !== null) plan.runDeg = validHeading(plan.runDeg);
-    this.refresh();
+    this.changedSetup();
   }
 
   private setSettings(change: Partial<Settings>): void {
@@ -661,13 +741,30 @@ export class Menu {
       card.addEventListener('click', () => this.show(c.id));
       this.cards.set(c.id, card);
       grid.append(this.nav.add(card));
-      this.updaters.push(() => (sum.innerHTML = this.summary(c.id)));
+      const more = top.querySelector<HTMLElement>('.more')!;
+      this.updaters.push(() => {
+        sum.innerHTML = this.summary(c.id);
+        // In a room, whoever leads sets these.
+        const locked = this.locked && SHARED.has(c.id);
+        card.classList.toggle('locked', locked);
+        more.innerHTML = locked ? `${ICON_LOCK}${T.menu.room.locked}` : `${T.menu.edit}${ICON_MORE}`;
+      });
     }
     this.resume.addEventListener('click', () => this.cancel());
     this.jump.addEventListener('click', () => this.go());
     this.updaters.push(() => {
       const { start, exitHeight } = this.setup.jump;
       const info = dzInfo(this.setup.dz);
+      const room = this.room;
+      this.jump.classList.toggle('ready', !!room?.ready);
+      if (room) {
+        const r = T.menu.room;
+        const count = r.readyCount(room.players.filter((p) => p.ready).length, Math.max(1, room.players.length));
+        this.jump.innerHTML = `<span class="go-icon">${ICON_PEOPLE}</span><span class="go-label">${
+          room.ready ? r.waiting : r.imReady
+        }</span><span class="go-sub">${count}</span><i class="btn pad">Start</i>`;
+        return;
+      }
       const sub =
         start === 'plane'
           ? `${num(exitHeight)} m · ${info.name}`
@@ -683,6 +780,7 @@ export class Menu {
     screen.append(
       head,
       grid,
+      this.buildRoom(),
       go,
       hints(
         `${m.home}<span class="resume-hint">${m.homeResume}</span>`,
@@ -690,6 +788,86 @@ export class Menu {
       ),
     );
     return screen;
+  }
+
+  /** Jumping with others: make a room, or the one we are in, who is in it and ready. */
+  private buildRoom(): HTMLElement {
+    const r = T.menu.room;
+    const box = h('div', 'room');
+
+    const create = button('room-create');
+    create.innerHTML = `${ICON_PEOPLE}<span class="label">${r.create}</span><span class="note">${r.createNote}</span>`;
+    create.addEventListener('click', () => this.onCreateRoom());
+
+    const title = h('b', 'room-name');
+    const copy = button('room-btn', r.copy);
+    let copiedUntil = 0;
+    copy.addEventListener('click', () => {
+      const link = this.room?.link;
+      if (!link) return;
+      void navigator.clipboard?.writeText(link).then(() => {
+        copiedUntil = performance.now() + 2000;
+        this.refresh();
+        setTimeout(() => this.refresh(), 2100);
+      });
+    });
+    const rename = button('room-btn', r.rename);
+    rename.addEventListener('click', () => this.onRename());
+    const leave = button('room-btn', r.leave);
+    leave.addEventListener('click', () => this.onLeaveRoom());
+    const top = h('div', 'room-top', ICON_PEOPLE_EL(), title, this.nav.add(copy), this.nav.add(rename), this.nav.add(leave));
+    const link = h('div', 'room-link');
+    const players = h('ul', 'room-players');
+    const note = h('p', 'room-note');
+    const startNow = button('room-btn room-start', r.startNow);
+    const warn = h('p', 'room-warn');
+    startNow.addEventListener('click', () => {
+      const room = this.room;
+      if (!room?.isHost) return;
+      const waiting = room.players.filter((p) => !p.ready);
+      // Not everyone is ready: a second click, after the warning, goes anyway.
+      if (waiting.length > 0 && performance.now() > this.startArmed) {
+        this.startArmed = performance.now() + ARM_MS;
+        this.refresh();
+        setTimeout(() => this.refresh(), ARM_MS + 100);
+        return;
+      }
+      this.startArmed = 0;
+      this.onStartNow();
+    });
+    const inRoom = h('div', 'room-in', top, link, players, note, this.nav.add(startNow, { disabled: () => !this.canStartNow() }), warn);
+    box.append(this.nav.add(create), inRoom);
+
+    this.updaters.push(() => {
+      const room = this.room;
+      create.hidden = room !== null;
+      inRoom.hidden = room === null;
+      if (!room) return;
+      title.textContent = r.name(room.room);
+      link.textContent = room.link;
+      copy.textContent = performance.now() < copiedUntil ? r.copied : r.copy;
+      players.replaceChildren(
+        ...room.players.map((p) => {
+          const li = h('li', p.ready ? 'ready' : '');
+          const tags = [p.self ? r.you : '', p.host ? r.host : ''].filter(Boolean).join(' · ');
+          li.append(h('i', 'dot'), h('span', '', p.name || '…'));
+          if (tags) li.append(h('small', '', tags));
+          return li;
+        }),
+      );
+      note.textContent = !room.online ? r.connecting : room.isHost ? r.youSet : r.hostSets(room.hostName || '…');
+      startNow.hidden = !this.canStartNow();
+      const waiting = room.players.filter((p) => !p.ready).map((p) => p.name || '…');
+      warn.textContent = performance.now() < this.startArmed && waiting.length > 0 ? r.startNowWarn(waiting.join(', ')) : '';
+      warn.hidden = !warn.textContent;
+    });
+    return box;
+  }
+
+  /** Leading a room of more than one where not everyone is ready. */
+  private canStartNow(): boolean {
+    const room = this.room;
+    return !!room?.isHost && room.online && room.players.length > 1 && room.players.some((p) => !p.ready);
   }
 
   /** What a home card says. */
@@ -1021,10 +1199,6 @@ export class Menu {
       ),
       this.choice<boolean>(t.invertLook, yesNo(), () => s.invertLook, (invertLook) => this.setSettings({ invertLook }), {
         hint: t.invertLookHint,
-      }),
-      h('h3', 'section', t.together),
-      this.choice<boolean>(t.multiplayer, yesNo(), () => s.multiplayer, (multiplayer) => this.setSettings({ multiplayer }), {
-        note: () => t.multiplayerNote(roomFromUrl(), s.multiplayer),
       }),
       h('h3', 'section', t.keys),
       this.nav.add(this.controlsTable()),
