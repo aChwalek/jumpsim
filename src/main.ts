@@ -53,7 +53,7 @@ import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/teleme
 import { DEG, quat, rotateInv, vec3 } from './sim/vec';
 import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
-import type { KeysPhase } from './ui/keys';
+import { padIcon, type KeysPhase, type PadControl } from './ui/keys';
 import { Menu } from './ui/menu';
 import { Markers, type MarkerTarget } from './net/markers';
 import { Bots, type Others } from './bots';
@@ -1431,7 +1431,11 @@ function aimChase(): ChaseTarget {
     t.distance = 5;
     t.above = 0.3;
   } else if (falling && jump) {
-    t.heading = jump.body.headingDeg() * DEG;
+    // In a track or in wings on the back the body goes head first, the eyes looking back past
+    // the feet: the camera stays behind where it goes, or right would be left on the screen.
+    const b = jump.body;
+    const headFirst = b.track > 0.5 && b.params.tracks[b.position].dir < 0;
+    t.heading = (b.headingDeg() + (headFirst ? 180 : 0)) * DEG;
     t.distance = 5.5;
     t.above = 0.55;
   } else {
@@ -1551,10 +1555,18 @@ function guideCue(): string {
   const g = bots.guide(us);
   if (!g) return '';
   const t = T.cue.guide;
-  const say = (text: string, m: number, code: string): string => `<span>${text} ${Math.round(Math.abs(m))} m<kbd>${keyLabel(code)}</kbd></span>`;
+  // The key that goes there, or on the gamepad the bumper, or the left stick and which way to push it.
+  const pad = devices.lastUsed === 'gamepad';
+  const how = (code: string, control: PadControl, push = ''): string =>
+    pad ? `<i>${padIcon(control, devices.padKind)}${push}</i>` : `<kbd>${keyLabel(code)}</kbd>`;
+  const say = (text: string, m: number, by: string): string => `<span>${text} ${Math.round(Math.abs(m))} m${by}</span>`;
   const parts = [
-    Math.abs(g.up) < GUIDE_LEVEL ? `<span class="ok">${t.level}</span>` : g.up > 0 ? say(`▲ ${t.up}`, g.up, 'KeyR') : say(`▼ ${t.down}`, g.up, 'KeyF'),
-    Math.abs(g.ahead) < GUIDE_NEAR ? `<span class="ok">${t.near}</span>` : g.ahead > 0 ? say(t.faster, g.ahead, 'KeyW') : say(t.slower, g.ahead, 'KeyS'),
+    Math.abs(g.up) < GUIDE_LEVEL ? `<span class="ok">${t.level}</span>` : g.up > 0 ? say(`▲ ${t.up}`, g.up, how('KeyR', 'lb')) : say(`▼ ${t.down}`, g.up, how('KeyF', 'rb')),
+    Math.abs(g.ahead) < GUIDE_NEAR
+      ? `<span class="ok">${t.near}</span>`
+      : g.ahead > 0
+        ? say(t.faster, g.ahead, how('KeyW', 'ls', ' ↑'))
+        : say(t.slower, g.ahead, how('KeyS', 'ls', ' ↓')),
   ];
   if (Math.abs(g.right) >= GUIDE_NEAR) parts.push(`<span>${g.right > 0 ? `${t.right} →` : `← ${t.left}`} ${Math.round(Math.abs(g.right))} m</span>`);
   return parts.join('');

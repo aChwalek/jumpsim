@@ -14,7 +14,7 @@ export type InputKind = 'keyboard' | 'gamepad';
 export type PadKind = 'xbox' | 'playstation';
 
 /** A gamepad control, drawn rather than spelt out. */
-type PadControl = 'a' | 'b' | 'x' | 'y' | 'start' | 'view' | 'lb' | 'rb' | 'lt' | 'rt' | 'ls' | 'rs' | 'cross' | 'up' | 'down' | 'left' | 'right';
+export type PadControl = 'a' | 'b' | 'x' | 'y' | 'start' | 'view' | 'lb' | 'rb' | 'lt' | 'rt' | 'ls' | 'rs' | 'cross' | 'up' | 'down' | 'left' | 'right';
 
 /** Keyboard keys as written on the caps, or gamepad controls; and what they do. */
 type Row = [keys: string[], what: string];
@@ -191,7 +191,7 @@ function cross(lit: ('up' | 'down' | 'left' | 'right')[], title: string): string
   );
 }
 
-function padIcon(c: PadControl, kind: PadKind): string {
+export function padIcon(c: PadControl, kind: PadKind): string {
   switch (c) {
     case 'a':
       // Xbox: the green A. PlayStation: the blue cross on a dark button.
