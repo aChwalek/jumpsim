@@ -849,7 +849,8 @@ export class Menu {
         }</span><span class="go-sub">${r.loadSub(timeTo(room.loadAt))}</span><i class="btn pad">Start</i>`;
         return;
       }
-      if (room) {
+      // A public BASE site has no rotation: the button jumps, as alone.
+      if (room && !room.publicDz) {
         const r = T.menu.room;
         const count = r.readyCount(room.players.filter((p) => p.ready).length, Math.max(1, room.players.length));
         this.jump.innerHTML = `<span class="go-icon">${ICON_PEOPLE}</span><span class="go-label">${

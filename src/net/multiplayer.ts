@@ -5,7 +5,7 @@ import type { Lighting } from '../render/scene';
 import { isCanopyColor } from '../render/canopyColors';
 import { CANOPY_SIZES, nearestSize, validWeight, type Gear, type Start } from '../setup';
 import { isSuitKind, isSuitLevel } from '../sim/suit';
-import type { DzId } from '../world/dzs';
+import { dzInfo, type DzId } from '../world/dzs';
 import { Markers, type MarkerTarget } from './markers';
 import { Mesh } from './mesh';
 import { ROOM_NAME } from './protocol';
@@ -107,6 +107,8 @@ export class Multiplayer {
   private readonly targets: MarkerTarget[] = [];
   /** A drop zone's public room: nobody leads the start, loads leave on the clock. */
   readonly isPublic: boolean;
+  /** A public room whose loads leave on the clock; at a BASE site there is no plane: each goes when ready. */
+  readonly onClock: boolean;
   /** The server's clock minus ours, ms: what the loads go by. */
   private clockOffset = 0;
   /** When the load we wait for leaves (our clock, ms). */
@@ -121,8 +123,10 @@ export class Multiplayer {
     private readonly events: RoomEvents,
   ) {
     this.name = cleanName(name);
-    this.isPublic = publicDz(room) !== null;
-    if (this.isPublic) {
+    const pinned = publicDz(room);
+    this.isPublic = pinned !== null;
+    this.onClock = pinned !== null && !dzInfo(pinned).base;
+    if (this.onClock) {
       this.loadAt = this.nextLoadAt;
       this.loadTimer = window.setInterval(() => this.rotate(), LOAD_CHECK_MS);
     }
@@ -187,6 +191,8 @@ export class Multiplayer {
   setReady(ready: boolean): void {
     if (ready === this.ready) return;
     this.ready = ready;
+    // A public BASE site: no rotation, up there straight away.
+    if (ready && this.isPublic && !this.onClock && this.shared) return this.started(this.shared.jump.start, this.shared);
     this.sayHello();
     this.maybeStart();
     this.events.changed();
