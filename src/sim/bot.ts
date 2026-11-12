@@ -522,7 +522,19 @@ export class Bot {
   }
 
   private turn(headingDeg: number, toDeg: number): number {
-    return clamp(K_TURN * turnTo(headingDeg, toDeg) * DEG, -1, 1);
+    return clamp(K_TURN * turnTo(headingDeg, toDeg) * DEG * this.mirror(), -1, 1);
+  }
+
+  /**
+   * -1 head down, else 1. Upside down the air runs along the body the other way, and turn and
+   * slide go the other way round from what they do head up: the brain thinks in compass, so it
+   * asks the other way.
+   */
+  private mirror(): number {
+    const body = this.jump.body;
+    if (body.position === 'belly' || body.position === 'back') return 1;
+    // The head, below the feet: on the way down onto it as much as there.
+    return rotate(this.tmp, body.state.att, set(this.tmp, 0, 1, 0)).y < 0 ? -1 : 1;
   }
 
   /** The PD: towards `slot`, which moves at `vel`, facing `faceDeg`. */
@@ -548,7 +560,7 @@ export class Bot {
     const most = tracking ? clamp(Math.max(0, drive) + DIVE_SPARE - ey / DIVE_SPAN, Math.max(0, drive), 1) : 1;
     input.forward = clamp((tracking ? drive : 0) + kp * ahead - kd * closing, -1, most);
     const side = tracking ? TRACK_SLIDE : 1;
-    input.slide = clamp(kp * across - kd * drifting, -side, side);
+    input.slide = clamp((kp * across - kd * drifting) * this.mirror(), -side, side);
     // Above the slot: tuck in to fall faster.
     input.fall = clamp(-(KP_FALL * ey - KD_FALL * vy), -1, 1);
     // A wing goes sideways by turning: a little towards the slot, then back onto the heading.
