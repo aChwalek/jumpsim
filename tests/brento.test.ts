@@ -87,8 +87,8 @@ describe("off the Becco dell'Aquila", () => {
     return { jump, model };
   }
 
-  test('a running exit and a six second delay: open clear of the wall, high above the slope below it', () => {
-    const { jump, model } = jumpOff(6);
+  test('a running exit and a five second delay: open clear of the wall, high above the slope below it', () => {
+    const { jump, model } = jumpOff(5);
     expect(jump.impact).toBe(false);
     expect(jump.phase).toBe('canopy');
     expect(jump.log.exitHeight).toBe(b.height);
