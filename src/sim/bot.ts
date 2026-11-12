@@ -15,6 +15,7 @@ import { Jump, type JumpOptions } from './jump';
 import { detectTouchdown, feetHeight, type Touchdown } from './landing';
 import { EXIT_SPOTS, type ExitSpot, type JumpRun } from './plane';
 import type { RigParams } from './rig';
+import { hasWings, type Suit } from './suit';
 import { SIM_DT } from './telemetry';
 import { DEG, clamp, rotate, set, vec3, type Vec3 } from './vec';
 
@@ -35,6 +36,10 @@ export interface Lead {
   drive?: number;
   /** Compass heading it faces, degrees: the round forms in front of it. */
   headingDeg?: number;
+  /** Stretched out into a track, for those behind to do the same; taken as so if not said. */
+  tracking?: boolean;
+  /** Where it means to go, compass degrees, when it knows: else it is taken to go where it is going. */
+  goingDeg?: number;
 }
 
 export interface BotPlan {
@@ -71,6 +76,8 @@ const EXIT_GAP = 0.15;
 const TRACK_OFF_RUN = 90;
 /** The leader falls flat this long before turning onto the track, s. */
 const TRACK_FROM = 3;
+/** Those behind stretch out once the lead goes forward this fast, m/s. */
+const TRACK_SPEED = 12;
 /** The leader eases off when we are this far behind, m, and all the way at this much more. */
 const WAIT_FROM = 12;
 const WAIT_SPAN = 40;
@@ -90,6 +97,14 @@ const BREAK_OFF_ABOVE = 450;
 /** Tracking away from the others, at most this long, s. */
 const AWAY_FOR = 6;
 
+/** The leader goes round the landing area this far from it, m: a canopy still gets home from there. It starts turning this much before. */
+const LEASH = 1100;
+const LEASH_EASE = 300;
+/** How fast the leader's line comes round, degrees per second: slow enough for the outside of the V to keep up. */
+const LEADER_TURNS = 4;
+/** How fast the line of those behind swings round to the leader's, degrees per second. */
+const FLOCK_FOLLOWS = 40;
+
 /**
  * The PD gains, per metre off the slot and per m/s closing on it. A belly
  * flyer gets about 2 m/s² from a full input and the air takes it back in
@@ -101,6 +116,12 @@ const KP_FALL = 1.2;
 const KD_FALL = 1.2;
 /** Turn asked per radian off the heading wanted. */
 const K_TURN = 0.7;
+/** Level with the slot, a track is driven this much harder than its lead at most; each metre under or over it changes that by 1 / DIVE_SPAN. */
+const DIVE_SPARE = 0.5;
+const DIVE_SPAN = 4;
+/** In a track, the most turn and slide asked: more, and a wing rolls over into a dive. */
+const TRACK_TURN = 0.4;
+const TRACK_SLIDE = 0.5;
 /** In a track everything goes faster and the inputs do less: gentler. */
 const KP_TRACK = 0.12;
 const KD_TRACK = 0.35;
@@ -121,6 +142,13 @@ const HAND_RATE = 1.6;
 /** After the opening: a moment, then both toggles down to free the brakes, s. */
 const UNSTOW_AT = 1.5;
 const UNSTOW_FOR = 0.6;
+
+/**
+ * Whether the first bot leads and the others follow it: a track, and whatever is flown in wings.
+ * A wing cannot hold a place on someone who flies theirs as well as it flies: it needs a lead
+ * that flies easy, and we do not.
+ */
+export const leaderLed = (mode: BotMode, suit: Suit | undefined): boolean => mode === 'track' || hasWings(suit);
 
 /** Where the lowest bot pulls and where they all break off, out of a plane this high, m above the ground. */
 export function botHeights(exitHeight: number): { pull: number; breakOff: number } {
@@ -160,8 +188,11 @@ export class Bot {
   private readonly trackDeg: number;
   /** Which way this bot goes at the break-off, compass degrees: out from the middle of the round. */
   private outDeg: number;
-  /** Which way the round is from us, compass degrees; null until we are there to form on. */
-  private roundDeg: number | null = null;
+  /** Which way the round is from us, or the flock goes, compass degrees; null until there is someone to form on. */
+  private lineDeg: number | null = null;
+  /** Leading a track: which way round the landing area it goes once far enough out (1 clockwise), 0 before; and where it goes now. */
+  private round: -1 | 0 | 1 = 0;
+  private goingDeg: number;
   /** Nobody holds a slot to the centimetre: where this one wanders, and how fast. */
   private readonly wander: [number, number, number];
   private time = 0;
@@ -179,21 +210,22 @@ export class Bot {
     const heights = botHeights(plan.run.height);
     this.pullAt = heights.pull + PULL_STEP * plan.index;
     this.breakOffAt = heights.breakOff;
-    this.trackDeg = plan.run.headingDeg + TRACK_OFF_RUN;
+    this.trackDeg = this.goingDeg = plan.run.headingDeg + TRACK_OFF_RUN;
     this.outDeg = plan.run.headingDeg + 180 + (360 * plan.index) / plan.of;
     this.wander = [random() * 6.28, random() * 6.28, 0.5 + 0.4 * random()];
   }
 
   /** Leading the track: the others, and we, follow this one. */
   get leads(): boolean {
-    return this.plan.mode === 'track' && this.plan.index === 0;
+    return leaderLed(this.plan.mode, this.plan.options.suit) && this.plan.index === 0;
   }
 
   /** As a lead for the bots that follow this one. */
   get lead(): Lead {
     const s = this.model.state;
     const phase = this.jump.phase;
-    return { pos: s.pos, vel: s.vel, out: phase !== 'plane', falling: phase === 'freefall' && this.away === null, drive: this.input.forward };
+    const falling = phase === 'freefall' && this.away === null;
+    return { pos: s.pos, vel: s.vel, out: phase !== 'plane', falling, drive: this.input.forward, tracking: this.tracking, goingDeg: this.goingDeg };
   }
 
   /**
@@ -268,53 +300,74 @@ export class Bot {
     }
     const heading = jump.body.headingDeg();
     const input = this.input;
+    const p = this.model.state.pos;
     if (this.leads) {
       // Flat down the hill, then onto the track, easing off for whoever is left behind.
       if (jump.time < TRACK_FROM) return;
       this.tracking = true;
-      input.turn = this.turn(heading, this.trackDeg);
+      // Out off jump run, then round the landing area at a canopy's reach from it: a long easy
+      // turn, which those behind can hold, where turning back for it would scatter them.
+      const { landing } = this.plan;
+      const from = Math.hypot(p.x - landing.x, p.z - landing.z);
+      if (this.round === 0 && from > LEASH - LEASH_EASE) {
+        // Whichever way round is the lesser turn from here.
+        this.round = turnTo(this.goingDeg, bearing(p.x - landing.x, p.z - landing.z)) < 0 ? 1 : -1;
+      }
+      if (this.round !== 0) {
+        // Along the circle, and in or out towards it.
+        const out = bearing(p.x - landing.x, p.z - landing.z);
+        const wanted = out + this.round * (90 + 60 * clamp((from - LEASH) / LEASH_EASE, -1, 1));
+        this.goingDeg += clamp(turnTo(this.goingDeg, wanted), -LEADER_TURNS * dt, LEADER_TURNS * dt);
+      }
+      input.turn = this.turn(heading, this.goingDeg);
+      input.forward = TRACK_EASY;
       if (us.falling) {
-        const t = this.trackDeg * DEG;
-        const p = this.model.state.pos;
-        const behind = (p.x - us.pos.x) * Math.sin(t) - (p.z - us.pos.z) * Math.cos(t);
-        input.forward = TRACK_EASY - (1 + TRACK_EASY - TRACK_MARGIN) * clamp((behind - WAIT_FROM) / WAIT_SPAN, 0, 1);
-      } else input.forward = TRACK_EASY;
+        const v = this.model.state.vel;
+        const behind = ((p.x - us.pos.x) * v.x + (p.z - us.pos.z) * v.z) / (Math.hypot(v.x, v.z) || 1);
+        input.forward -= (1 + TRACK_EASY - TRACK_MARGIN) * clamp((behind - WAIT_FROM) / WAIT_SPAN, 0, 1);
+      }
       return;
     }
     const with_ = leader ?? us;
+    // Behind a leader there is no round: a V, going where the leader goes.
+    const flock = leader !== null;
     if (this.away === null && (height < this.breakOffAt || !with_.falling) && jump.time > 1) this.away = 0;
     if (this.away !== null) {
       // The break-off: turn away from the others and track, then flat until the pull.
       this.away += dt;
-      const side = this.plan.index % 2 ? -1 : 1;
-      const out = leader ? this.trackDeg + side * 30 * Math.ceil(this.plan.index / 2) : this.outDeg;
-      input.turn = this.turn(heading, out);
-      this.tracking = leader ? true : this.away < AWAY_FOR && Math.abs(turnTo(heading, out)) < 60;
+      input.turn = this.turn(heading, this.outDeg);
+      this.tracking = flock || (this.away < AWAY_FOR && Math.abs(turnTo(heading, this.outDeg)) < 60);
       return;
     }
     if (!with_.out) return;
     const slot = this.slot;
     const sway = this.wander;
     const k = Math.sin(this.time * sway[2] + sway[0]) * 0.25;
-    if (leader) {
-      // Behind the leader and out to one side, a little above: left, right, left, a row further back.
+    if (flock) {
+      // Where the leader means to go, which swings round as it turns.
+      const going = with_.goingDeg ?? this.trackDeg;
+      const along = (this.lineDeg = this.lineDeg === null ? going : this.lineDeg + clamp(turnTo(this.lineDeg, going), -FLOCK_FOLLOWS * dt, FLOCK_FOLLOWS * dt));
+      // A V behind it: left, right, left, a row further back and a little above.
       const row = Math.ceil(this.plan.index / 2);
       const side = this.plan.index % 2 ? -1 : 1;
-      const t = this.trackDeg * DEG;
-      const back = TRACK_ROW * row;
+      const ahead = -TRACK_ROW * row;
       const across = side * TRACK_ROW * row + k;
+      const t = along * DEG;
       set(
         slot,
-        leader.pos.x - Math.sin(t) * back + Math.cos(t) * across,
-        leader.pos.y + TRACK_STEP_UP * row,
-        leader.pos.z + Math.cos(t) * back + Math.sin(t) * across,
+        with_.pos.x + Math.sin(t) * ahead + Math.cos(t) * across,
+        with_.pos.y + TRACK_STEP_UP * row,
+        with_.pos.z - Math.cos(t) * ahead + Math.sin(t) * across,
       );
-      this.tracking = this.leaderTracks(leader);
-      this.chase(slot, leader.vel, heading, this.trackDeg, this.tracking, leader.drive);
+      // Stretched out once the lead is, and going forward for it: a track entered down the hill goes nowhere good.
+      const forward = with_.vel.x * Math.sin(t) - with_.vel.z * Math.cos(t);
+      this.tracking = (with_.tracking ?? true) && (this.tracking || (forward > TRACK_SPEED && jump.time > TRACK_FROM));
+      this.outDeg = along + side * 30 * row;
+      this.chase(slot, with_.vel, heading, along, this.tracking || jump.wings, with_.drive);
     } else {
       // A round: all of us on a circle, facing its middle, which is in front of us.
       const facing = us.headingDeg ?? this.plan.run.headingDeg;
-      const round = (this.roundDeg = this.roundDeg === null ? facing : this.roundDeg + clamp(turnTo(this.roundDeg, facing), -ROUND_FOLLOWS * dt, ROUND_FOLLOWS * dt));
+      const round = (this.lineDeg = this.lineDeg === null ? facing : this.lineDeg + clamp(turnTo(this.lineDeg, facing), -ROUND_FOLLOWS * dt, ROUND_FOLLOWS * dt));
       const radius = roundRadius(this.plan.of + 1);
       const cx = us.pos.x + Math.sin(round * DEG) * radius;
       const cz = us.pos.z - Math.cos(round * DEG) * radius;
@@ -323,17 +376,10 @@ export class Bot {
       const a = this.outDeg * DEG;
       const r = radius + k;
       set(slot, cx + Math.sin(a) * r, us.pos.y + Math.cos(this.time * sway[2] * 0.7 + sway[1]) * 0.15, cz - Math.cos(a) * r);
-      const p = this.model.state.pos;
       // Facing the middle, once near enough to tell.
       const far = Math.hypot(cx - p.x, cz - p.z);
       this.chase(slot, us.vel, heading, far > 0.5 ? bearing(cx - p.x, cz - p.z) : heading, false);
     }
-  }
-
-  /** The leader is going forward fast enough to be on a track. */
-  private leaderTracks(leader: Lead): boolean {
-    const t = this.trackDeg * DEG;
-    return leader.vel.x * Math.sin(t) - leader.vel.z * Math.cos(t) > 12;
   }
 
   private turn(headingDeg: number, toDeg: number): number {
@@ -358,14 +404,18 @@ export class Bot {
     const drifting = vx * Math.cos(h) + vz * Math.sin(h);
     const kp = tracking ? KP_TRACK : KP;
     const kd = tracking ? KD_TRACK : KD;
-    // Diving a track to catch up ends far below it: no harder than the leader unless above the slot.
-    input.forward = clamp((tracking ? drive : 0) + kp * ahead - kd * closing, -1, tracking ? clamp(-ey / 5, 0, 1) : 1);
-    input.slide = clamp(kp * across - kd * drifting, -1, 1);
+    // Diving a track to catch up ends far below it, and height is slow to win back: level with the
+    // slot a little harder than the lead, under it no harder, all of it only from above.
+    const most = tracking ? clamp(Math.max(0, drive) + DIVE_SPARE - ey / DIVE_SPAN, Math.max(0, drive), 1) : 1;
+    input.forward = clamp((tracking ? drive : 0) + kp * ahead - kd * closing, -1, most);
+    const side = tracking ? TRACK_SLIDE : 1;
+    input.slide = clamp(kp * across - kd * drifting, -side, side);
     // Above the slot: tuck in to fall faster.
     input.fall = clamp(-(KP_FALL * ey - KD_FALL * vy), -1, 1);
     // A wing goes sideways by turning: a little towards the slot, then back onto the heading.
     const face = tracking ? faceDeg + clamp(across * 2.5 - drifting * 6, -30, 30) : faceDeg;
     input.turn = this.turn(headingDeg, face);
+    if (tracking) input.turn = clamp(input.turn, -TRACK_TURN, TRACK_TURN);
   }
 
   /** Under canopy: to the start of the final, round it until low enough, then in and a flare. */

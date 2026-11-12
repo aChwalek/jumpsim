@@ -10,6 +10,7 @@ import { Jump } from '../src/sim/jump';
 import { DEFAULT_RIG, deriveRig, reserveConfig } from '../src/sim/rig';
 import { SIM_DT } from '../src/sim/telemetry';
 import { validSetup } from '../src/setup';
+import type { Suit } from '../src/sim/suit';
 import { vec3 } from '../src/sim/vec';
 
 const flat = () => 0;
@@ -19,19 +20,19 @@ const run = { x: 0, z: 0, height: 4000, headingDeg: 0, indicatedAirspeed: 40 };
 const FRAME = 1 / 60;
 
 /** A jump with `n` bots, we with `input` held all the way and pulling at 900 m; `each` is called every frame. */
-function fly(mode: BotMode, n: number, each: (t: number, us: FlightModel, bots: Bot[]) => void, input: BodyInputs = noBodyInputs(), windX = 0) {
+function fly(mode: BotMode, n: number, each: (t: number, us: FlightModel, bots: Bot[]) => void, input: BodyInputs = noBodyInputs(), windX = 0, suit?: Suit) {
   const env: Environment = { wind: vec3(windX, 0, 0), airDensity: airDensityAt(4000) };
   const model = new FlightModel(rig);
-  const jump = new Jump(model, run, env, flat, () => 0.5);
+  const jump = new Jump(model, run, env, flat, () => 0.5, { suit });
   let seed = 1;
   const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const landing = { x: 0, z: 0, headingDeg: 270 };
-  const bots = Array.from({ length: n }, (_, index) => new Bot(rig, env, { index, of: n, mode, run, spot: 'low', landing, groundAt: flat, options: { reserve, rsl: true }, random }));
+  const bots = Array.from({ length: n }, (_, index) => new Bot(rig, env, { index, of: n, mode, run, spot: 'low', landing, groundAt: flat, options: { reserve, rsl: true, suit }, random }));
   const air: Environment = { wind: env.wind, airDensity: env.airDensity };
   let down = false;
-  for (let i = 0; i < 400 / FRAME && !bots.every((b) => b.touchdown); i++) {
+  for (let i = 0; i < 600 / FRAME && !bots.every((b) => b.touchdown); i++) {
     const us: Lead = { pos: model.state.pos, vel: model.state.vel, out: jump.phase !== 'plane', falling: jump.phase === 'freefall', headingDeg: jump.headingDeg() };
-    const leader = mode === 'track' ? bots[0]! : null;
+    const leader = bots.find((b) => b.leads) ?? null;
     for (const b of bots) {
       air.airDensity = airDensityAt(b.model.state.pos.y);
       b.step(FRAME, air, us, leader && b !== leader ? leader.lead : null);
@@ -109,21 +110,56 @@ describe('bots', () => {
     }
   });
 
-  test('a track: the leader goes off jump run and the others hold a V behind it', () => {
+  /** How far off its place in the V each follower gets, at worst, once formed and until the break-off; and how far out the leader goes. */
+  function vee(mode: BotMode, n: number, suit: Suit, from: number) {
     let worst = 0;
     let far = 0;
-    fly('track', 3, (t, _us, all) => {
-      const lead = all[0]!.model.state;
-      if (t < 40 || lead.pos.y < 1700) return;
-      far = Math.max(far, lead.pos.x);
-      // The track goes east: behind is west, the row's width north and south.
-      for (const b of all.slice(1)) {
-        const p = b.model.state.pos;
-        worst = Math.max(worst, Math.abs(lead.pos.x - p.x - 5), Math.abs(Math.abs(p.z - lead.pos.z) - 5), Math.abs(p.y - lead.pos.y - 1.5));
-      }
-    });
+    const bots = fly(
+      mode,
+      n,
+      (t, _us, all) => {
+        const lead = all[0]!.model.state;
+        if (t < from || lead.pos.y < 1700) return;
+        far = Math.max(far, Math.hypot(lead.pos.x, lead.pos.z));
+        // Along where the leader goes, and to its right.
+        const speed = Math.hypot(lead.vel.x, lead.vel.z);
+        const [ax, az] = [lead.vel.x / speed, lead.vel.z / speed];
+        for (const [i, b] of all.entries()) {
+          if (i === 0) continue;
+          const p = b.model.state.pos;
+          const row = Math.ceil(i / 2);
+          const behind = (lead.pos.x - p.x) * ax + (lead.pos.z - p.z) * az;
+          const right = -(p.x - lead.pos.x) * az + (p.z - lead.pos.z) * ax;
+          worst = Math.max(worst, Math.abs(behind - 5 * row), Math.abs(right - (i % 2 ? -5 : 5) * row), Math.abs(p.y - lead.pos.y - 1.5 * row));
+        }
+      },
+      noBodyInputs(),
+      0,
+      suit,
+    );
+    return { worst, far, bots };
+  }
+
+  test('a track: the leader goes off jump run and round the landing area, the others hold a V behind it', () => {
+    const { worst, far, bots } = vee('track', 3, { kind: 'jumpsuit', level: 1 }, 35);
+    expect(bots[0]!.leads).toBe(true);
     expect(far).toBeGreaterThan(500);
-    expect(worst).toBeLessThan(2);
+    expect(far).toBeLessThan(1500);
+    expect(worst).toBeLessThan(2.5);
+  });
+
+  test('in wings there is always a leader: the V holds behind it, and they all get home', () => {
+    for (const level of [1, 3] as const) {
+      const { worst, far, bots } = vee('formation', 3, { kind: 'wingsuit', level }, 110);
+      expect(bots[0]!.leads).toBe(true);
+      expect(far).toBeLessThan(1500);
+      expect(worst).toBeLessThan(2.5);
+      for (const b of bots) {
+        expect(b.jump.log.aad).toBe(false);
+        expect(['hard', 'crash']).not.toContain(b.touchdown!.rating);
+        expect(Math.hypot(b.model.state.pos.x, b.model.state.pos.z)).toBeLessThan(150);
+      }
+    }
   });
 
   test('how many and what they fly are kept with the setup, within bounds', () => {

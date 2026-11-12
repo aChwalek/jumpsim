@@ -469,15 +469,16 @@ export const en: Strings = {
       bots: 'AI JUMPERS',
       botsHint: 'on a solo jump',
       botsNone: 'None',
-      botsNote: 'They leave right after you, from the plane only.',
+      botsNote: 'They leave right after you, from the plane only, in a suit like yours.',
       botsRoom: 'With others in a room, no AI jumpers.',
-      botsWings: 'Not in a wingsuit yet.',
       botMode: 'THEY FLY',
       botModes: { formation: 'A formation', track: 'A track' },
       botModeNote: {
         formation: (breakOff: string, pull: string) => `Flat around you, facing you. Break-off at ${breakOff} m, pulling around ${pull} m.`,
         track: (breakOff: string, pull: string) =>
-          `The first leads a track 90° right of jump run and waits for you, the others in a V behind. Break-off at ${breakOff} m, pulling around ${pull} m.`,
+          `The first leads a track 90° right of jump run, then round the landing area, and waits for you; the others in a V behind. Break-off at ${breakOff} m, pulling around ${pull} m.`,
+        wings: (breakOff: string, pull: string) =>
+          `In wings, always behind a leader: off 90° right of jump run, then round the landing area, waiting for you; the others in a V behind. Break-off at ${breakOff} m, pulling around ${pull} m.`,
       },
     },
 

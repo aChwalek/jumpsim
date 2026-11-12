@@ -102,7 +102,7 @@ export class Bots implements Others {
 
   /** Flies them on. `us`: where we are in our jump. `time`: of the air, for the gusts. */
   step(seconds: number, us: Lead, time: number): void {
-    const leader = this.plan.mode === 'track' ? this.flown[0]?.bot : undefined;
+    const leader = this.flown.find((f) => f.bot.leads)?.bot;
     for (const f of this.flown) {
       const { bot, env } = f;
       const s = bot.model.state;

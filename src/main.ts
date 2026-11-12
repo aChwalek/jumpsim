@@ -556,8 +556,8 @@ function spawn(kind: Start): void {
     windAt(env.wind, setup.weather, spots.plane.height, airTime);
     const malfunction = unlucky ? 'streamer' : null;
     jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction, spot: setup.jump.exitSpot });
-    // Company on a jump alone: out of the same plane, right after us. No wingsuits among them yet.
-    if (!net && setup.bots.count > 0 && !hasWings(suitOf(setup.gear))) {
+    // Company on a jump alone: out of the same plane, right after us, in a suit like ours.
+    if (!net && setup.bots.count > 0) {
       bots = new Bots(scene, light, env, {
         ...setup.bots,
         gear: setup.gear,

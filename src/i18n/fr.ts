@@ -473,15 +473,16 @@ export const fr = {
       bots: 'SAUTANTS IA',
       botsHint: 'en saut solo',
       botsNone: 'Aucun',
-      botsNote: 'Ils sortent juste après toi, de l\'avion seulement.',
+      botsNote: 'Ils sortent juste après toi, de l\'avion seulement, dans la même combinaison que toi.',
       botsRoom: 'À plusieurs dans une room, pas de sautants IA.',
-      botsWings: 'Pas encore en wingsuit.',
       botMode: 'ILS VOLENT',
       botModes: { formation: 'En formation', track: 'Une dérive' },
       botModeNote: {
         formation: (breakOff: string, pull: string) => `À plat autour de toi, face à toi. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
         track: (breakOff: string, pull: string) =>
-          `Le premier mène une dérive à 90° à droite de l'axe et t'attend, les autres en V derrière lui. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
+          `Le premier mène une dérive à 90° à droite de l'axe puis autour de la zone, et t'attend ; les autres en V derrière lui. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
+        wings: (breakOff: string, pull: string) =>
+          `En wingsuit, toujours derrière un leader : il part à 90° à droite de l'axe puis tourne autour de la zone, et t'attend ; les autres en V derrière lui. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
       },
     },
 

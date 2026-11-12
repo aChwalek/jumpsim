@@ -1236,7 +1236,8 @@ export class Menu {
     const { screen, body } = this.screenShell('jump', null);
     const plan = (): JumpPlan => this.setup.jump;
     const noPlane = (): boolean => plan().start !== 'plane';
-    const noBots = (): boolean => noPlane() || this.room !== null || hasWings(suitOf(this.setup.gear));
+    const noBots = (): boolean => noPlane() || this.room !== null;
+    const wings = (): boolean => hasWings(suitOf(this.setup.gear));
     const j = T.menu.jump;
     const compass = new Compass();
     this.updaters.push(() => compass.set(this.setup.weather.windFromDeg, this.setup.weather.windKmh, runHeading(this.setup)));
@@ -1274,15 +1275,17 @@ export class Menu {
       this.slider(j.bots, { min: 0, max: BOTS_MAX, step: 1, big: 1 }, () => this.setup.bots.count, (count) => this.setBots({ count }), {
         hint: j.botsHint,
         value: () => (this.setup.bots.count ? String(this.setup.bots.count) : j.botsNone),
-        note: () => (this.room ? j.botsRoom : hasWings(suitOf(this.setup.gear)) ? j.botsWings : j.botsNote),
+        note: () => (this.room ? j.botsRoom : j.botsNote),
         disabled: noBots,
       }),
-      this.choice<BotMode>(j.botMode, options(BOT_MODES, (m) => j.botModes[m]), () => this.setup.bots.mode, (mode) => this.setBots({ mode }), {
+      this.choice<BotMode>(j.botMode, options(BOT_MODES, (m) => j.botModes[m]), () => (wings() ? 'track' : this.setup.bots.mode), (mode) => this.setBots({ mode }), {
         note: () => {
           const { pull, breakOff } = botHeights(plan().exitHeight);
+          if (wings()) return j.botModeNote.wings(num(breakOff), num(pull));
           return j.botModeNote[this.setup.bots.mode](num(breakOff), num(pull));
         },
-        disabled: () => noBots() || this.setup.bots.count === 0,
+        // In wings there is always a leader: nothing to choose.
+        disabled: () => noBots() || this.setup.bots.count === 0 || wings(),
       }),
       this.choice<boolean>(
         j.runAxis,
