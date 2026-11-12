@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import type { Lighting } from '../render/scene';
 import { buildBridges } from './bridge';
-import type { DzPack } from './dz';
+import { facetedHeight, surfaceColorAt } from './cover';
+import { isWet, type DzPack } from './dz';
 import { buildGrass } from './grass';
-import { buildDisc, buildSurfaces, buildTerrain, buildWater, loadPhotos } from './ground';
+import { TERRAIN_SPACING, buildDisc, buildSurfaces, buildTerrain, buildWater, loadPhotos } from './ground';
 import { buildBuildings, buildCars, buildFlags, buildLedgeMarks, buildPeople, buildTrees, buildWindsock } from './objects';
 
 export interface World {
@@ -27,9 +28,20 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
   const windsock = buildWindsock(dz.windsock.x, dz.windsock.z, dz.windsock.height, groundAt);
   // The grass round the eye takes the light where the eye is: sun or cloud shadow.
   const grassLight = new THREE.Color().copy(light.ground);
-  const grass = buildGrass({ ...dz.grass, target: dz.target }, grassLight);
   // Aerial photos, where the drop zone has some: they show as they come in.
   const photos = dz.imagery ? loadPhotos(dz.imagery, dz.grass.area.color, dz.imageryGain) : undefined;
+  const grass = buildGrass(
+    {
+      ...dz.grass,
+      target: dz.target,
+      // The blades stand on the terrain as it is drawn, in the colour of what lies there.
+      groundAt: facetedHeight(groundAt, TERRAIN_SPACING, dz.terrainDetail),
+      photos,
+      wet: (x, z) => isWet(dz, x, z),
+      colorAt: surfaceColorAt(dz.landColor ?? (() => dz.grass.area.color), dz.surfaces, dz.areas ?? []),
+    },
+    grassLight,
+  );
   const water = buildWater(dz.water, light.horizon, dz.waterAreas, photos);
   const flags = buildFlags(dz.flags, light.fabric, groundAt);
   const trees = buildTrees(dz.trees, groundAt);
