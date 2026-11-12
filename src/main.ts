@@ -357,8 +357,12 @@ const actions: Record<Action, () => void> = {
   jump: () => {
     if (!paused) jump?.act();
   },
-  flyBelly: () => flyInto('belly'),
-  flyBack: () => flyInto('back'),
+  flyLeft: () => {
+    if (!paused) jump?.roll(-1);
+  },
+  flyRight: () => {
+    if (!paused) jump?.roll(1);
+  },
   flyUp: () => jump && flyInto(stepPosition(jump.body.position, 'up')),
   flyDown: () => jump && flyInto(stepPosition(jump.body.position, 'down')),
   toggleHud: () => hud.toggle(),

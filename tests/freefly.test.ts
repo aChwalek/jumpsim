@@ -250,3 +250,59 @@ describe('stepPosition', () => {
     expect(stepPosition('belly', 'down')).toBe('headDown');
   });
 });
+
+describe('rolls and half turns', () => {
+  function settledIn(position: BodyPosition) {
+    const model = new FlightModel(deriveRig(DEFAULT_RIG));
+    const env: Environment = { wind: vec3(), airDensity: airDensityAt(4000) };
+    const jump = new Jump(model, { x: 0, z: 0, height: 4000, headingDeg: 270, indicatedAirspeed: 40 }, env, () => 0, () => 0.5);
+    const run = (seconds: number) => {
+      for (let t = 0; t < seconds; t += SIM_DT) {
+        env.airDensity = airDensityAt(model.state.pos.y);
+        jump.step(SIM_DT, noBodyInputs(), env);
+      }
+    };
+    jump.act();
+    jump.fly(position);
+    run(15);
+    return { jump, run };
+  }
+  const rightHand = (jump: Jump) => rotate(vec3(), jump.body.state.att, vec3(1, 0, 0));
+
+  test('→ on the belly rolls to the right onto the back', () => {
+    const { jump, run } = settledIn('belly');
+    jump.roll(1);
+    expect(jump.body.position).toBe('back');
+    run(0.3);
+    expect(rightHand(jump).y).toBeLessThan(-0.8);
+    run(2);
+    expect(jump.body.offPosition()).toBeLessThan(0.2);
+  });
+
+  test('←← on the belly is a barrel roll', () => {
+    const { jump, run } = settledIn('belly');
+    const heading = jump.body.headingDeg();
+    jump.roll(-1);
+    jump.roll(-1);
+    expect(jump.body.position).toBe('belly');
+    run(0.6);
+    // Halfway: on the back.
+    expect(jump.body.offPosition()).toBeGreaterThan(2.5);
+    run(2);
+    expect(jump.body.maneuvering).toBe(false);
+    expect(jump.body.offPosition()).toBeLessThan(0.2);
+    expect(Math.abs(((jump.body.headingDeg() - heading + 540) % 360) - 180)).toBeLessThan(20);
+  });
+
+  test('← / → upright turns round to face the other way, still upright', () => {
+    for (const position of ['sit', 'headDown'] as const) {
+      const { jump, run } = settledIn(position);
+      const heading = jump.body.headingDeg();
+      jump.roll(1);
+      run(2);
+      expect(jump.body.position).toBe(position);
+      expect(jump.body.offPosition()).toBeLessThan(0.3);
+      expect(Math.abs(((jump.body.headingDeg() - heading + 540) % 360) - 180)).toBeGreaterThan(160);
+    }
+  });
+});

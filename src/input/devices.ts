@@ -20,8 +20,9 @@ export type Action =
   | 'padMenu'
   | 'cycleQuality'
   | 'toggleKeys'
-  | 'flyBelly'
-  | 'flyBack'
+  /** Flat, a half roll that way; upright, a half turn. */
+  | 'flyLeft'
+  | 'flyRight'
   /** Head up or down one step from the current position. */
   | 'flyUp'
   | 'flyDown'
@@ -49,11 +50,11 @@ const ACTIONS: Record<string, Action> = {
   Digit3: 'spawnPlane',
   Space: 'jump',
   KeyV: 'openMenu',
-  // Positions in freefall: head up / down a step from where the body is, belly, back.
+  // Positions in freefall: head up / down a step from where the body is, roll or turn round.
   ArrowUp: 'flyUp',
   ArrowDown: 'flyDown',
-  ArrowLeft: 'flyBelly',
-  ArrowRight: 'flyBack',
+  ArrowLeft: 'flyLeft',
+  ArrowRight: 'flyRight',
 };
 
 /**
@@ -67,8 +68,8 @@ const PAD_ACTIONS: [number, Action][] = [
   [9, 'padMenu'], // Start
   [12, 'flyUp'],
   [13, 'flyDown'],
-  [14, 'flyBelly'],
-  [15, 'flyBack'],
+  [14, 'flyLeft'],
+  [15, 'flyRight'],
 ];
 
 /** How long the cutaway key or button has to be held, ms: no cutaway by a slip of the finger. */
