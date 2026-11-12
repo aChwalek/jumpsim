@@ -1,5 +1,6 @@
-// The gamepad in freefall: the right stick flies unless LB is held, B / Y / X
-// take a position in the door and in freefall, and B pressed for a position
+// The gamepad in freefall: the right stick looks around as everywhere, the
+// triggers turn and the bumpers go up and down; B / Y / X take a position in
+// the door and in freefall, and B pressed for a position
 // does not turn into a cutaway once the canopy is out. On foot, the mouse and
 // the right stick turn the body.
 
@@ -58,30 +59,37 @@ afterEach(() => {
 });
 
 describe('right stick', () => {
-  it('flies in freefall: left / right turns, up spreads out, down tucks in', () => {
+  it('looks around in freefall too, where the triggers turn and the bumpers go up and down', () => {
     const { d } = devices();
     d.padMode = 'freefall';
     pad.axes[2] = 1;
     pad.axes[3] = -1;
     d.poll();
+    now += 100;
+    d.poll();
+    expect(d.body.turn).toBe(0);
+    expect(d.body.fall).toBe(0);
+    expect(d.lookYaw).toBeGreaterThan(0);
+    pad.axes[2] = 0;
+    pad.axes[3] = 0;
+    // The right trigger turns to the right; LB spreads out, RB tucks in.
+    pad.buttons[7]!.value = 1;
+    pad.buttons[4]!.pressed = true;
+    d.poll();
     expect(d.body.turn).toBe(1);
     expect(d.body.fall).toBe(-1);
-    expect(d.lookYaw).toBe(0);
-    pad.axes[3] = 1;
+    pad.buttons[4]!.pressed = false;
+    pad.buttons[5]!.pressed = true;
     d.poll();
     expect(d.body.fall).toBe(1);
   });
 
-  it('looks around in freefall while LB is held', () => {
+  it('leaves the bumpers to the front risers out of freefall', () => {
     const { d } = devices();
-    d.padMode = 'freefall';
-    pad.axes[2] = 1;
-    pad.buttons[4]!.pressed = true;
+    d.padMode = 'default';
+    pad.buttons[5]!.pressed = true;
     d.poll();
-    now += 100;
-    d.poll();
-    expect(d.body.turn).toBe(0);
-    expect(d.lookYaw).toBeGreaterThan(0);
+    expect(d.body.fall).toBe(0);
   });
 
   it('looks around everywhere else', () => {
