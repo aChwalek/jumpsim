@@ -14,7 +14,7 @@ export function publicDz(room: string): DzId | null {
  * A public room does not wait for anyone: a load leaves every this often, ms,
  * with whoever is aboard. On the server's clock, so the same for all.
  */
-export const LOAD_EVERY_MS = 60_000;
+export const LOAD_EVERY_MS = 30_000;
 
 /** When the next load leaves, after `now` (server clock, ms). */
 export const nextLoad = (now: number): number => (Math.floor(now / LOAD_EVERY_MS) + 1) * LOAD_EVERY_MS;
