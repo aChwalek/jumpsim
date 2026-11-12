@@ -8,6 +8,7 @@ import { CANOPY_COLORS, isCanopyColor, type CanopyColorId } from './render/canop
 import { isSmoke, type SmokeKind } from './render/smoke';
 import { DEFAULT_HELMET, DEFAULT_SUIT, OUTFIT_COLORS, isOutfitColor, type Outfit, type OutfitColor } from './render/outfit';
 import type { Container } from './sim/jump';
+import { EXIT_SPOTS, type ExitSpot } from './sim/plane';
 import { DEFAULT_RIG, deriveRig, reserveConfig, rigConfig, type CanopyKind, type RigParams } from './sim/rig';
 import { isSuitKind, isSuitLevel, type Suit, type SuitKind, type SuitLevel } from './sim/suit';
 import { WIND_MAX_KMH, type GustLevel, type SkyKind, type Weather } from './sim/weather';
@@ -103,6 +104,8 @@ export interface JumpPlan {
   runDeg: number | null;
   /** How often the main goes wrong. */
   malfunction: MalfunctionRate;
+  /** Where in the plane the jumper waits for the exit. */
+  exitSpot: ExitSpot;
 }
 
 export interface Setup {
@@ -172,7 +175,7 @@ export function defaultSetup(): Setup {
       helmetColor: DEFAULT_HELMET,
       suitColor: DEFAULT_SUIT,
     },
-    jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'none' },
+    jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'none', exitSpot: 'low' },
   };
 }
 
@@ -222,6 +225,7 @@ export function validSetup(saved: unknown): Setup {
   if (finite(j.exitHeight)) setup.jump.exitHeight = validExitHeight(j.exitHeight);
   if (finite(j.runDeg)) setup.jump.runDeg = validHeading(j.runDeg);
   if (oneOf(j.malfunction, MALFUNCTION_RATES)) setup.jump.malfunction = j.malfunction;
+  if (oneOf(j.exitSpot, EXIT_SPOTS)) setup.jump.exitSpot = j.exitSpot;
   return setup;
 }
 

@@ -39,6 +39,7 @@ function keyboardRows(phase: KeysPhase): Row[] {
     case 'plane':
       return [
         [[t.space], t.exit],
+        [[k('KeyW'), k('KeyS')], t.exitSpot],
         [['↑', '↓', '←', '→'], t.exitPosition],
         [[t.mouse], t.look],
         [[k('KeyT'), k('KeyL')], t.targetLock],
@@ -113,6 +114,7 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
     case 'plane':
       return [
         [['a'], t.exit],
+        [['ls'], t.exitSpot],
         [['cross'], t.exitPosition],
         [['rs'], t.look],
         [['rs'], t.targetLockPad],

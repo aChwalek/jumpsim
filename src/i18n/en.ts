@@ -117,6 +117,7 @@ export const en: Strings = {
     loadIn: (s: number) => `NEXT LOAD IN ${s} s`,
     loadAboard: 'you are aboard',
     exitIn: { belly: '', back: 'back exit', sit: 'sit exit', headDown: 'head-down exit' },
+    spots: { inside: 'inside', high: 'high in the door', low: 'low in the door', step: 'on the step' },
     spaceToExit: 'Space to exit',
     flat: 'BELLY TO EARTH',
     toPull: 'to pull',
@@ -163,6 +164,7 @@ export const en: Strings = {
     shift: 'Shift',
     exit: 'exit',
     exitPosition: 'exit position',
+    exitSpot: 'place at the door',
     look: 'look around',
     lookRecentre: (k: string) => `look around, ${k} to recentre`,
     fwdBack: 'forward / back',
@@ -454,6 +456,15 @@ export const en: Strings = {
       malfunctionOff: 'The main always opens fine.',
       malfunctionOn: (k: string) => `The main may streamer: hold ${k} to cut it away, then the reserve.`,
       malfunctionBase: 'BASE: the canopy may open the other way, facing the wall: turn at once.',
+      exitSpot: 'PLACE AT THE DOOR',
+      spots: { inside: 'Inside', high: 'High', low: 'Low', step: 'Step' },
+      spotNote: {
+        inside: 'On your knees in the cabin, behind the door: a dive out.',
+        high: 'Standing bent over in the door, the head under its top: out over the one on the sill.',
+        low: 'Crouched on the sill at the front of the door: a roll out.',
+        step: 'Outside on the step, holding the frame, already in the wind: just let go.',
+      },
+      spotKeys: (fwd: string, back: string) => `In the plane, ${fwd} / ${back} to change places.`,
     },
 
     map: {

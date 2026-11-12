@@ -136,7 +136,10 @@ describe('hello', () => {
 
 describe('snapshot codes', () => {
   it('carries every stance, phase and stage there is', async () => {
-    const stances = ['door', 'doorRight', 'belly', 'back', 'sit', 'headDown', 'throw', 'hanging', 'ground', 'cutaway', 'reserve'] as const;
+    const stances = [
+      ...(['door', 'doorHigh', 'step', 'inside'] as const).flatMap((d) => [d, `${d}Right` as const]),
+      ...(['belly', 'back', 'sit', 'headDown', 'track', 'throw', 'hanging', 'ground', 'cutaway', 'reserve'] as const),
+    ];
     const phases = ['none', 'plane', 'freefall', 'opening', 'canopy'] as const;
     const deploys = ['stowed', 'hand', 'tow', 'bag', 'canopy', 'free'] as const;
     for (const stance of stances) {
