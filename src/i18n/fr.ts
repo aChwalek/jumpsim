@@ -160,6 +160,7 @@ export const fr = {
     pickHint: (k: string) => `${k} : cibler ce qui est au centre de l'écran`,
     locked: 'CAMÉRA VERROUILLÉE SUR LA CIBLE',
     unlocked: 'CAMÉRA LIBRE',
+    botLeads: 'mène',
   },
 
   keys: {
@@ -469,6 +470,19 @@ export const fr = {
         step: 'Dehors sur le marchepied, accroché au cadre, déjà dans le vent : il suffit de lâcher.',
       },
       spotKeys: (fwd: string, back: string) => `Dans l'avion, ${fwd} / ${back} pour changer de place.`,
+      bots: 'SAUTANTS IA',
+      botsHint: 'en saut solo',
+      botsNone: 'Aucun',
+      botsNote: 'Ils sortent juste après toi, de l\'avion seulement.',
+      botsRoom: 'À plusieurs dans une room, pas de sautants IA.',
+      botsWings: 'Pas encore en wingsuit.',
+      botMode: 'ILS VOLENT',
+      botModes: { formation: 'En formation', track: 'Une dérive' },
+      botModeNote: {
+        formation: (breakOff: string, pull: string) => `À plat autour de toi, face à toi. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
+        track: (breakOff: string, pull: string) =>
+          `Le premier mène une dérive à 90° à droite de l'axe et t'attend, les autres en V derrière lui. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
+      },
     },
 
     map: {

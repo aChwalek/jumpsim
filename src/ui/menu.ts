@@ -43,6 +43,7 @@ import {
   validWeight,
   type AltimeterKind,
   type Gear,
+  type BotsPlan,
   type JumpPlan,
   type MalfunctionRate,
   type SliderKind,
@@ -56,6 +57,7 @@ import {
   type Start,
 } from '../setup';
 import { AIRCRAFT, EXIT_SPOTS, type ExitSpot } from '../sim/plane';
+import { BOTS_MAX, BOT_MODES, botHeights, type BotMode } from '../sim/bot';
 import { SUIT_KINDS, SUIT_LEVELS, hasWings, suitGlide, type SuitKind, type SuitLevel } from '../sim/suit';
 import { reserveSize, type CanopyKind } from '../sim/rig';
 import { trimSpeeds } from '../sim/telemetry';
@@ -633,6 +635,11 @@ export class Menu {
     Object.assign(plan, change);
     plan.exitHeight = validExitHeight(plan.exitHeight);
     if (plan.runDeg !== null) plan.runDeg = validHeading(plan.runDeg);
+    this.changedSetup();
+  }
+
+  private setBots(change: Partial<BotsPlan>): void {
+    Object.assign(this.setup.bots, change);
     this.changedSetup();
   }
 
@@ -1229,6 +1236,7 @@ export class Menu {
     const { screen, body } = this.screenShell('jump', null);
     const plan = (): JumpPlan => this.setup.jump;
     const noPlane = (): boolean => plan().start !== 'plane';
+    const noBots = (): boolean => noPlane() || this.room !== null || hasWings(suitOf(this.setup.gear));
     const j = T.menu.jump;
     const compass = new Compass();
     this.updaters.push(() => compass.set(this.setup.weather.windFromDeg, this.setup.weather.windKmh, runHeading(this.setup)));
@@ -1262,6 +1270,19 @@ export class Menu {
       this.choice<ExitSpot>(j.exitSpot, options(EXIT_SPOTS, (s) => j.spots[s]), () => plan().exitSpot, (exitSpot) => this.setJump({ exitSpot }), {
         note: () => `${j.spotNote[plan().exitSpot]} ${j.spotKeys(keyLabel('KeyW'), keyLabel('KeyS'))}`,
         disabled: noPlane,
+      }),
+      this.slider(j.bots, { min: 0, max: BOTS_MAX, step: 1, big: 1 }, () => this.setup.bots.count, (count) => this.setBots({ count }), {
+        hint: j.botsHint,
+        value: () => (this.setup.bots.count ? String(this.setup.bots.count) : j.botsNone),
+        note: () => (this.room ? j.botsRoom : hasWings(suitOf(this.setup.gear)) ? j.botsWings : j.botsNote),
+        disabled: noBots,
+      }),
+      this.choice<BotMode>(j.botMode, options(BOT_MODES, (m) => j.botModes[m]), () => this.setup.bots.mode, (mode) => this.setBots({ mode }), {
+        note: () => {
+          const { pull, breakOff } = botHeights(plan().exitHeight);
+          return j.botModeNote[this.setup.bots.mode](num(breakOff), num(pull));
+        },
+        disabled: () => noBots() || this.setup.bots.count === 0,
       }),
       this.choice<boolean>(
         j.runAxis,

@@ -156,6 +156,7 @@ export const en: Strings = {
     pickHint: (k: string) => `${k}: target what is in the middle of the screen`,
     locked: 'CAMERA LOCKED ON TARGET',
     unlocked: 'CAMERA FREE',
+    botLeads: 'leads',
   },
 
   keys: {
@@ -465,6 +466,19 @@ export const en: Strings = {
         step: 'Outside on the step, holding the frame, already in the wind: just let go.',
       },
       spotKeys: (fwd: string, back: string) => `In the plane, ${fwd} / ${back} to change places.`,
+      bots: 'AI JUMPERS',
+      botsHint: 'on a solo jump',
+      botsNone: 'None',
+      botsNote: 'They leave right after you, from the plane only.',
+      botsRoom: 'With others in a room, no AI jumpers.',
+      botsWings: 'Not in a wingsuit yet.',
+      botMode: 'THEY FLY',
+      botModes: { formation: 'A formation', track: 'A track' },
+      botModeNote: {
+        formation: (breakOff: string, pull: string) => `Flat around you, facing you. Break-off at ${breakOff} m, pulling around ${pull} m.`,
+        track: (breakOff: string, pull: string) =>
+          `The first leads a track 90° right of jump run and waits for you, the others in a V behind. Break-off at ${breakOff} m, pulling around ${pull} m.`,
+      },
     },
 
     map: {

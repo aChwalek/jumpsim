@@ -19,8 +19,8 @@ export const LOAD_EVERY_MS = 30_000;
 /** When the next load leaves, after `now` (server clock, ms). */
 export const nextLoad = (now: number): number => (Math.floor(now / LOAD_EVERY_MS) + 1) * LOAD_EVERY_MS;
 
-/** What everyone in a room jumps with: all of the setup but each one's own gear. */
-export type SharedSetup = Omit<Setup, 'gear'>;
+/** What everyone in a room jumps with: all of the setup but each one's own gear, and the bots of a jump alone. */
+export type SharedSetup = Omit<Setup, 'gear' | 'bots'>;
 
 export const sharedPart = (s: SharedSetup): SharedSetup => ({ dz: s.dz, hour: s.hour, weather: { ...s.weather }, jump: { ...s.jump } });
 
