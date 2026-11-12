@@ -251,21 +251,30 @@ export class Arrival {
     quatMultiply(s.att, this.turn, this.canopy0);
   }
 
+  /**
+   * On the feet to walk or turn round, getting up first if need be: the
+   * walker, or null while the pilot cannot walk yet.
+   */
+  getUp(): RunUp | null {
+    if (this.walker || !this.canWalk) return this.walker;
+    const s = this.model.state;
+    const ahead = rotate(this.tmp, s.pilotAtt, set(this.tmp, 0, 0, -1));
+    const heading = Math.atan2(ahead.x, -ahead.z) / (Math.PI / 180);
+    this.walker = new RunUp((x, z, y) => this.setting.groundAt(x, z, y), s.pos.x, s.pos.z, heading, s.pos.y);
+    this.walkFrom = s.pos.y - this.walker.y;
+    this.attitude0.x = s.pilotAtt.x;
+    this.attitude0.y = s.pilotAtt.y;
+    this.attitude0.z = s.pilotAtt.z;
+    this.attitude0.w = s.pilotAtt.w;
+    this.walked = 0;
+    return this.walker;
+  }
+
   /** Up on the feet if sitting, and walking where the keys say. */
   private walk(dt: number, feet: BodyInputs | null): void {
     const s = this.model.state;
-    if (!this.walker) {
-      const ahead = rotate(this.tmp, s.pilotAtt, set(this.tmp, 0, 0, -1));
-      const heading = Math.atan2(ahead.x, -ahead.z) / (Math.PI / 180);
-      this.walker = new RunUp((x, z, y) => this.setting.groundAt(x, z, y), s.pos.x, s.pos.z, heading, s.pos.y);
-      this.walkFrom = s.pos.y - this.walker.y;
-      this.attitude0.x = s.pilotAtt.x;
-      this.attitude0.y = s.pilotAtt.y;
-      this.attitude0.z = s.pilotAtt.z;
-      this.attitude0.w = s.pilotAtt.w;
-      this.walked = 0;
-    }
-    const w = this.walker;
+    const w = this.walker ?? this.getUp();
+    if (!w) return;
     this.walked += dt;
     // Getting up takes a moment, and nobody walks meanwhile.
     const up = ease(this.walked / (this.kind === 'slide' ? 0.8 : 0.25));
