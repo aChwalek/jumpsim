@@ -1,7 +1,7 @@
 // The jump plane, as seen from its door and from below once out: a Pilatus
 // PC-6 Porter or a Dornier Do 28 G92, built from boxes at true size. The
 // cabin is open on the door's side behind the wing, and lined inside, since
-// the jumper starts crouched in that doorway.
+// the jumper starts in it, in that doorway or on the step under it.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -88,8 +88,8 @@ const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
 /**
  * The box of the cabin from `front` to `back`: floor, belly, roof, the walls
- * with the door cut in one, the lining inside, and a stripe and windows down
- * each side.
+ * with the door cut in one, the lining inside, a stripe and windows down
+ * each side, and the step under the door with a handle on its frame.
  */
 function cabin(
   a: Aircraft,
@@ -119,6 +119,7 @@ function cabin(
   parts.push(slab(...out(s, w - 0.02, w), door.top, h, door.front, door.back, LINING));
   parts.push(slab(-w, w, h - 0.02, h, front, back, LINING));
   parts.push(slab(-w, w, 0, h, back - 0.02, back, LINING));
+  parts.push(slab(-w, w, 0, h, front, front + 0.02, LINING));
   for (const side of [-1, 1]) {
     const x = out(side, w + skin, w + skin + 0.005);
     parts.push(slab(...x, 0.38, 0.5, front, back, livery.stripe));
@@ -127,6 +128,15 @@ function cabin(
       parts.push(slab(...x, 0.72, 1.12, z - 0.3, z + 0.3, GLASS));
     }
   }
+  // The step, braced from the floor's edge, and a handle up the front of the frame outside.
+  const step = a.step;
+  parts.push(slab(...out(s, w + skin, w + step.out), step.top - 0.035, step.top, step.front, step.back, METAL));
+  for (const z of [step.front + 0.06, step.back - 0.06]) {
+    parts.push(rod(v(s * (w + skin), -0.02, z), v(s * (w + step.out - 0.04), step.top - 0.03, z), 0.02, METAL));
+  }
+  const grip = s * (w + skin + 0.045);
+  parts.push(rod(v(grip, 0.35, door.front - 0.07), v(grip, door.top - 0.15, door.front - 0.07), 0.016, METAL));
+  for (const y of [0.35, door.top - 0.15]) parts.push(rod(v(s * (w + skin), y, door.front - 0.07), v(grip, y, door.front - 0.07), 0.016, METAL));
   return parts;
 }
 

@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import type { TrackFrame, TrackMeta } from '../replay/track';
-import { reserveRigFor, rigFor, suitColor, suitOf, type Setup } from '../setup';
+import { outfitOf, reserveRigFor, rigFor, suitOf, validSetup, wingColor, type Setup } from '../setup';
 import { FlightModel, neutralControls } from '../sim/flightModel';
 import { feetHeight } from '../sim/landing';
 import { Plane } from '../sim/plane';
@@ -38,6 +38,8 @@ export interface TrackScene {
 export class TrackView {
   /** The pilot as recorded, under the main or the reserve: what the views read, and the camera follows. */
   readonly model: FlightModel;
+  /** What the jump was set up with, anything an older version did not keep put back to its default. */
+  readonly setup: Setup;
   private readonly mainRig: RigParams;
   private readonly reserveRig: RigParams;
   private view!: RigView;
@@ -76,12 +78,14 @@ export class TrackView {
     private readonly meta: TrackMeta,
     light: Lighting,
   ) {
-    const gear = meta.setup.gear;
+    this.setup = validSetup(meta.setup);
+    const gear = this.setup.gear;
     this.mainRig = rigFor(gear);
     this.reserveRig = reserveRigFor(gear);
     this.model = new FlightModel(this.mainRig);
     this.newView(light);
     for (const m of this.ragdoll.materials()) if (m instanceof THREE.MeshLambertMaterial) light.clouds.shade(m, 'light');
+    this.ragdoll.setOutfit(outfitOf(gear));
     scene.add(this.ragdoll.object);
     if (meta.plane) {
       const p = meta.plane;
@@ -101,11 +105,6 @@ export class TrackView {
     }
   }
 
-  /** What the jump was set up with. */
-  get setup(): Setup {
-    return this.meta.setup;
-  }
-
   /** The plane as it was at the moment shown, if there was one. */
   get planeNow(): Plane | null {
     return this.plane;
@@ -118,9 +117,10 @@ export class TrackView {
       this.view.dispose();
     }
     this.dropReleased();
-    const gear = this.meta.setup.gear;
+    const gear = this.setup.gear;
     this.view = new RigView(this.mainRig, CANOPY_COLORS[gear.color].cells, light);
-    this.view.body.setSuit(suitOf(gear), suitColor(gear.color));
+    this.view.body.setSuit(suitOf(gear), wingColor(gear.color));
+    this.view.setOutfit(outfitOf(gear));
     this.view.body.setSmoke(gear.smoke);
     this.slider = 'open';
     this.scene.add(this.view.object);

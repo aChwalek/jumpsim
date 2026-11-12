@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { MAX_PEERS, ROOM_NAME, type ClientMessage, type Member, type ServerMessage } from '../src/net/protocol';
+import { MAX_PEERS, PUBLIC_PREFIX, ROOM_NAME, type ClientMessage, type Member, type ServerMessage } from '../src/net/protocol';
 
 /** Secrets for the TURN relay (`wrangler secret put`); without them, STUN only. */
 interface Secrets {
@@ -11,6 +11,7 @@ interface Secrets {
  * The static site, plus:
  *  - `/signal/<room>`: a WebSocket to the room's Durable Object, which
  *    introduces the browsers to each other;
+ *  - `/players/<room>` (GET): how many are in a drop zone's public room;
  *  - `/turn` (POST): short-lived credentials for Cloudflare's TURN relay.
  * Assets are served before the Worker runs, so it only sees what is not a file.
  */
@@ -18,10 +19,13 @@ export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === '/turn') return iceServers(request, env as Env & Secrets);
-    const match = url.pathname.match(/^\/signal\/([^/]+)$/);
+    const match = url.pathname.match(/^\/(signal|players)\/([^/]+)$/);
     if (!match) return new Response('Not found', { status: 404 });
-    const room = match[1] ?? '';
+    const room = match[2] ?? '';
     if (!ROOM_NAME.test(room)) return new Response('Bad room name', { status: 400 });
+    // Only the public rooms say who is in: the others are for those given the link.
+    const counting = match[1] === 'players';
+    if (counting && (request.method !== 'GET' || !room.startsWith(PUBLIC_PREFIX))) return new Response('Not found', { status: 404 });
     return env.ROOMS.get(env.ROOMS.idFromName(room)).fetch(request);
   },
 } satisfies ExportedHandler<Env>;
@@ -69,6 +73,7 @@ const json = (body: unknown): Response =>
  */
 export class Room extends DurableObject<Env> {
   override async fetch(request: Request): Promise<Response> {
+    if (new URL(request.url).pathname.startsWith('/players/')) return json({ players: this.ctx.getWebSockets().length });
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
     const others = this.ctx.getWebSockets();
     if (others.length >= MAX_PEERS) return new Response('Room full', { status: 403 });

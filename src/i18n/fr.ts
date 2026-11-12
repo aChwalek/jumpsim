@@ -41,14 +41,18 @@ export const fr = {
       guadeloupe: 'Saint-François, sur Grande-Terre',
       lauterbrunnen: 'High Nose, de la Mürrenfluh dans la vallée',
       limska: 'Le viaduc de l\'A9 au-dessus de la Limska draga, en Istrie',
+      millau: 'Le viaduc de Millau au-dessus du Tarn, à 270 m (interdit en vrai)',
+      brento: "Le Becco dell'Aquila, au-dessus de la vallée de la Sarca",
     },
     made: 'DZ imaginaire',
     credits: {
       pujaut: 'Carte © OpenStreetMap · relief IGN · carte VAC SIA',
       france: 'Photos IGN, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
+      franceAlti: 'Photos et relief RGE ALTI IGN, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       spain: 'Photos PNOA © IGN España, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       swiss: 'Photos et relief © swisstopo, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       croatia: 'Photos DOF5 2019/20 © DGU (Otvorena dozvola), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
+      trentino: 'Photos et LiDAR © Provincia autonoma di Trento (CC BY 4.0), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
     },
   },
 
@@ -128,7 +132,10 @@ export const fr = {
   cue: {
     greenLight: 'FEU VERT',
     exited: (who: string) => `${who} a sauté`,
+    loadIn: (s: number) => `PROCHAINE ROTATION DANS ${s} s`,
+    loadAboard: 'tu es à bord',
     exitIn: { belly: '', back: 'sortie sur le dos', sit: 'sortie assis', headDown: 'sortie tête en bas' },
+    spots: { inside: 'intérieur', high: 'haut de porte', low: 'bas de porte', step: 'step' },
     spaceToExit: 'Espace pour sauter',
     flat: 'À PLAT',
     toPull: 'pour ouvrir',
@@ -175,6 +182,7 @@ export const fr = {
     shift: 'Maj',
     exit: 'sauter',
     exitPosition: 'position de sortie',
+    exitSpot: 'place à la porte',
     look: 'regarder',
     lookRecentre: (k: string) => `regarder, ${k} recentrer`,
     fwdBack: 'avancer / reculer',
@@ -262,6 +270,23 @@ export const fr = {
       create: 'Créer une salle',
       createNote: 'Un lien à partager : ceux qui l\'ouvrent sautent avec toi, avec les mêmes réglages.',
       name: (room: string) => `Salle ${room}`,
+      publicJoin: (dz: string) => `Salle publique · ${dz}`,
+      publicNote: (dz: string, players: number | null, max: number) =>
+        players === null
+          ? `Saute avec ceux qui sont à ${dz} en ce moment.`
+          : players === 0
+            ? `Personne à ${dz} en ce moment : sois le premier.`
+            : players >= max
+              ? `Complète : ${players} à ${dz}.`
+              : `${players} à ${dz} en ce moment.`,
+      publicName: (dz: string) => `Publique · ${dz}`,
+      publicHostSets: (name: string) => `Météo et saut réglés par ${name}. Une autre DZ t'emmène dans sa salle publique.`,
+      publicYouSet: 'Tu règles la météo et le saut pour tout le monde. Une autre DZ t\'emmène dans sa salle publique.',
+      hudPublic: 'publique',
+      board: 'Monter à bord',
+      aboard: 'À bord',
+      loadSub: (time: string) => `départ dans ${time}`,
+      nextLoad: (time: string, aboard: number) => `Prochaine rotation dans ${time} · ${aboard} à bord`,
       copy: 'Copier le lien',
       copied: 'Lien copié ✓',
       rename: 'Mon nom',
@@ -363,6 +388,22 @@ export const fr = {
         wingsuit: (glide: string, across: string, down: string, _k: string) =>
           `Ailes entre les bras et le corps et entre les jambes : vol à plat dès qu'elles sont gonflées, sur le ventre ou le dos (← / →), jamais debout. Finesse ${glide}, ${across} km/h en avant, ${down} km/h de chute. Espace : lâcher les ailes et ouvrir.`,
       },
+      suitColor: 'COULEUR DE COMBI',
+      suitColorNote: 'Ses ailes gardent la couleur de la voile.',
+      helmet: 'CASQUE',
+      outfitColors: {
+        white: 'Blanc',
+        grey: 'Gris',
+        black: 'Noir',
+        navy: 'Marine',
+        blue: 'Bleu',
+        red: 'Rouge',
+        orange: 'Orange',
+        yellow: 'Jaune',
+        green: 'Vert',
+        purple: 'Violet',
+        pink: 'Rose',
+      },
     },
 
     dz: {
@@ -429,7 +470,7 @@ export const fr = {
         pattern: (h: string) => `Sous voile à ${h} m, au début de la vent arrière.`,
         final: (h: string) => `Sous voile à ${h} m, en finale.`,
         base: (h: string) => `À l'exit, ${h} m au-dessus de l'atterrissage : élan, saut, quelques secondes de chute, ouverture.`,
-        bridge: (h: string) => `Sur le bord du tablier, ${h} m au-dessus de l'atterrissage : saut, une ou deux secondes de chute, ouverture.`,
+        bridge: (h: string, high: boolean) => `Sur le bord du tablier, ${h} m au-dessus de l'atterrissage : saut, ${high ? 'trois ou quatre' : 'une ou deux'} secondes de chute, ouverture.`,
       },
       exitHeight: 'ALTITUDE DE LARGAGE',
       exitHint: 'au-dessus de la DZ',
@@ -448,6 +489,15 @@ export const fr = {
       malfunctionOff: 'La principale s\'ouvre toujours bien.',
       malfunctionOn: (k: string) => `La principale peut partir en torche : ${k} maintenu pour libérer, puis le secours.`,
       malfunctionBase: 'En BASE, la voile peut s\'ouvrir à 180°, face à la paroi : tourne tout de suite.',
+      exitSpot: 'PLACE À LA PORTE',
+      spots: { inside: 'Intérieur', high: 'Haut de porte', low: 'Bas de porte', step: 'Step' },
+      spotNote: {
+        inside: 'À genoux dans la cabine, derrière la porte : sortie en plongeant.',
+        high: 'Debout, penché dans la porte, la tête sous le haut du cadre : sortie par-dessus le bas de porte.',
+        low: 'Accroupi sur le seuil, à l\'avant de la porte : sortie en basculant.',
+        step: 'Dehors sur le marchepied, accroché au cadre, déjà dans le vent : il suffit de lâcher.',
+      },
+      spotKeys: (fwd: string, back: string) => `Dans l'avion, ${fwd} / ${back} pour changer de place.`,
     },
 
     map: {

@@ -121,6 +121,12 @@ describe('hello', () => {
     expect(readHello('hello')).toBeNull();
   });
 
+  it('keeps the helmet and jumpsuit colours it knows, and the old ones from an older version or unknown ones', () => {
+    expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, helmetColor: 'red', suitColor: 'yellow' } })?.gear).toMatchObject({ helmetColor: 'red', suitColor: 'yellow' });
+    expect(readHello({ type: 'hello', dz: 'pujaut', gear })?.gear).toMatchObject({ helmetColor: 'white', suitColor: 'navy' });
+    expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, helmetColor: 'constructor', suitColor: 7 } })?.gear).toMatchObject({ helmetColor: 'white', suitColor: 'navy' });
+  });
+
   it('keeps a smoke it knows, and has none from an older version or an unknown one', () => {
     expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, smoke: 'green' } })?.gear.smoke).toBe('green');
     expect(readHello({ type: 'hello', dz: 'pujaut', gear })?.gear.smoke).toBe('none');
@@ -130,7 +136,10 @@ describe('hello', () => {
 
 describe('snapshot codes', () => {
   it('carries every stance, phase and stage there is', async () => {
-    const stances = ['door', 'doorRight', 'belly', 'back', 'sit', 'headDown', 'throw', 'hanging', 'ground', 'cutaway', 'reserve'] as const;
+    const stances = [
+      ...(['door', 'doorHigh', 'step', 'inside'] as const).flatMap((d) => [d, `${d}Right` as const]),
+      ...(['belly', 'back', 'sit', 'headDown', 'track', 'throw', 'hanging', 'ground', 'cutaway', 'reserve'] as const),
+    ];
     const phases = ['none', 'plane', 'freefall', 'opening', 'canopy'] as const;
     const deploys = ['stowed', 'hand', 'tow', 'bag', 'canopy', 'free'] as const;
     for (const stance of stances) {

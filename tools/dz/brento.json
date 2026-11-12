@@ -1,0 +1,95 @@
+{
+ "id": "brento",
+ "displayName": "Monte Brento",
+ "menuNote": "Le Becco dell'Aquila, au-dessus de la vallée de la Sarca",
+ "operator": "No drop zone: a BASE site, the most jumped exit in the world. The Italian BASE Association keeps the rules (a deployment line for one-piece and wingsuit pilots, ropes on the way down to the exit) and a windsock on the landing field, seen from the exit.",
+ "aerodrome": {
+  "name": "Campo Gaggiolo, BASE landing field below Monte Brento",
+  "icao": "BASE",
+  "elevation_m": 218,
+  "lat": 45.992674,
+  "lon": 10.926101
+ },
+ "utcOffsetSummer_h": 2,
+ "inland": true,
+ "imagery": "pat",
+ "overpass": ["https://overpass.kumi.systems/api/interpreter"],
+ "fineRelief": {
+  "survey": "pat",
+  "source": "LiDAR DTM 1 m, 2006-2009 flights (Provincia autonoma di Trento)",
+  "centre": [45.994, 10.9158],
+  "size_m": 3000,
+  "spacing_m": 6,
+  "why": "The terrain tiles turn the wall under the Becco into a slope: the Province of Trento's LiDAR, open, has it as a 400 m step within a few metres; sampled every 6 m, from the exit to the field."
+ },
+ "origin": {
+  "lat": 45.992674,
+  "lon": 10.926101,
+  "what": "the 'Punto atterraggio base jumper' of OpenStreetMap, in the meadow by the SS45bis at Gaggiolo, between Dro and Pietramurata"
+ },
+ "boundary": [
+  [45.992641, 10.925201],
+  [45.992757, 10.924946],
+  [45.993285, 10.925306],
+  [45.993075, 10.925921],
+  [45.993018, 10.92642],
+  [45.993009, 10.926564],
+  [45.992036, 10.926567],
+  [45.992297, 10.925814],
+  [45.992538, 10.925596]
+ ],
+ "runways": [],
+ "paved": [],
+ "landingAreas": [
+  {
+   "name": "Campo Gaggiolo, the meadow below Monte Brento",
+   "use": "sport",
+   "surface": "grass",
+   "polygon": [
+    [45.992641, 10.925201],
+    [45.992757, 10.924946],
+    [45.993285, 10.925306],
+    [45.993075, 10.925921],
+    [45.993018, 10.92642],
+    [45.993009, 10.926564],
+    [45.992036, 10.926567],
+    [45.992297, 10.925814],
+    [45.992538, 10.925596]
+   ]
+  }
+ ],
+ "target": {
+  "lat": 45.992674,
+  "lon": 10.926101,
+  "radius_m": 10,
+  "shown": false,
+  "evidence": "No target on a BASE landing field: OSM's 'Punto atterraggio base jumper' is where one aims."
+ },
+ "windsocks": [[45.99315, 10.925854]],
+ "flags": [],
+ "people": [[45.99298, 10.92575], [45.992995, 10.9258], [45.99296, 10.92571]],
+ "base": {
+  "name": "Becco dell'Aquila",
+  "lat": 45.995248,
+  "lon": 10.904544,
+  "heading_deg": 95,
+  "runUp_m": 12,
+  "width_m": 5,
+  "altitudeToLanding_m": 1175,
+  "evidence": "The Italian BASE Association: the Becco dell'Aquila, a natural platform 15 m by 5 m lightly inclined toward the Sarca valley, 1200 m of elevation, the landing field's windsock in sight. OSM puts a node named Becco dell'Aquila in the woods at 45.99385, 10.90442, 1320 m in the LiDAR, with no drop in front of it; 160 m north of it the LiDAR has the rim of the wall, at 1390 m, falling 300 m within 20 m and 440 m within 40 m, both in the 2006-2009 survey and in the 2014 one, and 1175 m above the field. The run starts 12 m back from that rim, down a gentle slope, heading 95 (east), square to the wall; the field is 1.7 km out at 100."
+ },
+ "wind": {
+  "usual": {"fromDeg": 190, "kmh": 10},
+  "description": "The Ora del Garda blows up the valley from the lake, from the south, from late morning, and grows strong by midday: jumps are made early in the morning and late in the afternoon. The Pelèr, from the north, can blow in the morning."
+ },
+ "invented": [
+  "Exit position: the Becco's coordinates are not published and OSM's node has no drop in front of it; the rim used here is the nearest one to it matching the published 1200 m of elevation.",
+  "Pattern: inferred from the shape of the valley and the field."
+ ],
+ "sources": [
+  "https://www.italianbaseassociation.com/exitpoints-monte-brento: the Becco dell'Aquila, platform 15 m x 5 m, 1200 m of elevation, the Ora del Garda from the south, ropes down to the exit",
+  "https://it.wikipedia.org/wiki/Monte_Brento: wingsuit jumps off the Becco dell'Aquila, landing at the campo Gaggiolo in Dro",
+  "OpenStreetMap: Becco dell'Aquila (node 11054318784), Punto atterraggio base jumper (node 9739777683), windsock (node 13872111108), the meadow (way 888666105)",
+  "Provincia autonoma di Trento, SIAT: LiDAR DTM 1 m (2006-2009) and orthophoto 2015, CC BY 4.0 (dati.trentino.it)"
+ ]
+}
