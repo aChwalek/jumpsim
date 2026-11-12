@@ -190,10 +190,12 @@ export function bridgeSolid(bridges: Bridge[], groundAt: (x: number, z: number) 
       const road = f.road(s);
       // A pylon, to whoever runs into it: its top. Its mast's top if no height is given.
       const pylon = f.bridge.pylons;
-      const on = pylon && f.bridge.piers.find((p) => Math.abs(s - p) <= pylon.foot / 2 && inPylon(f, s - p, u, Math.min(y - f.road(p), pylon.height)));
-      if (pylon && on !== undefined && f.road(on) + pylon.height > top) {
-        top = f.road(on) + pylon.height;
-        continue;
+      if (pylon) {
+        const on = f.bridge.piers.find((p) => Math.abs(s - p) <= pylon.foot / 2 && inPylon(f, s - p, u, Math.min(y - f.road(p), pylon.height)));
+        if (on !== undefined && f.road(on) + pylon.height > top) {
+          top = f.road(on) + pylon.height;
+          continue;
+        }
       }
       const half = f.bridge.width / 2;
       const a = Math.abs(u);
@@ -428,7 +430,7 @@ export function buildBridges(bridges: Bridge[], groundAt: (x: number, z: number)
   // Both faces: the slabs are wound whichever way their side of the axis has them.
   group.add(new THREE.Mesh(mergeGeometries(parts), new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })));
   if (screens.length) {
-    const material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.45, depthWrite: false });
+    const material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.22, depthWrite: false });
     group.add(new THREE.Mesh(mergeGeometries(screens), material));
   }
   if (lines.length) {
