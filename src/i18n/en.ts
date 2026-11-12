@@ -118,7 +118,7 @@ export const en: Strings = {
     atImpact: 'at impact',
     freefallOnly: 'of freefall',
     again: (k: K) =>
-      `${k('KeyR')} or Y to go again · 1 pattern · 2 final · 3 plane · 4 BASE · ${k('KeyV')}, Esc or Start for the menu`,
+      `${k('KeyR')} or Y to go again · arrows or D-pad, then Space or A, for the buttons · 1 pattern · 2 final · 3 plane · 4 BASE · ${k('KeyV')}, Esc or Start for the menu`,
     fps: (fps: string, scale: string) => `${fps} fps · render ${scale}%`,
     muted: 'muted',
     wind: (hdg: string, from: string, kmh: string, gust: string | null) =>

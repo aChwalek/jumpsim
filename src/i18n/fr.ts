@@ -122,7 +122,7 @@ export const fr = {
     atImpact: 'à l\'impact',
     freefallOnly: 'de chute libre',
     again: (k: K) =>
-      `${k('KeyR')} ou Y pour recommencer · 1 circuit · 2 finale · 3 avion · 4 BASE · ${k('KeyV')}, Échap ou Start pour le menu`,
+      `${k('KeyR')} ou Y pour recommencer · flèches ou croix puis Espace ou A pour les boutons · 1 circuit · 2 finale · 3 avion · 4 BASE · ${k('KeyV')}, Échap ou Start pour le menu`,
     fps: (fps: string, scale: string) => `${fps} i/s · rendu ${scale} %`,
     muted: 'son coupé',
     wind: (hdg: string, from: string, kmh: string, gust: string | null) =>
