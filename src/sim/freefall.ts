@@ -54,9 +54,16 @@ export interface BodyInputs {
   slide: number;
   /** Spread out to fall slower (-1, up on the others) or tuck in to fall faster (1, down). */
   fall: number;
+  /** ↑ / ↓ held: somersaults one after the other, forwards (1) or backwards (-1). */
+  flip?: number;
+  /** ← / → held: rolls (half turns upright) one after the other, to the left (-1) or right (1). */
+  roll?: number;
 }
 
 export const noBodyInputs = (): BodyInputs => ({ turn: 0, forward: 0, slide: 0, fall: 0 });
+
+/** How long ↑ ↓ ← → have to be held before the somersaults or rolls carry on by themselves, s. */
+export const SPIN_HOLD = 0.4;
 
 /** How the body flies in one position. */
 export interface BodyShape {
@@ -182,6 +189,10 @@ export interface FreefallParams {
   swingRate: number;
   /** A half roll flat, or a half turn upright, on ← / →, rad/s. */
   rollRate: number;
+  /** Somersaults on ↑ / ↓, a quarter at a time, rad/s. */
+  flipRate: number;
+  /** How fast a roll or a somersault picks up speed and slows down at the end, rad/s². */
+  spinAccel: number;
   /** Time for arms and legs to take a new shape, s. */
   reshape: number;
   /** Time for a turn to start or stop, s. */
@@ -201,6 +212,9 @@ export function freefallParams(exitWeightKg: number): FreefallParams {
     swingRate: 150 * DEG,
     // A barrel roll in a little over a second.
     rollRate: 300 * DEG,
+    // A somersault in about a second and a half, a quarter in half a second.
+    flipRate: 270 * DEG,
+    spinAccel: 2000 * DEG,
     reshape: 0.4,
     turnLag: 0.4,
     trackIn: 0.6,
@@ -245,11 +259,19 @@ export class Freefall {
    */
   private flipSign = 1;
   /**
-   * A roll flat or a half turn upright under way: what is left of it, rad,
-   * about `axis` in the pilot frame. A roll takes the body off the airflow:
-   * it is not settled back onto it until the roll is over.
+   * A roll flat, a half turn upright or a somersault under way: what is left
+   * of it, rad, about `axis` in the pilot frame, and how fast it goes now.
+   * A roll or a somersault takes the body off the airflow: it is not settled
+   * back onto it until it is over.
    */
-  private readonly maneuver = { axis: vec3(), left: 0, roll: false };
+  private readonly maneuver: { axis: Vec3; left: number; rate: number; kind: 'roll' | 'turn' | 'flip' } = {
+    axis: vec3(),
+    left: 0,
+    rate: 0,
+    kind: 'roll',
+  };
+  /** How long ↑ / ↓ and ← / → have been held, s. */
+  private readonly held = { flip: 0, roll: 0 };
   /** Where the body is heading for: tilted off the airflow by the inputs. */
   private readonly target = vec3();
   private readonly down = vec3();
@@ -277,6 +299,7 @@ export class Freefall {
     this.position = position;
     this.flipSign = roll < 0 ? -1 : 1;
     this.maneuver.left = 0;
+    this.maneuver.rate = 0;
   }
 
   /**
@@ -287,7 +310,8 @@ export class Freefall {
   rollOver(dir: -1 | 1): void {
     const m = this.maneuver;
     const flat = this.position === 'belly' || this.position === 'back';
-    if (m.left !== 0 && m.roll !== flat) return;
+    const kind = flat ? 'roll' : 'turn';
+    if (m.left !== 0 && m.kind !== kind) return;
     if (flat) {
       // About the head, always the same way for the same key, so that a
       // second press carries on round: → on the belly, the right hand goes down.
@@ -300,12 +324,51 @@ export class Freefall {
       set(m.axis, 0, f.z, -f.y);
       m.left += dir * Math.PI;
     }
-    m.roll = flat;
+    m.kind = kind;
   }
 
-  /** A roll or a half turn under way. */
+  /**
+   * ↑ / ↓ (`dir` 1 / -1): a quarter somersault about the shoulders, forwards
+   * head first, backwards feet first, into the next position round the loop
+   * belly → head down → back → sit → belly. Pressed again before it is over,
+   * the next quarter follows on without a stop: twice from the belly goes
+   * through head down onto the back, four times is a whole somersault.
+   */
+  flip(dir: -1 | 1): void {
+    const m = this.maneuver;
+    if (m.left !== 0 && m.kind !== 'flip') return;
+    // Forwards the head goes down, towards where the belly faces.
+    set(m.axis, 1, 0, 0);
+    m.left -= dir * (Math.PI / 2);
+    m.kind = 'flip';
+    this.position = stepPosition(this.position, dir > 0 ? 'up' : 'down');
+  }
+
+  /** A roll, a half turn or a somersault under way. */
   get maneuvering(): boolean {
     return this.maneuver.left !== 0;
+  }
+
+  /**
+   * ↑ ↓ ← → held: once held long enough, the next quarter somersault or
+   * half roll goes on before the one under way is over, so they follow one
+   * another without a stop. Let go, the one under way finishes in a position.
+   */
+  private carryOn(dt: number, input: BodyInputs): void {
+    const m = this.maneuver;
+    const h = this.held;
+    const flip = Math.sign(input.flip ?? 0);
+    const roll = Math.sign(input.roll ?? 0);
+    h.flip = flip ? h.flip + dt : 0;
+    h.roll = roll ? h.roll + dt : 0;
+    // The same way as the one under way, about half of it left.
+    const due = (kind: 'roll' | 'turn' | 'flip', sign: number, step: number): boolean =>
+      m.left === 0 || (m.kind === kind && Math.sign(m.left) === sign && Math.abs(m.left) < step / 2);
+    if (flip && h.flip >= SPIN_HOLD && due('flip', -flip, Math.PI / 2)) this.flip(flip as -1 | 1);
+    else if (roll && h.roll >= SPIN_HOLD) {
+      const flat = this.position === 'belly' || this.position === 'back';
+      if (due(flat ? 'roll' : 'turn', roll, Math.PI)) this.rollOver(roll as -1 | 1);
+    }
   }
 
   /** Angle between the body and its position on the airflow, rad: 0 once settled. */
@@ -377,7 +440,8 @@ export class Freefall {
     let wy = 0;
     let wz = 0;
     const m = this.maneuver;
-    if (speed > 3 && !(m.left !== 0 && m.roll)) {
+    this.carryOn(dt, input);
+    if (speed > 3 && !(m.left !== 0 && m.kind !== 'turn')) {
       // A body broader across the air than along it glides towards its low
       // edge, a slender one towards its leading end: they tilt opposite ways.
       const flowArea = along(shape.area, shape.downstream);
@@ -430,9 +494,15 @@ export class Freefall {
     }
 
     if (m.left !== 0) {
-      const step = Math.sign(m.left) * Math.min(Math.abs(m.left), p.rollRate * dt);
+      // Picking up speed, then slowing down so as to stop square in the position.
+      const most = m.kind === 'flip' ? p.flipRate : p.rollRate;
+      m.rate = Math.min(most, m.rate + p.spinAccel * dt, Math.sqrt(2 * p.spinAccel * Math.abs(m.left)) + p.spinAccel * dt);
+      const step = Math.sign(m.left) * Math.min(Math.abs(m.left), m.rate * dt);
       m.left -= step;
-      if (Math.abs(m.left) < 1e-9) m.left = 0;
+      if (Math.abs(m.left) < 1e-9) {
+        m.left = 0;
+        m.rate = 0;
+      }
       const axis = rotate(this.local, s.att, m.axis);
       wx += (axis.x * step) / dt;
       wy += (axis.y * step) / dt;
