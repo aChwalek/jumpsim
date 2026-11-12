@@ -10,6 +10,15 @@ export function publicDz(room: string): DzId | null {
   return DZS.find((d) => publicRoom(d.id) === room)?.id ?? null;
 }
 
+/**
+ * A public room does not wait for anyone: a load leaves every this often, ms,
+ * with whoever is aboard. On the server's clock, so the same for all.
+ */
+export const LOAD_EVERY_MS = 60_000;
+
+/** When the next load leaves, after `now` (server clock, ms). */
+export const nextLoad = (now: number): number => (Math.floor(now / LOAD_EVERY_MS) + 1) * LOAD_EVERY_MS;
+
 /** What everyone in a room jumps with: all of the setup but each one's own gear. */
 export type SharedSetup = Omit<Setup, 'gear'>;
 

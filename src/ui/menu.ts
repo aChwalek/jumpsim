@@ -256,6 +256,8 @@ export interface RoomView {
   players: { name: string; ready: boolean; self: boolean; host: boolean }[];
   /** The drop zone whose public room this is; null for a room of one's own. */
   publicDz: DzId | null;
+  /** In a public room, when the next load leaves (Date.now() clock, ms). */
+  loadAt: number | null;
 }
 
 /** What the DZ, weather and jump cards are: set by whoever leads a room. */
@@ -264,6 +266,14 @@ const ICON_PEOPLE_EL = (): Element => html(ICON_PEOPLE);
 const SHARED: ReadonlySet<ScreenId> = new Set<ScreenId>(['dz', 'weather', 'jump']);
 /** Time to click again to start without everyone ready, ms. */
 const ARM_MS = 4000;
+/** How often the time to the next load is redrawn, ms. */
+const TICK_MS = 250;
+
+/** The time left until `at` (Date.now() clock, ms), as m:ss. */
+function timeTo(at: number): string {
+  const s = Math.max(0, Math.ceil((at - Date.now()) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
 
 export class Menu {
   isOpen = false;
@@ -295,6 +305,8 @@ export class Menu {
   private readonly screens = new Map<ScreenId, HTMLElement>();
   private readonly cards = new Map<Category, HTMLButtonElement>();
   private updaters: (() => void)[] = [];
+  /** What shows the time to the next load: redrawn while it counts down. */
+  private ticking: (() => void)[] = [];
   private screen: ScreenId = 'home';
   private canCancel = false;
   private panel!: HTMLElement;
@@ -331,6 +343,9 @@ export class Menu {
     this.nav.onPadChange = (pad) => this.root.classList.toggle('pad', pad);
     this.build();
     window.addEventListener('keydown', (e) => this.key(e));
+    window.setInterval(() => {
+      if (this.isOpen && this.room?.loadAt) for (const tick of this.ticking) tick();
+    }, TICK_MS);
     this.show('home');
   }
 
@@ -436,6 +451,7 @@ export class Menu {
     this.screens.clear();
     this.cards.clear();
     this.updaters = [];
+    this.ticking = [];
     this.panel = h('div', 'panel');
     this.resume = button('resume', T.menu.resume);
     this.jump = button('jump');
@@ -784,11 +800,19 @@ export class Menu {
     }
     this.resume.addEventListener('click', () => this.cancel());
     this.jump.addEventListener('click', () => this.go());
-    this.updaters.push(() => {
+    const showJump = (): void => {
       const { start, exitHeight } = this.setup.jump;
       const info = dzInfo(this.setup.dz);
       const room = this.room;
       this.jump.classList.toggle('ready', !!room?.ready);
+      if (room?.loadAt) {
+        // A public room: aboard the next load, or not.
+        const r = T.menu.room;
+        this.jump.innerHTML = `<span class="go-icon">${ICON_PLANE}</span><span class="go-label">${
+          room.ready ? r.aboard : r.board
+        }</span><span class="go-sub">${r.loadSub(timeTo(room.loadAt))}</span><i class="btn pad">Start</i>`;
+        return;
+      }
       if (room) {
         const r = T.menu.room;
         const count = r.readyCount(room.players.filter((p) => p.ready).length, Math.max(1, room.players.length));
@@ -809,7 +833,9 @@ export class Menu {
       this.jump.innerHTML = `<span class="go-icon">${start === 'plane' ? ICON_PLANE : ICON_CANOPY}</span><span class="go-label">${
         jumping ? T.menu.jumpButton : T.menu.go
       }</span><span class="go-sub">${sub}</span><i class="btn pad">Start</i>`;
-    });
+    };
+    this.updaters.push(showJump);
+    this.ticking.push(showJump);
     const go = h('div', 'go', this.nav.add(this.resume), this.nav.add(this.jump));
     const m = T.menu.hints;
     screen.append(
@@ -862,6 +888,7 @@ export class Menu {
     const top = h('div', 'room-top', ICON_PEOPLE_EL(), title, this.nav.add(copy), this.nav.add(rename), this.nav.add(leave));
     const link = h('div', 'room-link');
     const players = h('ul', 'room-players');
+    const load = h('p', 'room-load');
     const note = h('p', 'room-note');
     const startNow = button('room-btn room-start', r.startNow);
     const warn = h('p', 'room-warn');
@@ -879,8 +906,16 @@ export class Menu {
       this.startArmed = 0;
       this.onStartNow();
     });
-    const inRoom = h('div', 'room-in', top, link, players, note, this.nav.add(startNow, { disabled: () => !this.canStartNow() }), warn);
+    const inRoom = h('div', 'room-in', top, link, players, load, note, this.nav.add(startNow, { disabled: () => !this.canStartNow() }), warn);
     box.append(choices, inRoom);
+
+    const showLoad = (): void => {
+      const room = this.room;
+      load.hidden = !room?.loadAt;
+      if (room?.loadAt) load.textContent = r.nextLoad(timeTo(room.loadAt), room.players.filter((p) => p.ready).length);
+    };
+    this.updaters.push(showLoad);
+    this.ticking.push(showLoad);
 
     this.updaters.push(() => {
       const room = this.room;
@@ -925,7 +960,7 @@ export class Menu {
   /** Leading a room of more than one where not everyone is ready. */
   private canStartNow(): boolean {
     const room = this.room;
-    return !!room?.isHost && room.online && room.players.length > 1 && room.players.some((p) => !p.ready);
+    return !!room?.isHost && !room.publicDz && room.online && room.players.length > 1 && room.players.some((p) => !p.ready);
   }
 
   /** What a home card says. */

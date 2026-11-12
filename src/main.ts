@@ -326,8 +326,9 @@ function joinRoom(name: string): void {
   net = new Multiplayer(name, scene, () => light, playerName(), {
     setup: (shared) => {
       // Whoever leads changed the jump: ready for the old one is not ready for this one.
+      // A public room's load leaves anyway: who is aboard stays aboard.
       if (sameShared(shared, sharedPart(menu.current))) return;
-      net?.setReady(false);
+      if (!net?.isPublic) net?.setReady(false);
       menu.applyShared(shared);
     },
     start: (start, shared) => menu.startShared(shared, start),
@@ -382,6 +383,7 @@ function showRoom(): void {
     ready: net.isReady,
     players: state.list.map((p) => ({ name: p.name, ready: p.ready, self: p.id === state.selfId, host: p.id === host?.id })),
     publicDz: publicDz(net.room),
+    loadAt: net.isPublic ? net.nextLoadAt : null,
   });
 }
 
@@ -1466,9 +1468,16 @@ function keysPhase(): KeysPhase | null {
   return jump.phase === 'plane' ? 'plane' : 'freefall';
 }
 
+/** Aboard a public room's load, out of the menu: the last seconds before it leaves. */
+const LOAD_CUE_S = 10;
+
 /** What the HUD says to do next. */
 function cue(): string {
   if (flash && performance.now() < flash.until) return flash.text;
+  if (net?.isPublic && net.isReady) {
+    const left = Math.ceil((net.nextLoadAt - Date.now()) / 1000);
+    if (left <= LOAD_CUE_S) return `${T.cue.loadIn(left)}<small>${T.cue.loadAboard}</small>`;
+  }
   const mainOut = jump !== null && jump.canopy === 'main' && (jump.phase === 'canopy' || (jump.phase === 'opening' && jump.inflation !== null));
   if (devices.cutawayHeld > 0 && (mainOut || !jump) && !touchdown && !arrival && singleCanopy()) {
     // One canopy and nothing under it: a BASE container has no cutaway handle.
