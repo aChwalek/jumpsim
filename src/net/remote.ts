@@ -34,6 +34,12 @@ export class RemoteJumper {
   readonly buffer = new SnapshotBuffer();
   private readonly now = emptySnapshot();
   private readonly posture = new Posture();
+  /** Where they were in their jump at the last frame drawn. */
+  private phase: string | null = null;
+  /** They left their plane at this frame. */
+  exited = false;
+  private readonly att = new THREE.Quaternion();
+  private readonly at = new THREE.Vector3();
   private gear: Gear | null = null;
   private main: FlightModel | null = null;
   private reserve: FlightModel | null = null;
@@ -66,15 +72,23 @@ export class RemoteJumper {
     const view = this.view;
     const s = this.now;
     if (!view || !this.main || !this.reserve) return;
+    const sampled = visible && this.buffer.sample(f.now, s);
+    // Into freefall from anything but freefall, and not by a cutaway: out of the plane,
+    // even if the snapshots from the door were missed.
+    this.exited = sampled && this.phase !== null && this.phase !== 'freefall' && s.phase === 'freefall' && !s.cutaway;
+    if (sampled) this.phase = s.phase;
     // In their plane, which is not drawn here yet: not shown either.
-    view.object.visible = visible && this.buffer.sample(f.now, s) && s.phase !== 'plane';
+    view.object.visible = sampled && s.phase !== 'plane';
     if (!view.object.visible) return;
 
     // A new jump after a reserve ride or a cutaway: a fresh rig.
     if (!s.reserve && !s.cutaway && (view.detached || view.canopy.reserve)) return this.newView(f.light);
     // Cut away: the main goes, and is not drawn on its way down here.
     if ((s.cutaway || s.reserve) && !view.detached && !view.canopy.reserve) view.detachCanopy().dispose();
-    if (s.reserve && view.detached) view.attachCanopy(new CanopyView(this.reserve.rig, RESERVE_PALETTE, f.light, true));
+    if (s.reserve && view.detached) {
+      view.attachCanopy(new CanopyView(this.reserve.rig, RESERVE_PALETTE, f.light, true));
+      seenFromAfar(view.object);
+    }
 
     const model = s.reserve ? this.reserve : this.main;
     const st = model.state;
@@ -113,6 +127,35 @@ export class RemoteJumper {
     this.dispose();
     this.view = new RigView(this.main.rig, CANOPY_COLORS[this.gear.color].cells, light);
     this.view.object.visible = false;
+    seenFromAfar(this.view.object);
     this.scene.add(this.view.object);
   }
+
+  /** Where they are now, if drawn: over their head, or over their canopy once it is out. */
+  where(out: THREE.Vector3): THREE.Vector3 | null {
+    const s = this.now;
+    if (!this.view?.object.visible || !this.main) return null;
+    const open = s.inflation !== null && s.inflation > 0.3 && !s.landed;
+    const rig = (s.reserve && this.reserve ? this.reserve : this.main).rig;
+    this.att.set(s.att.x, s.att.y, s.att.z, s.att.w);
+    out.set(0, open ? rig.canopyPos.y + 0.8 : 1.2, 0);
+    if (open) out.applyQuaternion(this.att);
+    return out.add(this.at.set(s.pos.x, s.pos.y, s.pos.z));
+  }
+
+  /** The colour of their canopy, for their marker. */
+  get color(): string {
+    const cells = this.gear ? CANOPY_COLORS[this.gear.color].cells : [0xffffff];
+    const c = cells[1] ?? cells[0] ?? 0xffffff;
+    return `#${c.toString(16).padStart(6, '0')}`;
+  }
+}
+
+/**
+ * Our own body and gear are drawn by a camera of their own that sees no
+ * further than arm's reach, and our head not at all. Someone else's are
+ * scenery like any other: all of it on the main camera's layer.
+ */
+function seenFromAfar(object: THREE.Object3D): void {
+  object.traverse((node) => node.layers.set(0));
 }

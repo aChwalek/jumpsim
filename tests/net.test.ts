@@ -117,3 +117,21 @@ describe('hello', () => {
     expect(readHello('hello')).toBeNull();
   });
 });
+
+describe('snapshot codes', () => {
+  it('carries every stance, phase and stage there is', async () => {
+    const stances = ['door', 'doorRight', 'belly', 'back', 'sit', 'headDown', 'throw', 'hanging', 'ground', 'cutaway', 'reserve'] as const;
+    const phases = ['none', 'plane', 'freefall', 'opening', 'canopy'] as const;
+    const deploys = ['stowed', 'hand', 'tow', 'bag', 'canopy', 'free'] as const;
+    for (const stance of stances) {
+      for (const phase of phases) {
+        for (const deploy of deploys) {
+          const s = emptySnapshot();
+          Object.assign(s, { stance, phase, deploy });
+          const back = decodeSnapshot(encodeSnapshot(s));
+          expect([back?.stance, back?.phase, back?.deploy]).toEqual([stance, phase, deploy]);
+        }
+      }
+    }
+  });
+});
