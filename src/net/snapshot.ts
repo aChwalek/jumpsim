@@ -80,6 +80,7 @@ const STANCE_CODES: Record<Stance, number> = {
   cutaway: 8,
   reserve: 9,
   doorRight: 10,
+  track: 11,
 };
 const DEPLOY_CODES: Record<DeployStage, number> = { stowed: 0, hand: 1, tow: 2, bag: 3, canopy: 4, free: 5 };
 

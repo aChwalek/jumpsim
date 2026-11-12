@@ -1,16 +1,17 @@
 // How the pilot holds the body at each moment of the jump, and the moves
 // between: crouched in the door, the four freefall positions (box, back,
-// sit, head down, which shift with the inputs), the reach for the pilot
+// sit, head down, which shift with the inputs) and the track, the reach for the pilot
 // chute, hanging in the harness, standing on the ground.
 
 import type { BodyInputs, BodyPosition } from '../sim/freefall';
 import { blendPose, copyPose, makePose, type Pose } from './body';
 
 /** In the door: `door` on the left of the plane, `doorRight` on its right. */
-export type Stance = 'door' | 'doorRight' | BodyPosition | 'throw' | 'hanging' | 'ground' | 'cutaway' | 'reserve';
+/** `track`: stretched out to glide, a track flat, an angle upright; drawn the same, the body's attitude does the rest. */
+export type Stance = 'door' | 'doorRight' | BodyPosition | 'track' | 'throw' | 'hanging' | 'ground' | 'cutaway' | 'reserve';
 
 /** The stances that follow the freefall inputs. */
-export const FREEFALL_STANCES: ReadonlySet<Stance> = new Set(['belly', 'back', 'sit', 'headDown']);
+export const FREEFALL_STANCES: ReadonlySet<Stance> = new Set(['belly', 'back', 'sit', 'headDown', 'track']);
 
 /** Hip angle of the legs hanging in the harness, rad forward. */
 const HANGING_HIPS = 0.21;
@@ -23,6 +24,7 @@ const SETTLE: Record<Stance, number> = {
   back: 0.3,
   sit: 0.3,
   headDown: 0.3,
+  track: 0.5,
   throw: 0.12,
   hanging: 0.35,
   ground: 0.15,
@@ -138,6 +140,27 @@ function headDown(p: Pose, input: BodyInputs): void {
   p.handR.set(span + shift, height, reach - dip);
   p.elbowL.set(-1, 0.2, 0.3);
   p.elbowR.set(1, 0.2, 0.3);
+}
+
+function track(p: Pose, input: BodyInputs): void {
+  // Stretched out: legs straight and nearly together, a slight pike at the
+  // hips, arms back along the sides with the hands by the hips, a little
+  // behind the body, the shoulders rolled in.
+  const { forward, back } = drives(input);
+  p.lean = p.bow = 0;
+  // Pushed hard, the legs straighter still; eased off, a little more pike.
+  p.hipL = p.hipR = 0.08 - 0.06 * forward + 0.2 * back;
+  p.kneeL = p.kneeR = 0.06 + 0.15 * back;
+  p.spread = 0.07;
+  const span = 0.26 + 0.12 * back;
+  const height = -0.48 + 0.12 * back;
+  // The low hand turns, a hand out slides.
+  const dip = 0.08 * input.turn;
+  const shift = 0.05 * input.slide;
+  p.handL.set(-span + shift, height, 0.12 + dip);
+  p.handR.set(span + shift, height, 0.12 - dip);
+  p.elbowL.set(-1, 0, 0.4);
+  p.elbowR.set(1, 0, 0.4);
 }
 
 function throwOut(p: Pose): void {
@@ -272,6 +295,9 @@ export class Posture {
         break;
       case 'headDown':
         headDown(t, input);
+        break;
+      case 'track':
+        track(t, input);
         break;
       case 'throw':
         throwOut(t);

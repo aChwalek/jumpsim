@@ -29,6 +29,8 @@ export type Action =
   | 'flyDown'
   /** Held a moment: the cutaway handle. */
   | 'cutaway'
+  /** Gamepad: left stick pressed, into a track or out of it. */
+  | 'track'
   /** Collapse or take off the slider. */
   | 'slider'
   /** Eyes, or outside. */
@@ -67,6 +69,7 @@ const PAD_ACTIONS: [number, Action][] = [
   [2, 'slider'], // X
   [3, 'reset'], // Y
   [8, 'camera'], // View / Back / Share
+  [10, 'track'], // Left stick pressed
   [9, 'padMenu'], // Start
   [12, 'flyUp'],
   [13, 'flyDown'],
@@ -94,6 +97,12 @@ export class InputDevices {
    * forward and back, A / E slide sideways, R / F up and down (AZERTY letters).
    */
   readonly body: BodyInputs = noBodyInputs();
+  /**
+   * Into a track (an angle upright): Shift held on the keyboard, the way
+   * the body is held stretched; on the gamepad the thumb is on the stick
+   * that drives, so pressing it turns the track on and again off.
+   */
+  padTrack = false;
   /** Analogue brake travel from the gamepad triggers, 0..1. */
   analogBrakeL = 0;
   analogBrakeR = 0;
@@ -171,6 +180,11 @@ export class InputDevices {
         MAX_PITCH_UP,
       );
     });
+  }
+
+  /** Asked to track. */
+  get tracking(): boolean {
+    return this.padTrack || this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
   }
 
   get mouseCaptured(): boolean {

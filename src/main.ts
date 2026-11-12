@@ -467,6 +467,9 @@ const actions: Record<Action, () => void> = {
   flyRight: () => {
     if (!paused) jump?.roll(1);
   },
+  track: () => {
+    if (!paused) devices.padTrack = !devices.padTrack;
+  },
   flyUp: () => jump && flyInto(stepPosition(jump.body.position, 'up')),
   flyDown: () => jump && flyInto(stepPosition(jump.body.position, 'down')),
   toggleHud: () => hud.toggle(),
@@ -580,6 +583,9 @@ function simulate(seconds: number): void {
     updateWind();
     const flying = !jump || jump.phase === 'canopy';
     if (jump) {
+      jump.trackIt(devices.tracking);
+      // A track the gamepad turned on ends with the freefall, or at the pull.
+      if (!jump.body.tracking) devices.padTrack = false;
       jump.step(dt, devices.body, env);
       if (jump.impact) {
         hitWithoutCanopy(jump);
@@ -797,7 +803,7 @@ function stance(): Stance {
     case 'freefall':
       // Just cut away: the hands are still on the handles.
       if (jump.cutawayAt !== null && jump.time - jump.cutawayAt < 0.45) return 'cutaway';
-      return jump.body.position;
+      return jump.body.track > 0.5 ? 'track' : jump.body.position;
     case 'opening':
       if (jump.inflation !== null) return 'hanging';
       if (jump.canopy === 'reserve') return jump.log.reserveBy === 'hand' ? 'reserve' : 'belly';
@@ -1011,12 +1017,12 @@ function cue(): string {
     // Off a BASE object, the count is what matters.
     const delay = c.delay(num(jump.time, 1));
     if (jump.pullWhenFlat) return `${delay}<small>${c.flat} · ${c.toPull}</small>`;
-    const name = c.positions[jump.body.position];
+    const name = (jump.body.tracking ? c.tracks : c.positions)[jump.body.position];
     return `${delay}<small>${name ? `${name} · ` : ''}${c.spaceToPull}</small>`;
   }
   if (jump.phase === 'freefall') {
     if (jump.pullWhenFlat) return `${c.flat}<small>${c.toPull}</small>`;
-    const name = c.positions[jump.body.position];
+    const name = (jump.body.tracking ? c.tracks : c.positions)[jump.body.position];
     if (jump.time > 1.5) return `${name}<small>${c.spaceToPull}</small>`;
     return name;
   }

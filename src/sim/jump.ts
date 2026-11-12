@@ -207,6 +207,7 @@ export class Jump {
       // The reserve handle, right after the cutaway, whatever the position.
       this.pull(false);
     } else if (this.phase === 'freefall' && this.time > (this.base ? BASE_PULL_FROM : CLEAR_OF_THE_PLANE)) {
+      this.body.tracking = false;
       if (this.body.position === 'belly' && this.body.offPosition() < FLAT_ENOUGH) this.pull(false);
       else {
         this.body.setPosition('belly');
@@ -222,6 +223,14 @@ export class Jump {
   fly(position: BodyPosition, roll = 1): void {
     if (this.pullWhenFlat) return;
     if (this.phase === 'plane' || this.phase === 'standing' || this.phase === 'freefall') this.body.setPosition(position, roll);
+  }
+
+  /**
+   * Stretched out into a track, an angle upright, or out of it: asked every
+   * step. Only in freefall, and not on the way to the pull.
+   */
+  trackIt(on: boolean): void {
+    this.body.tracking = on && this.phase === 'freefall' && !this.pullWhenFlat;
   }
 
   /**

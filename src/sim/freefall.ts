@@ -132,6 +132,39 @@ export const BODY_SHAPES: Record<BodyPosition, BodyShape> = {
   },
 };
 
+/**
+ * Stretched out to glide: arms back along the body, legs straight and
+ * together, the shoulders rolled in. Flat (belly or back) it is a track, the
+ * body a wing a little head low; upright (sitting or head down) an angle,
+ * the trace, the body slanted off the vertical and going where it leads.
+ */
+export interface TrackShape {
+  /** Drag areas as for a position, as a fraction of the belly's flat on the air. */
+  area: Vec3;
+  /** Tilt of the body off the airflow, rad: with nothing asked, pushed hard (W) and held back (S). */
+  tilt: number;
+  dive: number;
+  ease: number;
+  /** 1: goes where the eyes look; -1: the other way, head first on the back. */
+  dir: 1 | -1;
+}
+
+export const TRACK_SHAPES: Record<BodyPosition, TrackShape> = {
+  // Arms back, legs straight: hardly anything along the head, so the body
+  // flies like a flat wing, about a metre forward for every metre down. A
+  // wing at a shallow angle turns far more air than its bare area meets
+  // square on: hence nearly twice the belly's area against the air below.
+  // The tilt is the one asked: the airflow swings round with the body and
+  // it settles at about 65° off it, not far from the best glide.
+  belly: { area: vec3(0.6, 0.28, 1.9), tilt: 78 * DEG, dive: 83 * DEG, ease: 45 * DEG, dir: 1 },
+  // The same on the back, head first, looking back past the feet.
+  back: { area: vec3(0.6, 0.3, 1.85), tilt: 78 * DEG, dive: 83 * DEG, ease: 45 * DEG, dir: -1 },
+  // Upright and stretched, the body slanted off the vertical: it goes where
+  // it leads, faster than a track and steeper, about half as far again as down.
+  sit: { area: vec3(0.95, 0.3, 1), tilt: 28 * DEG, dive: 20 * DEG, ease: 40 * DEG, dir: 1 },
+  headDown: { area: vec3(1, 0.28, 1), tilt: 28 * DEG, dive: 20 * DEG, ease: 40 * DEG, dir: 1 },
+};
+
 /** Drag areas tucked in (falling faster) and spread out (slower), against neutral. */
 const TUCKED = 0.72;
 const SPREAD = 1.36;
@@ -154,6 +187,8 @@ export interface FreefallParams {
   reshape: number;
   /** Time for a turn to start or stop, s. */
   turnLag: number;
+  /** Time to stretch out into a track or come out of it, s. */
+  trackIn: number;
 }
 
 /** A body of this weight: bigger people are heavier and broader, and fall a little faster. */
@@ -169,6 +204,7 @@ export function freefallParams(exitWeightKg: number): FreefallParams {
     rollRate: 300 * DEG,
     reshape: 0.4,
     turnLag: 0.4,
+    trackIn: 0.6,
   };
 }
 
@@ -200,6 +236,10 @@ export class Freefall {
   loadFactor = 0;
   /** Drag areas the body shows along its axes right now, m²: they follow the position and the fall input. */
   readonly area: Vec3;
+  /** Asked to track (flat) or fly an angle (upright). */
+  tracking = false;
+  /** How far into the track the body is, 0 to 1. */
+  track = 0;
   /**
    * Which way a half turn onto the other side goes: +1 rolls to the right
    * or tips over the front, -1 the other way.
@@ -292,10 +332,13 @@ export class Freefall {
     const fall = clamp(input.fall, -1, 1);
     const size = p.bellyArea * (fall > 0 ? 1 + (TUCKED - 1) * fall : 1 + (SPREAD - 1) * -fall);
     const reshape = 1 - Math.exp(-dt / p.reshape);
+    // Into the track and out of it, the stretch taking its time.
+    const tr = TRACK_SHAPES[this.position];
+    const inTrack = (this.track += ((this.tracking ? 1 : 0) - this.track) * (1 - Math.exp(-dt / p.trackIn)));
     const area = this.area;
-    area.x += (shape.area.x * size - area.x) * reshape;
-    area.y += (shape.area.y * size - area.y) * reshape;
-    area.z += (shape.area.z * size - area.z) * reshape;
+    area.x += ((shape.area.x + (tr.area.x - shape.area.x) * inTrack) * size - area.x) * reshape;
+    area.y += ((shape.area.y + (tr.area.y - shape.area.y) * inTrack) * size - area.y) * reshape;
+    area.z += ((shape.area.z + (tr.area.z - shape.area.z) * inTrack) * size - area.z) * reshape;
 
     // Air past the body, as it moves relative to the body.
     const ux = air.wind.x - s.vel.x;
@@ -341,7 +384,10 @@ export class Freefall {
       const flowArea = along(shape.area, shape.downstream);
       const plate = (side: Vec3): number => (flowArea > along(shape.area, side) ? 1 : -1);
       const drive = clamp(input.forward, -1, 1);
-      const tilt = plate(shape.forward) * Math.tan(drive > 0 ? drive * shape.forwardTilt : drive * shape.backTilt);
+      const free = drive > 0 ? drive * shape.forwardTilt : drive * shape.backTilt;
+      // Tracking, the drive goes into the track: harder to dive it, back to ease off.
+      const tracked = tr.dir * (drive > 0 ? tr.tilt + (tr.dive - tr.tilt) * drive : tr.tilt + (tr.tilt - tr.ease) * drive);
+      const tilt = plate(shape.forward) * Math.tan(free + (tracked - free) * inTrack);
       const lean = plate(RIGHT) * Math.tan(clamp(input.slide, -1, 1) * shape.sideTilt);
       // Ahead and the right hand, square to the airflow.
       const h = ahead.x * flow.x + ahead.y * flow.y + ahead.z * flow.z;
