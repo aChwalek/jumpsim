@@ -452,6 +452,16 @@ function flyInto(position: BodyPosition): void {
   jump.fly(position, (flat ? b.slide : b.forward) < 0 ? -1 : 1);
 }
 
+/**
+ * ↑ / ↓: in freefall a quarter somersault, forwards or backwards, into the
+ * next position; in the door, the position to go out in.
+ */
+function flyStep(dir: -1 | 1): void {
+  if (paused || !jump) return;
+  if (jump.phase === 'freefall') jump.flip(dir);
+  else flyInto(stepPosition(jump.body.position, dir > 0 ? 'up' : 'down'));
+}
+
 /** In freefall R goes up: it only starts again once out of it. */
 const inFreefall = (): boolean => jump !== null && (jump.phase === 'freefall' || jump.phase === 'opening');
 
@@ -475,8 +485,8 @@ const actions: Record<Action, () => void> = {
   track: () => {
     if (!paused) devices.padTrack = !devices.padTrack;
   },
-  flyUp: () => jump && flyInto(stepPosition(jump.body.position, 'up')),
-  flyDown: () => jump && flyInto(stepPosition(jump.body.position, 'down')),
+  flyUp: () => flyStep(1),
+  flyDown: () => flyStep(-1),
   toggleHud: () => hud.toggle(),
   togglePause: () => (paused = !paused),
   toggleSound: () => {
