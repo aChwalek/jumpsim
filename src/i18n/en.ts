@@ -130,6 +130,16 @@ export const en: Strings = {
     onTop: 'ON THE ROOF',
     runAndJump: (fwd: string) => `${fwd} to run up · Space to jump`,
     delay: (s: string) => `${s} s`,
+    target: 'TARGET',
+    targetPoint: 'point on the ground',
+    targetMark: 'target',
+    noTarget: 'NO TARGET',
+    noPlayer: 'NO ONE IN SIGHT',
+    targetGone: 'TARGET GONE',
+    lockHint: (k: string) => `${k} to lock the camera on it`,
+    pickHint: (k: string) => `${k}: target what is in the middle of the screen`,
+    locked: 'CAMERA LOCKED ON TARGET',
+    unlocked: 'CAMERA FREE',
   },
 
   keys: {
@@ -175,6 +185,8 @@ export const en: Strings = {
     camera: 'camera',
     outsideCamera: 'outside camera',
     cameraZoom: 'camera, wheel for distance',
+    targetLock: 'target / lock camera',
+    targetLockPad: 'press: lock · hold: target',
   },
 
   logbook: {
@@ -416,6 +428,9 @@ export const en: Strings = {
         ['Cut away the main (hold)', k('KeyX'), 'B'],
         ['Reserve handle, once cut away', 'Space', 'A'],
         ['Camera: eyes / outside (wheel: distance)', k('KeyB'), 'View'],
+        ['Target: the player or the ground in the middle of the screen (the sky: no target)', k('KeyT'), 'right stick held'],
+        ['Target: next / previous player', 'Tab / Shift+Tab', '—'],
+        ['Lock the camera on the target, or free it', `${k('KeyL')} · middle click`, 'right stick pressed'],
         ['Freefall: turn', `${k('KeyA')} / ${k('KeyD')}`, 'triggers'],
         ['Freefall: forward, back, slide', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyQ')} / ${k('KeyE')}`, 'left stick'],
         ['Freefall: up / down', `${k('KeyR')} / ${k('KeyF')}`, 'LB / RB'],

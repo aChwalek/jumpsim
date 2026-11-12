@@ -134,6 +134,16 @@ export const fr = {
     onTop: 'SUR LE TOIT',
     runAndJump: (fwd: string) => `${fwd} pour prendre de l'élan · Espace pour sauter`,
     delay: (s: string) => `${s} s`,
+    target: 'CIBLE',
+    targetPoint: 'point au sol',
+    targetMark: 'cible',
+    noTarget: 'PAS DE CIBLE',
+    noPlayer: 'PERSONNE EN VUE',
+    targetGone: 'CIBLE PERDUE',
+    lockHint: (k: string) => `${k} pour verrouiller la caméra dessus`,
+    pickHint: (k: string) => `${k} : cibler ce qui est au centre de l'écran`,
+    locked: 'CAMÉRA VERROUILLÉE SUR LA CIBLE',
+    unlocked: 'CAMÉRA LIBRE',
   },
 
   keys: {
@@ -179,6 +189,8 @@ export const fr = {
     camera: 'caméra',
     outsideCamera: 'caméra extérieure',
     cameraZoom: 'caméra, molette distance',
+    targetLock: 'cible / verrou caméra',
+    targetLockPad: 'appui : verrou · maintenu : cible',
   },
 
   logbook: {
@@ -420,6 +432,9 @@ export const fr = {
         ['Libérer la principale (maintenir)', k('KeyX'), 'B'],
         ['Poignée de secours, une fois libéré', 'Espace', 'A'],
         ['Caméra : yeux / extérieure (molette : distance)', k('KeyB'), 'View'],
+        ['Cible : le joueur ou le sol au centre de l\'écran (le ciel : plus de cible)', k('KeyT'), 'stick droit maintenu'],
+        ['Cible : joueur suivant / précédent', 'Tab / Maj+Tab', '—'],
+        ['Verrouiller la caméra sur la cible, ou la libérer', `${k('KeyL')} · clic molette`, 'appui stick droit'],
         ['En chute : tourner', `${k('KeyA')} / ${k('KeyD')}`, 'gâchettes'],
         ['En chute : avancer, reculer, glisser', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyQ')} / ${k('KeyE')}`, 'stick gauche'],
         ['En chute : monter / descendre', `${k('KeyR')} / ${k('KeyF')}`, 'LB / RB'],

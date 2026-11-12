@@ -34,7 +34,14 @@ export type Action =
   /** Collapse or take off the slider. */
   | 'slider'
   /** Eyes, or outside. */
-  | 'camera';
+  | 'camera'
+  /** The player or the point in the middle of the screen becomes the target; nothing there, no target. */
+  | 'pickTarget'
+  /** The next or previous player as the target. */
+  | 'nextTarget'
+  | 'prevTarget'
+  /** The camera locked on the target, or free again. */
+  | 'lock';
 
 const ACTIONS: Record<string, Action> = {
   KeyR: 'reset',
@@ -54,6 +61,10 @@ const ACTIONS: Record<string, Action> = {
   Digit4: 'spawnBase',
   Space: 'jump',
   KeyV: 'openMenu',
+  // T as in target, L as in lock: the same letters on AZERTY.
+  KeyT: 'pickTarget',
+  KeyL: 'lock',
+  Tab: 'nextTarget',
   // Positions in freefall: head up / down a step from where the body is, roll or turn round.
   ArrowUp: 'flyUp',
   ArrowDown: 'flyDown',
@@ -79,6 +90,10 @@ const PAD_ACTIONS: [number, Action][] = [
 
 /** How long the cutaway key or button has to be held, ms: no cutaway by a slip of the finger. */
 export const CUTAWAY_HOLD = 350;
+/** The right stick pressed: let go before this, ms, it locks; held this long, it picks a target. */
+const PICK_HOLD = 350;
+/** The right stick pressed, standard mapping. */
+const PAD_LOCK = 11;
 const MOUSE_SENSITIVITY = 0.0022;
 const MAX_YAW = 2.6;
 const MAX_PITCH_UP = 1.45;
@@ -143,13 +158,16 @@ export class InputDevices {
   /** When the cutaway key or button went down, ms, and whether this hold has fired. */
   private cutawayFrom: number | null = null;
   private cutawayFired = false;
+  /** When the right stick went down, ms, and whether this press has picked a target. */
+  private lockFrom: number | null = null;
+  private lockPicked = false;
 
   constructor(private readonly surface: HTMLElement) {
     window.addEventListener('keydown', (e) => {
       if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
       this.lastUsed = 'keyboard';
       this.keys.add(e.code);
-      const action = ACTIONS[e.code];
+      const action = e.code === 'Tab' && e.shiftKey ? 'prevTarget' : ACTIONS[e.code];
       if (action) this.onAction(action);
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -163,6 +181,11 @@ export class InputDevices {
     // is captured: before, its click is what captures it.
     surface.addEventListener('mousedown', (e) => {
       if (e.button === 2 || (e.button === 0 && this.mouseCaptured)) this.magnify = true;
+      // The middle button, the wheel pressed: lock on the target, or let go.
+      if (e.button === 1) {
+        e.preventDefault();
+        this.onAction('lock');
+      }
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0 || e.button === 2) this.magnify = false;
@@ -283,6 +306,19 @@ export class InputDevices {
         this.cutawayFired = true;
         this.onAction('cutaway');
       }
+    }
+    // The right stick pressed: a tap locks, held it picks a target.
+    const lock = pad?.buttons[PAD_LOCK]?.pressed ?? false;
+    if (lock) {
+      this.lockFrom ??= now;
+      if (!this.lockPicked && now - this.lockFrom >= PICK_HOLD) {
+        this.lockPicked = true;
+        this.onAction('pickTarget');
+      }
+    } else if (this.lockFrom !== null) {
+      if (!this.lockPicked) this.onAction('lock');
+      this.lockFrom = null;
+      this.lockPicked = false;
     }
     f.forward = b.forward;
     this.lookYaw = clamp(this.mouseYaw + stickYaw, -MAX_YAW, MAX_YAW);
