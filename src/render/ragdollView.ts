@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { J, JOINT_COUNT } from '../sim/ragdoll';
+import { DEFAULT_HELMET, DEFAULT_SUIT, OUTFIT_COLORS, type Outfit } from './outfit';
 import { OUTSIDE_LAYER } from './scene';
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -28,14 +29,16 @@ export class RagdollView {
   private readonly b = new THREE.Vector3();
   private readonly c = new THREE.Vector3();
   private readonly basis = new THREE.Matrix4();
+  private readonly suit = new THREE.MeshLambertMaterial({ color: OUTFIT_COLORS[DEFAULT_SUIT] });
+  private readonly shell = new THREE.MeshLambertMaterial({ color: OUTFIT_COLORS[DEFAULT_HELMET] });
 
   constructor() {
-    const suit = new THREE.MeshLambertMaterial({ color: 0x1d2a44 });
+    const suit = this.suit;
     const webbing = new THREE.MeshLambertMaterial({ color: 0x33363b, emissive: 0x0d0e10 });
     const container = new THREE.MeshLambertMaterial({ color: 0x2c3036, emissive: 0x0b0c0e });
     const glove = new THREE.MeshLambertMaterial({ color: 0x6f747c, emissive: 0x1d1f23 });
     const shoe = new THREE.MeshLambertMaterial({ color: 0xdcdcdc });
-    const shell = new THREE.MeshLambertMaterial({ color: 0xe4e4e0 });
+    const shell = this.shell;
     const visor = new THREE.MeshLambertMaterial({ color: 0x121418, emissive: 0x050608 });
     const skin = new THREE.MeshLambertMaterial({ color: 0xc89a7c });
 
@@ -95,6 +98,12 @@ export class RagdollView {
       this.object.add(s, h);
     }
     this.object.visible = false;
+  }
+
+  /** The colours of the jumpsuit and of the helmet. */
+  setOutfit(outfit: Outfit): void {
+    this.suit.color.setHex(outfit.suit);
+    this.shell.color.setHex(outfit.helmet);
   }
 
   /** The materials, to be lit like the rest of the pilot. */

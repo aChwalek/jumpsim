@@ -20,6 +20,7 @@ import { LANGS, T, heading, lang, num, setLanguage, type Lang } from '../i18n';
 import { HOUR_MAX, HOUR_MIN, formatHour, sunPosition } from '../render/daylight';
 import { CANOPY_COLORS, type CanopyColorId } from '../render/canopyColors';
 import { SMOKE_BURN, SMOKE_COLORS, SMOKE_KINDS, type SmokeColor, type SmokeKind } from '../render/smoke';
+import { OUTFIT_COLORS, OUTFIT_COLOR_IDS, type OutfitColor } from '../render/outfit';
 import { OUTCOME_GROUPS, clearLogbook, loadLogbook, logStats, type LogEntry } from '../logbook';
 import { QUALITY_LEVELS, SENSITIVITY_MAX, SENSITIVITY_MIN, type Settings } from '../settings';
 import {
@@ -55,7 +56,7 @@ import {
   type Start,
 } from '../setup';
 import { AIRCRAFT } from '../sim/plane';
-import { SUIT_KINDS, SUIT_LEVELS, suitGlide, type SuitKind, type SuitLevel } from '../sim/suit';
+import { SUIT_KINDS, SUIT_LEVELS, hasWings, suitGlide, type SuitKind, type SuitLevel } from '../sim/suit';
 import { reserveSize, type CanopyKind } from '../sim/rig';
 import { trimSpeeds } from '../sim/telemetry';
 import {
@@ -155,9 +156,15 @@ const swatch = (id: CanopyColorId): string =>
     .map((c) => `<i style="background:#${c.toString(16).padStart(6, '0')}"></i>`)
     .join('')}</span>`;
 
+/** A round dot of a colour. */
+const dot = (color: number): string => `<span class="smoke-dot" style="background:#${color.toString(16).padStart(6, '0')}"></span>`;
+
 /** A round dot of the smoke's colour. */
-const smokeDot = (color: SmokeColor): string =>
-  `<span class="smoke-dot" style="background:#${SMOKE_COLORS[color].toString(16).padStart(6, '0')}"></span>`;
+const smokeDot = (color: SmokeColor): string => dot(SMOKE_COLORS[color]);
+
+/** The colours a helmet or a jumpsuit comes in, as dots. */
+const outfitChoices = (): Option<OutfitColor>[] =>
+  OUTFIT_COLOR_IDS.map((id) => ({ value: id, label: T.menu.gear.outfitColors[id], html: dot(OUTFIT_COLORS[id]) }));
 
 /** Where the sun is seen from final, flying this heading. */
 function sunOnFinal(azimuthDeg: number, finalDeg: number): string {
@@ -1082,6 +1089,15 @@ export class Menu {
       this.choice<SuitLevel>(g.suitLevel, options(SUIT_LEVELS, String), () => gear().suitLevel, (suitLevel) => this.setGear({ suitLevel }), {
         hint: g.suitLevelHint,
         disabled: () => gear().suit === 'jumpsuit',
+      }),
+      this.choice<OutfitColor>(g.suitColor, outfitChoices, () => gear().suitColor, (suitColor) => this.setGear({ suitColor }), {
+        value: () => g.outfitColors[gear().suitColor],
+        note: () => (hasWings(suitOf(gear())) ? g.suitColorNote : ''),
+        cls: 'outfits',
+      }),
+      this.choice<OutfitColor>(g.helmet, outfitChoices, () => gear().helmetColor, (helmetColor) => this.setGear({ helmetColor }), {
+        value: () => g.outfitColors[gear().helmetColor],
+        cls: 'outfits',
       }),
       this.choice<AltimeterKind>(
         g.altimeterRow,

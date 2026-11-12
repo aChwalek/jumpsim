@@ -31,9 +31,10 @@ import {
   rigFor,
   runHeading,
   sameFlight,
+  outfitOf,
   sameSuit,
-  suitColor,
   suitOf,
+  wingColor,
   type Setup,
   type Start,
 } from './setup';
@@ -194,11 +195,14 @@ function newRigView(): void {
   fitSuit();
 }
 
-/** The suit as the gear has it, its wings of the canopy's colour. */
+/** The suit as the gear has it, its wings of the canopy's colour, in the colours worn. */
 function fitSuit(): void {
   const suit = suitOf(setup.gear);
-  rigView.body.setSuit(suit, suitColor(setup.gear.color));
+  rigView.body.setSuit(suit, wingColor(setup.gear.color));
   posture.wings = hasWings(suit);
+  const outfit = outfitOf(setup.gear);
+  rigView.setOutfit(outfit);
+  ragdollView.setOutfit(outfit);
 }
 
 /** The canister on the ankle as the gear has it, and the colour of its smoke. */
