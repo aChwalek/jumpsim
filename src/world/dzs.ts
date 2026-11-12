@@ -9,7 +9,7 @@ import { createRealDz, type RealDzData, type RealDzLook } from './real';
 import { LOOKS } from './realDzs';
 import { TOWER_HEIGHT, createTowerZone } from './tower';
 
-export type DzId = 'valbrise' | 'tower' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadeloupe' | 'lauterbrunnen';
+export type DzId = 'valbrise' | 'tower' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadeloupe' | 'lauterbrunnen' | 'limska';
 
 export interface DzInfo {
   id: DzId;
@@ -33,8 +33,8 @@ export interface DzInfo {
   starts: { pattern: number; final: number; plane: number };
   /** The plane that flies jump run there. */
   aircraft: AircraftId;
-  /** An object to BASE jump from, and its height, m. */
-  base?: { height: number };
+  /** An object to BASE jump from, its height, m, and whether one stands at its edge rather than run to it (a bridge). */
+  base?: { height: number; standing?: boolean };
   /** The pack, if it has been loaded. */
   loaded(): DzPack | undefined;
   /** Loads the pack, the first time only. */
@@ -99,7 +99,7 @@ function real(
   icao: string | undefined,
   credit: Credit,
   data: () => Promise<{ DATA: RealDzData }>,
-  base?: { height: number },
+  base?: { height: number; standing?: boolean },
 ): DzInfo {
   const look: RealDzLook & { lat: number; lon: number; utcOffsetH: number } = LOOKS[id];
   let pack: DzPack | undefined;
@@ -141,6 +141,8 @@ export const DZS: DzInfo[] = [
   real('guadeloupe', 'Caraïbe Parachutisme', 'TFFC', 'france', () => import('./data/guadeloupe')),
   // High Nose: the height down to the landing field, as in tools/dz/lauterbrunnen.json.
   real('lauterbrunnen', 'High Nose', undefined, 'swiss', () => import('./data/lauterbrunnen'), { height: 545 }),
+  // The A9 viaduct: the road's height above the landing field, as built into data/limska.ts.
+  real('limska', 'Vijadukt Limska Draga', undefined, 'croatia', () => import('./data/limska'), { height: 115, standing: true }),
 ];
 
 export function dzInfo(id: DzId): DzInfo {

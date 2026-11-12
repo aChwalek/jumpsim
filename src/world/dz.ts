@@ -34,6 +34,28 @@ export interface Building {
   floors?: number;
 }
 
+/**
+ * What one stands on or runs into at a point: the top of the highest thing
+ * there whose underside is below `y` (anything, if not given). A bridge's deck
+ * is solid to whoever is level with it or above it, not to who flies under it.
+ */
+export type SolidAt = (x: number, z: number, y?: number) => number;
+
+/** A bridge: a straight deck on piers, the road on top. */
+export interface Bridge {
+  /** Ends of the deck's axis, x, z. */
+  a: [number, number];
+  b: [number, number];
+  /** The road, m above the plain. */
+  top: number;
+  /** Width of the deck, m. */
+  width: number;
+  /** Where the piers stand, m along the axis from `a`. */
+  piers: number[];
+  /** Depth of the girder under the road at the piers and mid-span, m. */
+  depth: [number, number];
+}
+
 /** The top of a BASE object, where the jumper stands and runs from. */
 export interface BaseExit {
   /** Where the jumper stands at the start, m. */
@@ -41,7 +63,10 @@ export interface BaseExit {
   z: number;
   /** Compass heading of the run, towards the edge, degrees. */
   headingDeg: number;
-  /** How far ahead the edge is, m. */
+  /**
+   * How far ahead the edge is, m. None (0) off a bridge: the jumper stands on
+   * the edge itself, outside the parapet, and jumps out from there.
+   */
   runUp: number;
   /** Width of the run marked on top, m. */
   width: number;
@@ -118,9 +143,12 @@ export interface DzPack {
   groundAt(x: number, z: number): number;
   /**
    * The top of whatever stands at a point, where it is something one can
-   * land on or hit (a tower's roof); the ground if not given.
+   * land on or hit (a tower's roof, a bridge's deck); the ground if not given.
+   * See SolidAt for `y`.
    */
-  topAt?(x: number, z: number): number;
+  topAt?(x: number, z: number, y?: number): number;
+  /** Bridges, drawn and solid. */
+  bridges?: Bridge[];
   /** An object to BASE jump from. */
   base?: BaseExit;
   /**
@@ -183,8 +211,8 @@ export interface DzPack {
   jumpRun: { downwind: number; offset: number; height: number; indicatedAirspeed: number; aircraft?: AircraftId };
 }
 
-/** What one stands on or runs into at a point: a roof where there is one, else the ground. */
-export const solidOf = (dz: DzPack): ((x: number, z: number) => number) => dz.topAt?.bind(dz) ?? dz.groundAt;
+/** What one stands on or runs into at a point: a roof or a deck where there is one, else the ground. */
+export const solidOf = (dz: DzPack): SolidAt => dz.topAt?.bind(dz) ?? dz.groundAt;
 
 /** Which way finals are flown with the wind from this direction, compass degrees. */
 export function landingHeading(dz: Pick<DzPack, 'landingAxisDeg'>, windFromDeg: number): number {

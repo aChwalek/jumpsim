@@ -1,6 +1,8 @@
 // On top of a BASE object, before the exit: walking about, then the run-up
 // to the edge. A running exit carries the jumper away from the wall, which
 // is the whole point of it: a step off the edge falls straight down along it.
+// Off a bridge there is no wall to clear and no room to run: the jumper
+// stands on the lip of the deck, outside the parapet, and jumps out.
 //
 // Feet on the top, no physics beyond speeds that build up and come off at a
 // runner's rate. Over the edge, or on the jump key, the jumper leaves with
@@ -23,6 +25,9 @@ const TURN_RATE = 2.2;
 /** Up off the last step, m/s, and the extra push along the run. */
 export const LEAP_UP = 2.8;
 const LEAP_AHEAD = 0.8;
+/** Out from a standing start, a push off the lip: m/s outwards and up. */
+export const STAND_OUT = 2;
+const STAND_UP = 1.8;
 /** The top falls away this much under the feet: over the edge, m. */
 const EDGE = 0.5;
 /**
@@ -58,29 +63,42 @@ export class RunUp {
   legR = 0;
   private stride = 0;
 
+  /**
+   * `y`: about where the feet are, which says what they stand on where a
+   * bridge passes over the ground; the top of what is there if not given.
+   * `standing`: on the lip of a bridge, where nobody walks: forward jumps out.
+   */
   constructor(
-    private readonly solidAt: (x: number, z: number) => number,
+    private readonly solidAt: (x: number, z: number, y?: number) => number,
     x: number,
     z: number,
     headingDeg: number,
+    y?: number,
+    readonly standing = false,
   ) {
     this.x = x;
     this.z = z;
-    this.y = solidAt(x, z);
+    this.y = solidAt(x, z, y);
     this.headingDeg = headingDeg;
   }
 
   /** Puts the feet down here again, standing still: after a hop that came back down on top. */
-  place(x: number, z: number): void {
+  place(x: number, z: number, y?: number): void {
     this.x = x;
     this.z = z;
-    this.y = this.solidAt(x, z);
+    this.y = this.solidAt(x, z, y);
     this.forward = this.side = 0;
     set(this.vel, 0, 0, 0);
   }
 
   /** Returns true once the feet have gone over the edge. */
   step(dt: number, input: BodyInputs): boolean {
+    if (this.standing) {
+      // Nothing but the jump out.
+      if (input.forward < 0.5) return false;
+      this.leap();
+      return true;
+    }
     const f = Math.max(-1, Math.min(1, input.forward));
     const wanted = f >= 0 ? f * RUN_SPEED : f * BACK_SPEED;
     const faster = (to: number, v: number): boolean => Math.abs(to) > Math.abs(v) && to * v >= 0;
@@ -96,7 +114,7 @@ export class RunUp {
     set(this.vel, ax * this.forward - az * this.side, 0, az * this.forward + ax * this.side);
     const x = this.x + this.vel.x * dt;
     const z = this.z + this.vel.z * dt;
-    const top = this.solidAt(x, z);
+    const top = this.solidAt(x, z, this.y);
     if (top > this.y + STEP_UP) {
       // Into a wall: stopped dead.
       this.forward = this.side = 0;
@@ -120,12 +138,12 @@ export class RunUp {
     return false;
   }
 
-  /** Off the last step: up and on along the run. */
+  /** Off the last step: up and on along the run; or from a standing start, out and up off the lip. */
   leap(): void {
     const h = this.headingDeg * DEG;
-    const push = this.forward > 0.5 ? LEAP_AHEAD : 0;
+    const push = this.standing ? STAND_OUT : this.forward > 0.5 ? LEAP_AHEAD : 0;
     this.vel.x += Math.sin(h) * push;
     this.vel.z -= Math.cos(h) * push;
-    this.vel.y = LEAP_UP;
+    this.vel.y = this.standing ? STAND_UP : LEAP_UP;
   }
 }

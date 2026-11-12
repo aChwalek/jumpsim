@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Lighting } from '../render/scene';
+import { buildBridges } from './bridge';
 import type { DzPack } from './dz';
 import { buildGrass } from './grass';
 import { buildDisc, buildSurfaces, buildTerrain, buildWater, loadPhotos } from './ground';
@@ -44,8 +45,9 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     water.object,
     flags.object,
   );
-  // The run is painted on a tower's roof; a cliff has nothing on it.
-  if (dz.base && dz.topAt) object.add(buildLedgeMarks(dz.base, dz.topAt(dz.base.x, dz.base.z)));
+  if (dz.bridges) object.add(buildBridges(dz.bridges, groundAt));
+  // The run is painted on a tower's roof; a cliff has nothing on it, and off a bridge there is no run.
+  if (dz.base && dz.topAt && dz.base.runUp > 0) object.add(buildLedgeMarks(dz.base, dz.topAt(dz.base.x, dz.base.z)));
   if (dz.targetShown !== false) {
     object.add(buildDisc(dz.target.x, dz.target.z, dz.target.radius, dz.targetColor ?? 0xcdbf9a, dz.targetLayer ?? 4));
     if (dz.targetCentre !== false) object.add(buildDisc(dz.target.x, dz.target.z, 0.6, 0xe0452a, (dz.targetLayer ?? 4) + 1));
