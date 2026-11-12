@@ -68,6 +68,10 @@ function keyboardRows(phase: KeysPhase): Row[] {
       ];
     case 'ground':
       return [
+        [[k('KeyW'), k('KeyS')], t.walk],
+        [[k('KeyQ'), k('KeyE')], t.turn],
+        [[k('KeyA'), k('KeyD')], t.sidestep],
+        [[t.space], t.gather],
         [[k('KeyR')], t.restart],
         [['1', '2', '3'], t.starts],
         [[k('KeyB')], t.outsideCamera],

@@ -34,7 +34,9 @@ export type Action =
   /** Collapse or take off the slider. */
   | 'slider'
   /** Eyes, or outside. */
-  | 'camera';
+  | 'camera'
+  /** The end of the jump again, in slow motion; or back from it. */
+  | 'replay';
 
 const ACTIONS: Record<string, Action> = {
   KeyR: 'reset',

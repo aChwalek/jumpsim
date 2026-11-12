@@ -168,3 +168,39 @@ describe('on the ground', () => {
     expect(end.canopy.z).toBeGreaterThan(model.state.pos.z + 2); // blown back by the headwind
   });
 });
+
+describe('walking off once down', () => {
+  const walkAfter = (sink: number, groundSpeed: number) => {
+    const model = new FlightModel(deriveRig(DEFAULT_RIG));
+    initTrimmed(model, vec3(0, 0, 0), 0, calmAir());
+    const s = model.state;
+    s.pos.y = -model.rig.feetPos.y;
+    const touchdown: Touchdown = { sink, groundSpeed, bankDeg: 0, rating: rateLanding(sink, groundSpeed, 0) };
+    const arrival = new Arrival(model, touchdown, { groundAt: flat, wet: false, wind: vec3() });
+    const still = { forward: 0, turn: 0, slide: 0, fall: 0 };
+    for (let i = 0; i < 20 / FRAME && !arrival.done; i++) arrival.update(FRAME, still);
+    return { model, arrival };
+  };
+
+  test('a stand-up landing can walk off once at rest, on its feet, a step at a time', () => {
+    const { model, arrival } = walkAfter(1, 1);
+    expect(arrival.canWalk).toBe(true);
+    const s = model.state;
+    const from = { x: s.pos.x, z: s.pos.z };
+    const steps = arrival.steps;
+    for (let i = 0; i < 4 / FRAME; i++) arrival.update(FRAME, { forward: 1, turn: 0, slide: 0, fall: 0 });
+    expect(arrival.walker).not.toBeNull();
+    expect(Math.hypot(s.pos.x - from.x, s.pos.z - from.z)).toBeGreaterThan(5);
+    expect(arrival.steps - steps).toBeGreaterThan(4);
+    // Upright, standing on the feet.
+    expect(feetHeight(model, flat)).toBeCloseTo(0, 1);
+    expect(lean(s.pilotAtt)).toBeLessThan(5);
+  });
+
+  test('nobody walks off a crash', () => {
+    const { arrival } = walkAfter(8, 6);
+    expect(arrival.canWalk).toBe(false);
+    arrival.update(FRAME, { forward: 1, turn: 0, slide: 0, fall: 0 });
+    expect(arrival.walker).toBeNull();
+  });
+});

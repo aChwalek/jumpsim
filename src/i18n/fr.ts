@@ -50,6 +50,11 @@ export const fr = {
 
   hud: {
     vario: 'VARIO',
+    replay: 'RALENTI',
+    skipReplay: 'Espace pour passer',
+    retry: 'Recommencer',
+    change: 'Changer',
+    watchAgain: 'Revoir',
     groundSpeed: 'VITESSE SOL',
     held: 'MAINTIEN',
     titles: {
@@ -160,6 +165,8 @@ export const fr = {
     bothFronts: 'les deux avants',
     hold: 'maintenir les commandes',
     restart: 'recommencer',
+    walk: 'marcher / reculer',
+    gather: 'ramasser la voile',
     starts: 'circuit / finale / avion',
     run: 'courir / reculer',
     sidestep: 'pas de côté',

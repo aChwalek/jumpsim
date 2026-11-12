@@ -168,6 +168,9 @@ export class CanopyView {
   private readonly heapAcross = new THREE.Vector3(1, 0, 0);
   private readonly heapCentre = new THREE.Vector3();
   private heapSet = false;
+  /** Gathered up off the ground into the arms, 0 to 1, and where the bundle is, world frame. */
+  private gather = 0;
+  private readonly bundle = new THREE.Vector3();
   private released = false;
   private armsShown = true;
   private sliderState: SliderState = 'open';
@@ -177,6 +180,8 @@ export class CanopyView {
 
   // Scratch, and the frame of this moment.
   private readonly p = new THREE.Vector3();
+  private readonly p2 = new THREE.Vector3();
+  private readonly p3 = new THREE.Vector3();
   private readonly q = new THREE.Vector3();
   private readonly a = new THREE.Vector3();
   private readonly b = new THREE.Vector3();
@@ -477,6 +482,30 @@ export class CanopyView {
     }
   }
 
+  /**
+   * The pilot walking off with the canopy on the ground behind: once the
+   * lines are tight, the heap is dragged along after `feet` (world frame).
+   */
+  dragHeap(feet: THREE.Vector3): void {
+    if (!this.heapSet || this.gather > 0) return;
+    const reach = this.rig.lineLength * 0.85 + 0.9;
+    const dx = this.heapCentre.x - feet.x;
+    const dz = this.heapCentre.z - feet.z;
+    const d = Math.hypot(dx, dz);
+    if (d <= reach) return;
+    this.heapCentre.x = feet.x + (dx / d) * reach;
+    this.heapCentre.z = feet.z + (dz / d) * reach;
+    // The fabric trails behind, along the pull.
+    this.heapAlong.set(dx / d, 0, dz / d);
+    this.heapAcross.set(-this.heapAlong.z, 0, this.heapAlong.x);
+  }
+
+  /** Gathered up off the ground, 0 to 1, into a bundle held at `at` (world frame). */
+  setGather(k: number, at?: THREE.Vector3): void {
+    this.gather = k;
+    if (at) this.bundle.copy(at);
+  }
+
   /** The risers are free of the harness: the canopy has been cut away. */
   setReleased(released: boolean): void {
     this.released = released;
@@ -681,6 +710,17 @@ export class CanopyView {
           .addScaledVector(this.heapAcross, x)
           .addScaledVector(this.heapAlong, z);
         w.y = this.groundLocalWorld + h;
+        if (this.gather > 0) {
+          // Pulled in and rolled up in the arms: the heap, shrunk round the bundle.
+          const g = ease(this.gather);
+          const shrink = 1 - 0.88 * g;
+          w.sub(this.heapCentre);
+          w.y -= this.groundLocalWorld;
+          w.x *= shrink;
+          w.z *= shrink;
+          w.y = (w.y - 0.15) * (1 - 0.3 * g);
+          w.add(this.p2.lerpVectors(this.p3.copy(this.heapCentre).setY(this.groundLocalWorld + 0.15), this.bundle, g));
+        }
         // Into the canopy's frame.
         w.sub(this.object.position).applyQuaternion(this.inverse);
         out.lerp(w, k);
