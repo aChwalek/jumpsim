@@ -9,7 +9,7 @@ import { T } from '../i18n';
 import { keyLabel } from '../input/keyLabels';
 
 /** `ledge`: on top of a BASE object, before the exit; `baseCanopy`: under its one canopy, which cannot be cut away. */
-export type KeysPhase = 'ledge' | 'plane' | 'freefall' | 'wingsuit' | 'canopy' | 'baseCanopy' | 'ground';
+export type KeysPhase = 'ledge' | 'plane' | 'freefall' | 'wingsuit' | 'canopy' | 'baseCanopy' | 'ground' | 'replay';
 export type InputKind = 'keyboard' | 'gamepad';
 export type PadKind = 'xbox' | 'playstation';
 
@@ -81,6 +81,15 @@ function keyboardRows(phase: KeysPhase): Row[] {
         [[k('KeyT'), k('KeyL')], t.targetLock],
         [[k('KeyB')], t.cameraZoom],
       ];
+    case 'replay':
+      return [
+        [[t.space], t.playPause],
+        [['←', '→'], t.seek],
+        [['↑', '↓'], t.speed],
+        [[k('KeyR')], t.fromStart],
+        [[t.esc], t.leave],
+        [[t.mouse], t.orbit],
+      ];
     case 'ground':
       return [
         [[k('KeyW'), k('KeyS')], t.walk],
@@ -149,6 +158,15 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
         [['rs'], t.look],
         [['rs'], t.targetLockPad],
         [['view'], t.camera],
+      ];
+    case 'replay':
+      return [
+        [['a'], t.playPause],
+        [['left', 'right'], t.seek],
+        [['up', 'down'], t.speed],
+        [['y'], t.fromStart],
+        [['start'], t.leave],
+        [['rs'], t.orbitPad],
       ];
     case 'ground':
       return [
