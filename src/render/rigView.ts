@@ -1,210 +1,64 @@
-// What the pilot sees of their own gear: canopy overhead, lines, risers, legs,
-// and the shadow they cast on the ground (a strong height cue near landing).
+// The pilot and the canopy over them, as drawn: the body in its harness, the
+// canopy it hangs from (the main, or the reserve once the main is gone), and
+// the shadows both cast on the ground (a strong height cue near landing).
 
 import * as THREE from 'three';
 import type { Controls, FlightModel } from '../sim/flightModel';
 import type { RigParams } from '../sim/rig';
-import { Body, SHOULDER } from './body';
-import { GEAR_LAYER, type Lighting } from './scene';
+import { BOC, Body, PIN, RESERVE_PIN, RING } from './body';
+import { CanopyView, type CanopyLook } from './canopyView';
+import type { DeployStage } from './deployment';
+import type { Lighting } from './scene';
 
-const DEG = Math.PI / 180;
-const CELLS = 9;
-const CHORD_STATIONS = [0.02, 0.1, 0.25, 0.45, 0.62, 0.76, 0.88, 1];
-const LINE_CHORDS = [0.08, 0.3, 0.55, 0.8];
-/** Shade of each chamber of a cell, so that the seams can be made out. */
-const CHAMBER_SHADES = [1, 0.93, 0.97];
-const HINGE = 0.72;
-
-// The gear within arm's reach, canopy frame, right-hand side (x is mirrored
-// for the left). The origin is the joint, between the shoulders; the eyes are
-// 10 cm above it. The risers run up beside the head, where an eye sees them
-// but a screen does not. The toggles come down along the rear risers as they
-// do in the air, so they too are seen by looking up, down or sideways; the
-// front risers are pulled down and a little forwards, into the picture.
-const RISER_FOOT = new THREE.Vector3(0.19, -0.02, -0.05);
-const FRONT_LINK = new THREE.Vector3(0.21, 0, -0.11);
-const REAR_LINK = new THREE.Vector3(0.23, 0, 0.03);
-/** How far a fully pulled front riser comes down, m. */
-const FRONT_PULL = 0.18;
-/** The shoulder, where the body puts it. */
-const ARM_ROOT = SHOULDER;
-const UPPER_ARM = 0.3;
-const FOREARM = 0.28;
-/** Elbows point down, out and a little back, as when pulling something down. */
-const ELBOW_OUT = new THREE.Vector3(0.6, -0.7, 0.35);
-const UP = new THREE.Vector3(0, 1, 0);
-/** Half the slider's width and depth, m: it rides down the lines as the canopy opens. */
-const SLIDER = { x: 0.36, z: 0.4 };
-/** Fabric of the slider bunched up above the links once down, m. */
-const SLIDER_BILLOW = 0.28;
-
-const ease = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
-
-/** How far the canopy has opened: its span, its chord and how full its cells are, 0 to 1 each. */
-interface Shape {
-  spread: number;
-  chord: number;
-  fill: number;
-  /** Slider height between the links (0) and the canopy (1). */
-  slider: number;
-}
-
-function shapeAt(inflation: number): Shape {
-  return {
-    spread: 0.1 + 0.9 * ease((inflation - 0.05) / 0.75),
-    chord: 0.45 + 0.55 * ease(inflation / 0.5),
-    fill: 0.25 + 0.75 * ease(inflation / 0.6),
-    slider: 1 - ease((inflation - 0.15) / 0.75),
-  };
-}
-
-/** What hangs on one side of the pilot: risers, toggle, and the arm working them. */
-interface Side {
-  sign: number;
-  front: THREE.Mesh;
-  rear: THREE.Mesh;
-  toggle: THREE.Mesh;
-  hand: THREE.Mesh;
-  upperArm: THREE.Mesh;
-  forearm: THREE.Mesh;
-  /** Top of the front and rear risers, the ring the steering line runs through, and the hand. */
-  frontLink: THREE.Vector3;
-  rearLink: THREE.Vector3;
-  ring: THREE.Vector3;
-  grip: THREE.Vector3;
-  /** Where the front and rear lines of this side pass through the slider. */
-  frontGrommet: THREE.Vector3;
-  rearGrommet: THREE.Vector3;
+/** What the frame needs to know beyond the flight model. */
+export interface RigFrame {
+  time: number;
+  dt: number;
+  wind: THREE.Vector3;
+  airDensity: number;
+  /** Where the pilot chute and bag are, and how long they have been there, s. */
+  deploy: DeployStage;
+  deployTime: number;
+  /** While the lines pay out: how far the bag has been carried, 0 at the container to 1 at line stretch. */
+  bagOut: number;
 }
 
 export class RigView {
-  /** Canopy, lines and risers: follows the canopy's frame in the flight model. */
+  /** Everything, world frame: add it to the scene. */
   readonly object = new THREE.Group();
   /** The pilot's body, which hangs from the risers and follows its own frame. */
   readonly pilot = new THREE.Group();
-  /** Lives in world space, flat on the ground. */
-  readonly shadow = new THREE.Group();
-
-  private readonly canopy: THREE.BufferGeometry;
-  private readonly lines: THREE.BufferGeometry;
-  private readonly canopyShadow: THREE.Mesh;
-  private readonly pilotShadow: THREE.Mesh;
-  private readonly shadowMaterial: THREE.MeshBasicMaterial;
-  private readonly p = new THREE.Vector3();
-  private readonly centre = new THREE.Vector3();
-  private readonly feet = new THREE.Vector3();
-  private readonly head = new THREE.Vector3();
-  /** Strips of fabric across the span: one per chamber. */
-  private readonly steps: number;
-  private readonly last = { brakeL: -1, brakeR: -1, frontL: -1, frontR: -1, handL: -1, handR: -1, inflation: -1 };
-  /** 1 once open; less while the canopy fills. */
-  private inflation = 1;
-  private shape = shapeAt(1);
-  private readonly slider: THREE.BufferGeometry;
-  private readonly sliderMesh: THREE.Mesh;
   /** The pilot's body, posed by whoever drives it. */
   readonly body: Body;
-  private readonly sides: Side[] = [];
-  private readonly a = new THREE.Vector3();
-  private readonly b = new THREE.Vector3();
-  private readonly e = new THREE.Vector3();
-  private readonly reach = new THREE.Vector3();
+  /** The canopy the pilot hangs from, or will. */
+  canopy: CanopyView;
+  /** It has been cut away and is no longer this view's to draw. */
+  detached = false;
 
-  /** Brightness of the daylight on the fabric where the canopy is. */
-  private readonly fabric = new THREE.Color(1, 1, 1);
+  private readonly pilotShadow: THREE.Mesh;
+  private readonly shadowMaterial: THREE.MeshBasicMaterial;
+  private readonly shadow = new THREE.Group();
+  private readonly feet = new THREE.Vector3();
+  private readonly head = new THREE.Vector3();
+  private readonly pos = new THREE.Vector3();
+  private readonly att = new THREE.Quaternion();
+  private readonly pilotAtt = new THREE.Quaternion();
+  private readonly look: CanopyLook;
+  private readonly air = new THREE.Vector3();
+  private readonly flow = new THREE.Vector3();
+  private readonly vel = new THREE.Vector3();
+  private readonly hand = new THREE.Vector3();
+  private readonly pin = new THREE.Vector3();
+  private readonly bagOut = new THREE.Vector3();
+  private readonly top = new THREE.Vector3();
+  private readonly risers = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  private readonly launch = new THREE.Vector3();
+  /** The main's pilot chute: open while it pulls, then collapsed by its kill line. */
+  private pilotChuteOpen = 0;
 
-  /**
-   * `cells`: one colour per cell, left tip to right tip. `light`: the light
-   * of the moment, whose cloud shadows reach the pilot too.
-   */
-  constructor(
-    private readonly rig: RigParams,
-    palette: number[],
-    light: Lighting,
-  ) {
-    const chambers = rig.config.chambersPerCell;
-    this.steps = CELLS * chambers;
-    const quads = this.steps * (CHORD_STATIONS.length - 1) * 2;
-    this.canopy = new THREE.BufferGeometry();
-    this.canopy.setAttribute('position', new THREE.BufferAttribute(new Float32Array(quads * 18), 3));
-    const colors = new Float32Array(quads * 18);
-    const color = new THREE.Color();
-    let o = 0;
-    for (let surface = 0; surface < 2; surface++) {
-      for (let i = 0; i < this.steps; i++) {
-        color.setHex(palette[Math.floor(i / chambers)]!);
-        // Unlit: the fabric glows with the sun behind it. A slight shade on
-        // the chambers of a cell and on the underside keeps the shape readable.
-        color.multiplyScalar((surface === 1 ? 0.86 : 1) * CHAMBER_SHADES[i % chambers]!);
-        for (let k = 0; k < (CHORD_STATIONS.length - 1) * 6; k++) {
-          colors[o++] = color.r;
-          colors[o++] = color.g;
-          colors[o++] = color.b;
-        }
-      }
-    }
-    this.canopy.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const fabricMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
-    // Dimmed with the daylight, and under the clouds: see `update`.
-    fabricMaterial.color = this.fabric;
-    this.object.add(new THREE.Mesh(this.canopy, fabricMaterial));
-
-    const ribs = CELLS + 1;
-    // Every line from the slider up, the four bundles from the links to the
-    // slider, the steering lines from their rings, and down to the toggles.
-    const segments = ribs * LINE_CHORDS.length + ribs + 4 + 2 + 2;
-    this.lines = new THREE.BufferGeometry();
-    this.lines.setAttribute('position', new THREE.BufferAttribute(new Float32Array(segments * 6), 3));
-    this.object.add(new THREE.LineSegments(this.lines, new THREE.LineBasicMaterial({ color: 0x1c1c1c })));
-
-    // The slider: a square of fabric round the lines, four triangles to a point.
-    this.slider = new THREE.BufferGeometry();
-    this.slider.setAttribute('position', new THREE.BufferAttribute(new Float32Array(4 * 9), 3));
-    const sliderMesh = new THREE.Mesh(
-      this.slider,
-      // Darker than any cell, so it reads against the canopy behind it.
-      new THREE.MeshBasicMaterial({ color: 0x3a3f47, side: THREE.DoubleSide }),
-    );
-    sliderMesh.frustumCulled = false;
-    this.sliderMesh = sliderMesh;
-    this.object.add(sliderMesh);
-
-    // Risers, toggles and the arms on them: boxes stretched between two points.
-    const suit = new THREE.MeshLambertMaterial({ color: 0x1d2a44 });
-    // Seen from below against the sky, most of this is in its own shade: a
-    // little glow keeps it from going black.
-    const webbing = new THREE.MeshLambertMaterial({ color: 0x33363b, emissive: 0x0d0e10 });
-    const glove = new THREE.MeshLambertMaterial({ color: 0x6f747c, emissive: 0x1d1f23 });
-    const handle = new THREE.MeshLambertMaterial({ color: 0xffd84a });
-    const add = (geometry: THREE.BufferGeometry, material: THREE.Material): THREE.Mesh => {
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.layers.set(GEAR_LAYER);
-      this.object.add(mesh);
-      return mesh;
-    };
-    const part = (width: number, depth: number, material: THREE.Material, length = 1): THREE.Mesh =>
-      add(new THREE.BoxGeometry(width, length, depth), material);
-    /** A rounded limb one metre long, to be stretched between two joints. */
-    const limb = (radius: number): THREE.Mesh => add(new THREE.CapsuleGeometry(radius, 1 - 2 * radius, 3, 10), suit);
-    for (const sign of [-1, 1]) {
-      this.sides.push({
-        sign,
-        front: part(0.027, 0.006, webbing),
-        rear: part(0.027, 0.006, webbing),
-        toggle: part(0.024, 0.01, handle, 0.11),
-        hand: add(new THREE.IcosahedronGeometry(0.046, 2).scale(0.85, 1.15, 0.9), glove),
-        upperArm: limb(0.042),
-        forearm: limb(0.034),
-        frontLink: new THREE.Vector3(),
-        rearLink: new THREE.Vector3(),
-        ring: new THREE.Vector3(),
-        grip: new THREE.Vector3(),
-        frontGrommet: new THREE.Vector3(),
-        rearGrommet: new THREE.Vector3(),
-      });
-    }
-
-    // The rest of the pilot: torso, harness, container, legs, free arms.
+  /** `palette`: one colour per cell, left tip to right tip. */
+  constructor(rig: RigParams, palette: number[], light: Lighting) {
+    this.canopy = new CanopyView(rig, palette, light);
     this.body = new Body(rig);
     this.pilot.add(this.body.group);
 
@@ -214,305 +68,173 @@ export class RigView {
       opacity: 0.4,
       depthWrite: false,
       polygonOffset: true,
-      // Over every layer of flat ground, and the shadows of the trees.
       polygonOffsetFactor: -22,
       polygonOffsetUnits: -22,
     });
-    this.canopyShadow = new THREE.Mesh(
-      new THREE.PlaneGeometry(rig.span * 0.92, rig.chord).rotateX(-Math.PI / 2),
-      this.shadowMaterial,
-    );
     // One metre across, stretched to the pilot's shadow every frame.
     this.pilotShadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24).rotateX(-Math.PI / 2), this.shadowMaterial);
-    this.canopyShadow.renderOrder = this.pilotShadow.renderOrder = 7;
-    this.shadow.add(this.canopyShadow, this.pilotShadow);
-    // Out of the sun under a cloud: the body loses its sunlit side, the
-    // shadows fade out where the cloud's shadow covers them.
+    this.pilotShadow.renderOrder = 7;
+    this.shadow.add(this.pilotShadow);
     light.clouds.shade(this.shadowMaterial, 'shadow');
     const lit = new Set<THREE.Material>();
-    for (const group of [this.object, this.pilot]) {
-      group.traverse((node) => {
-        const material = (node as THREE.Mesh).material;
-        for (const m of Array.isArray(material) ? material : material ? [material] : []) {
-          if (m instanceof THREE.MeshLambertMaterial) lit.add(m);
-        }
-      });
-    }
+    this.pilot.traverse((node) => {
+      const material = (node as THREE.Mesh).material;
+      for (const m of Array.isArray(material) ? material : material ? [material] : []) {
+        if (m instanceof THREE.MeshLambertMaterial) lit.add(m);
+      }
+    });
     for (const m of lit) light.clouds.shade(m, 'light');
-    const still = { brakeL: 0, brakeR: 0, frontL: 0, frontR: 0 };
-    this.reshape(still, still);
+    this.object.add(this.pilot, this.shadow);
+    this.adopt(this.canopy);
+
+    this.look = {
+      time: 0,
+      dt: 0,
+      air: this.air,
+      controls: { brakeL: 0, brakeR: 0, frontL: 0, frontR: 0 },
+      hands: { brakeL: 0, brakeR: 0, frontL: 0, frontR: 0 },
+      pilotAtt: this.pilotAtt,
+      ground: 0,
+    };
   }
 
-  /**
-   * How far the canopy is out: null while it is still packed (in the plane
-   * and in freefall), then from 0 at line stretch to 1 once open.
-   */
+  private adopt(view: CanopyView): void {
+    this.object.add(view.object, view.shadow, view.deployment.object);
+  }
+
+  /** Lets go of the canopy (cut away): it is the caller's to draw from now on. */
+  detachCanopy(): CanopyView {
+    const view = this.canopy;
+    this.object.remove(view.object, view.shadow, view.deployment.object);
+    view.setReleased(true);
+    this.detached = true;
+    return view;
+  }
+
+  /** Hangs the pilot under another canopy (the reserve). The one before must have been detached or disposed. */
+  attachCanopy(view: CanopyView): void {
+    this.canopy = view;
+    this.detached = false;
+    this.adopt(view);
+  }
+
+  /** How far the canopy is out: null while packed, from 0 at line stretch to 1 open. */
   setInflation(inflation: number | null): void {
-    this.object.visible = inflation !== null;
-    this.canopyShadow.visible = inflation !== null && inflation >= 1;
-    this.inflation = inflation ?? 1;
-    // Once down on the links the slider is pulled down behind the head, out
-    // of the way, as most sport jumpers do.
-    this.sliderMesh.visible = this.inflation < 1;
+    if (!this.detached) this.canopy.setInflation(inflation);
   }
 
-  /** Stretches a box made one metre long from a to b, or just points it that way. */
-  private span(mesh: THREE.Mesh, a: THREE.Vector3, b: THREE.Vector3, stretch = true): void {
-    const along = this.e.subVectors(b, a);
-    const length = along.length() || 1e-6;
-    if (stretch) {
-      mesh.position.addVectors(a, b).multiplyScalar(0.5);
-      mesh.scale.y = length;
-    }
-    mesh.quaternion.setFromUnitVectors(UP, along.divideScalar(length));
-  }
-
-  /**
-   * Puts the risers, the toggle and the arm of one side where the controls
-   * have them. The hand keeps its toggle: it brings it down in front of the
-   * body to brake, and takes it along to the front riser to pull that down.
-   */
-  private rigSide(g: Side, brake: number, front: number): void {
-    const { a, b } = this;
-    const linksY = this.rig.linksPos.y;
-    const foot = a.set(g.sign * RISER_FOOT.x, RISER_FOOT.y, RISER_FOOT.z);
-    g.rearLink.set(g.sign * REAR_LINK.x, linksY, REAR_LINK.z);
-    g.frontLink.set(g.sign * (FRONT_LINK.x + 0.01 * front), linksY - FRONT_PULL * front, FRONT_LINK.z - 0.15 * front);
-    g.ring.lerpVectors(foot, g.rearLink, 0.8);
-    this.span(g.rear, foot, g.rearLink);
-    this.span(g.front, foot, g.frontLink);
-
-    // The toggle comes straight down along the rear riser, passes just in
-    // front of the shoulder and ends at arm's length beside the thigh.
-    const pass = Math.sin(Math.PI * brake);
-    g.grip.set(g.sign * (0.24 + 0.03 * brake), 0.34 - 0.97 * brake, -0.05 * brake - 0.075 * pass);
-    // The loop of the front riser, just under its link.
-    const loop = a.set(g.frontLink.x, g.frontLink.y - 0.06, g.frontLink.z - 0.01);
-    g.grip.lerp(loop, ease(front / 0.15));
-    g.toggle.position.copy(g.grip).addScaledVector(UP, 0.035);
-    this.span(g.toggle, g.grip, g.ring, false);
-
-    // Shoulder, elbow, hand: two bones of fixed length, the elbow kept out.
-    const root = a.set(g.sign * ARM_ROOT.x, ARM_ROOT.y, ARM_ROOT.z);
-    const reach = this.reach.subVectors(g.grip, root);
-    const d = Math.min(reach.length(), UPPER_ARM + FOREARM - 0.005);
-    reach.normalize();
-    const along = (UPPER_ARM * UPPER_ARM - FOREARM * FOREARM + d * d) / (2 * d);
-    const out = Math.sqrt(Math.max(0, UPPER_ARM * UPPER_ARM - along * along));
-    const side = this.p.set(g.sign * ELBOW_OUT.x, ELBOW_OUT.y, ELBOW_OUT.z);
-    side.addScaledVector(reach, -side.dot(reach)).normalize();
-    const elbow = b.copy(root).addScaledVector(reach, along).addScaledVector(side, out);
-    this.span(g.upperArm, root, elbow);
-    this.span(g.forearm, elbow, g.grip);
-    g.hand.position.copy(g.grip);
-    g.hand.quaternion.copy(g.forearm.quaternion);
-  }
-
-  /**
-   * Shows or hides the arms and the toggles in the hands. They let go on the
-   * ground, where the canopy falls away from the pilot.
-   */
+  /** Shows or hides the arms and the toggles in the hands: they let go on the ground. */
   setArms(visible: boolean): void {
-    for (const g of this.sides) {
-      g.toggle.visible = g.hand.visible = g.upperArm.visible = g.forearm.visible = visible;
-    }
+    if (!this.detached) this.canopy.setArms(visible);
   }
 
   /** Frees what the view holds on the graphics card, once it has left the scene. */
   dispose(): void {
-    for (const group of [this.object, this.pilot, this.shadow]) {
-      group.traverse((node) => {
-        const { geometry, material } = node as THREE.Mesh;
-        geometry?.dispose();
-        for (const m of Array.isArray(material) ? material : material ? [material] : []) m.dispose();
-      });
-    }
-  }
-
-  /** Point on the canopy skin, canopy frame. s: -1 left tip .. 1 right tip, c: 0 nose .. 1 tail. */
-  private skin(out: THREE.Vector3, s: number, c: number, top: boolean, brakeL: number, brakeR: number): THREE.Vector3 {
-    const rig = this.rig;
-    const shape = this.shape;
-    const theta = (s * shape.spread * rig.span) / (2 * rig.lineLength);
-    const sin = Math.sin(theta);
-    const cos = Math.cos(theta);
-    const incidence = rig.config.riggingAngleDeg * DEG;
-    const ci = Math.cos(incidence);
-    const si = Math.sin(incidence);
-    const outer = Math.max(0, (Math.abs(s) - 0.7) / 0.3);
-    const chord = rig.chord * (1 - 0.3 * outer * outer) * shape.chord;
-    const half = 0.7 * shape.fill * (0.2969 * Math.sqrt(c) - 0.126 * c - 0.3516 * c * c + 0.2843 * c ** 3 - 0.1015 * c ** 4);
-    let lift = (top ? half : -0.25 * half) * chord;
-    if (c > HINGE) {
-      const brake = (s < 0 ? brakeL : brakeR) * (0.5 + Math.abs(s));
-      lift -= (c - HINGE) * chord * Math.sin(Math.min(1.5, brake) * 42 * DEG);
-    }
-    const along = (0.25 - c) * chord;
-    const radius = rig.lineLength;
-    // Quarter-chord point on the arc, then along the chord and the normal.
-    return out.set(
-      radius * sin + along * si * sin + lift * ci * sin,
-      rig.linksPos.y + radius * cos + along * si * cos + lift * ci * cos,
-      -along * ci + lift * si,
-    );
-  }
-
-  /** `hands`: where the hands have the toggles, which stowed brakes leave short of the canopy's. */
-  private reshape(c: Controls, hands: Controls): void {
-    this.shape = shapeAt(this.inflation);
-    const { brakeL, brakeR } = c;
-    const p = this.p;
-    const position = this.canopy.getAttribute('position') as THREE.BufferAttribute;
-    let v = 0;
-    const put = (s: number, c: number, top: boolean): void => {
-      this.skin(p, s, c, top, brakeL, brakeR);
-      position.setXYZ(v++, p.x, p.y, p.z);
-    };
-    for (let surface = 0; surface < 2; surface++) {
-      const top = surface === 0;
-      for (let i = 0; i < this.steps; i++) {
-        const s0 = (i / this.steps) * 2 - 1;
-        const s1 = ((i + 1) / this.steps) * 2 - 1;
-        for (let j = 0; j < CHORD_STATIONS.length - 1; j++) {
-          const c0 = CHORD_STATIONS[j]!;
-          const c1 = CHORD_STATIONS[j + 1]!;
-          put(s0, c0, top);
-          put(s1, c0, top);
-          put(s1, c1, top);
-          put(s0, c0, top);
-          put(s1, c1, top);
-          put(s0, c1, top);
-        }
-      }
-    }
-    position.needsUpdate = true;
-    this.canopy.computeVertexNormals();
-    this.canopy.computeBoundingSphere();
-
-    const [left, right] = [this.sides[0]!, this.sides[1]!];
-    this.rigSide(left, hands.brakeL, c.frontL);
-    this.rigSide(right, hands.brakeR, c.frontR);
-    this.placeSlider();
-
-    const line = this.lines.getAttribute('position') as THREE.BufferAttribute;
-    let n = 0;
-    const segment = (from: THREE.Vector3, to: THREE.Vector3): void => {
-      line.setXYZ(n++, from.x, from.y, from.z);
-      line.setXYZ(n++, to.x, to.y, to.z);
-    };
-    for (let rib = 0; rib <= CELLS; rib++) {
-      const s = (rib / CELLS) * 2 - 1;
-      const g = s < 0 ? left : right;
-      // The two front rows of lines go to the front riser, the others to the
-      // rear, all through the slider's grommets.
-      LINE_CHORDS.forEach((chord, k) => {
-        segment(k < 2 ? g.frontGrommet : g.rearGrommet, this.skin(p, s, chord, false, brakeL, brakeR));
-      });
-      // Steering lines fan out to the tail from the rear grommet.
-      segment(g.rearGrommet, this.skin(p, s, 1, false, brakeL, brakeR));
-    }
-    for (const g of [left, right]) {
-      segment(g.frontLink, g.frontGrommet);
-      segment(g.rearLink, g.rearGrommet);
-      segment(g.ring, g.rearGrommet);
-    }
-    // And from the ring down to the toggle in the hand.
-    segment(left.grip, left.ring);
-    segment(right.grip, right.ring);
-    line.needsUpdate = true;
-    this.lines.computeBoundingSphere();
-  }
-
-  /**
-   * The slider comes down the lines as the canopy opens. Its grommets sit on
-   * the line bundles, which run from the links up to the canopy, so they
-   * close in on the links as it comes down; the fabric left over billows up.
-   */
-  private placeSlider(): void {
-    const rig = this.rig;
-    const k = this.shape.slider;
-    const up = rig.linksPos.y + 0.9 * rig.lineLength * Math.cos((0.5 * this.shape.spread * rig.span) / (2 * rig.lineLength));
-    for (const g of this.sides) {
-      const top = this.p;
-      top.set(g.sign * SLIDER.x, up, -SLIDER.z);
-      g.frontGrommet.lerpVectors(g.frontLink, top, k);
-      top.set(g.sign * SLIDER.x, up, SLIDER.z);
-      g.rearGrommet.lerpVectors(g.rearLink, top, k);
-    }
-    const [l, r] = [this.sides[0]!, this.sides[1]!];
-    const corners = [l.frontGrommet, r.frontGrommet, r.rearGrommet, l.rearGrommet];
-    const centre = this.centre.set(0, 0, 0);
-    for (const c of corners) centre.add(c);
-    centre.multiplyScalar(0.25);
-    centre.y += 0.04 + SLIDER_BILLOW * (1 - k);
-    const position = this.slider.getAttribute('position') as THREE.BufferAttribute;
-    corners.forEach((a, i) => {
-      const b = corners[(i + 1) % 4]!;
-      position.setXYZ(i * 3, a.x, a.y, a.z);
-      position.setXYZ(i * 3 + 1, b.x, b.y, b.z);
-      position.setXYZ(i * 3 + 2, centre.x, centre.y, centre.z);
+    this.pilot.traverse((node) => {
+      const { geometry, material } = node as THREE.Mesh;
+      geometry?.dispose();
+      for (const m of Array.isArray(material) ? material : material ? [material] : []) m.dispose();
     });
-    position.needsUpdate = true;
+    this.pilotShadow.geometry.dispose();
+    this.shadowMaterial.dispose();
+    if (!this.detached) this.canopy.dispose();
+  }
+
+  /** A point given in the pilot's frame, in the world. */
+  private pilotPoint(out: THREE.Vector3, p: { x: number; y: number; z: number }): THREE.Vector3 {
+    return out.set(p.x, p.y, p.z).applyQuaternion(this.pilotAtt).add(this.pos);
   }
 
   /**
-   * Follow the model in this light. `hands`: where the hands have the
-   * toggles, short of the canopy's brakes while they are still stowed.
+   * Follow the model in this light. `controls`: what the canopy's lines are
+   * pulled to; `hands`: where the hands have the toggles, short of the
+   * canopy's brakes while they are still stowed.
    */
   update(
     model: FlightModel,
-    c: Controls,
+    controls: Controls,
     groundAt: (x: number, z: number) => number,
     light: Lighting,
-    hands: Controls = c,
+    hands: Controls,
+    frame: RigFrame,
   ): void {
     const { sun } = light;
-    const { pos, att, pilotAtt } = model.state;
-    this.object.position.set(pos.x, pos.y, pos.z);
-    this.object.quaternion.set(att.x, att.y, att.z, att.w);
-    this.pilot.position.set(pos.x, pos.y, pos.z);
-    this.pilot.quaternion.set(pilotAtt.x, pilotAtt.y, pilotAtt.z, pilotAtt.w);
-    const last = this.last;
-    const now = {
-      brakeL: c.brakeL,
-      brakeR: c.brakeR,
-      frontL: c.frontL,
-      frontR: c.frontR,
-      handL: hands.brakeL,
-      handR: hands.brakeR,
-      inflation: this.inflation,
-    };
-    const moved = (Object.keys(last) as (keyof typeof last)[]).some((k) => Math.abs(now[k] - last[k]) > 0.002);
-    if (moved && this.object.visible) {
-      Object.assign(last, now);
-      this.reshape(c, hands);
-    }
+    const s = model.state;
+    this.pos.set(s.pos.x, s.pos.y, s.pos.z);
+    this.att.set(s.att.x, s.att.y, s.att.z, s.att.w);
+    this.pilotAtt.set(s.pilotAtt.x, s.pilotAtt.y, s.pilotAtt.z, s.pilotAtt.w);
+    this.pilot.position.copy(this.pos);
+    this.pilot.quaternion.copy(this.pilotAtt);
+    this.vel.set(s.vel.x, s.vel.y, s.vel.z);
 
-    const rig = this.rig;
-    const centre = this.centre.set(0, rig.canopyPos.y, 0).applyQuaternion(this.object.quaternion).add(this.object.position);
-    this.fabric.lerpColors(light.fabricShade, light.fabric, light.clouds.sunThrough(centre.x, centre.y, centre.z));
-    const forward = this.p.set(0, 0, -1).applyQuaternion(this.object.quaternion);
-    const yaw = Math.atan2(-forward.x, -forward.z);
-    /** Where the sun puts the shadow of a point given in the frame of the canopy or of the pilot. */
-    const cast = (out: THREE.Vector3, frame: THREE.Group, x: number, y: number, z: number): THREE.Vector3 => {
-      out.set(x, y, z).applyQuaternion(frame.quaternion).add(frame.position);
+    const look = this.look;
+    look.time = frame.time;
+    look.dt = frame.dt;
+    this.air.copy(frame.wind).sub(this.vel);
+    Object.assign(look.controls, controls);
+    Object.assign(look.hands, hands);
+    const rig = model.rig;
+    if (!this.detached) this.updateCanopy(rig, groundAt, light, frame);
+
+    // The pilot's shadow runs from the feet to the head: its near end comes
+    // up to the feet as they come down to the ground.
+    const cast = (out: THREE.Vector3, x: number, y: number, z: number): THREE.Vector3 => {
+      this.pilotPoint(out, { x, y, z });
       const ground = groundAt(out.x, out.z);
       const t = (out.y - ground) / sun.y;
       return out.set(out.x - sun.x * t, ground, out.z - sun.z * t);
     };
-    const height = centre.y - groundAt(centre.x, centre.z);
-    cast(this.canopyShadow.position, this.object, 0, rig.canopyPos.y, 0);
-    this.canopyShadow.rotation.y = yaw;
-    // The pilot's shadow runs from the feet to the head: its near end comes
-    // up to the feet as they come down to the ground.
-    const feet = cast(this.feet, this.pilot, rig.feetPos.x, rig.feetPos.y, rig.feetPos.z);
-    const head = cast(this.head, this.pilot, rig.eyePos.x, rig.eyePos.y + 0.12, rig.eyePos.z);
+    const feet = cast(this.feet, rig.feetPos.x, rig.feetPos.y, rig.feetPos.z);
+    const head = cast(this.head, rig.eyePos.x, rig.eyePos.y + 0.12, rig.eyePos.z);
     this.pilotShadow.position.lerpVectors(feet, head, 0.5);
     this.pilotShadow.rotation.y = Math.atan2(head.x - feet.x, head.z - feet.z);
     this.pilotShadow.scale.set(0.5, 1, feet.distanceTo(head) + 0.35);
+    const height = this.pos.y - groundAt(this.pos.x, this.pos.z);
     // Shadows are faint and washed out from high up, crisp near the ground.
-    // Under cloud only a faint pool is left right under the pilot.
     this.shadowMaterial.opacity = (0.12 + 0.36 * Math.max(0, 1 - height / 250)) * light.shadow;
     this.shadow.visible = light.shadow > 0.02;
+  }
+
+  /** The canopy over the pilot, its pilot chute and bag. */
+  private updateCanopy(rig: RigParams, groundAt: (x: number, z: number) => number, light: Lighting, frame: RigFrame): void {
+    const look = this.look;
+    const top = this.top.set(0, rig.canopyPos.y, 0).applyQuaternion(this.att).add(this.pos);
+    look.ground = groundAt(top.x, top.z);
+    this.canopy.update(this.pos, this.att, look, light);
+
+    // Pilot chute and bag: in the hand, towing, carrying the bag up the line
+    // stretch, then behind the canopy. A reserve's spring throws its own off
+    // the top of the container.
+    const d = this.canopy.deployment;
+    const reserve = this.canopy.reserve;
+    if (frame.deploy === 'tow' || frame.deploy === 'bag' || frame.deploy === 'hand') this.pilotChuteOpen = 1;
+    else if (frame.deploy === 'canopy' && frame.deployTime > 0.8) this.pilotChuteOpen = Math.max(0, this.pilotChuteOpen - frame.dt / 1.5);
+    this.pilotPoint(this.pin, reserve ? RESERVE_PIN : PIN);
+    if (reserve) this.hand.copy(this.pin);
+    else if (frame.deploy === 'hand') this.pilotPoint(this.hand, this.body.handPoint(this.hand, true));
+    else this.pilotPoint(this.hand, BOC);
+    const flow = this.air.lengthSq() > 1 ? this.flow.copy(this.air).normalize() : this.flow.set(0, 1, 0);
+    const climb = (rig.linksPos.y + rig.lineLength) * frame.bagOut;
+    this.bagOut.copy(this.pin).addScaledVector(flow, climb);
+    this.launch.set(0, 0.5, 1).applyQuaternion(this.pilotAtt).multiplyScalar(reserve ? 9 : 4);
+    this.risers.forEach((r, i) => this.pilotPoint(r, { x: (i < 2 ? -1 : 1) * RING.x, y: RING.y, z: RING.z }));
+    if (frame.deploy === 'canopy' || frame.deploy === 'free') this.canopy.topAttach(top);
+    d.update({
+      stage: frame.deploy,
+      dt: frame.dt,
+      wind: frame.wind,
+      airDensity: frame.airDensity,
+      hand: this.hand,
+      pin: this.pin,
+      launch: this.launch,
+      vel: this.vel,
+      bagOut: this.bagOut,
+      canopyTop: top,
+      canopy: frame.deploy === 'canopy' || frame.deploy === 'free' ? this.canopy : null,
+      pilotChuteOpen: this.pilotChuteOpen,
+      stageTime: frame.deployTime,
+      risers: this.risers,
+      ground: groundAt(this.pos.x, this.pos.z),
+    });
   }
 }

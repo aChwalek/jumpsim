@@ -5,7 +5,7 @@
 import { T } from './i18n';
 import { HOUR_MAX, HOUR_MIN } from './render/daylight';
 import { isCanopyColor, type CanopyColorId } from './render/canopyColors';
-import { DEFAULT_RIG, deriveRig, rigConfig, type CanopyKind, type RigParams } from './sim/rig';
+import { DEFAULT_RIG, deriveRig, reserveConfig, rigConfig, type CanopyKind, type RigParams } from './sim/rig';
 import { WIND_MAX_KMH, type GustLevel, type SkyKind, type Weather } from './sim/weather';
 import { DZS, dzInfo, type DzId } from './world/dzs';
 
@@ -23,6 +23,19 @@ export const WEIGHT_MAX = 130;
 /** What shows the height: nothing, a dial on the wrist, or digits. */
 export type AltimeterKind = 'none' | 'analog' | 'digital';
 
+/**
+ * The main's slider: fixed (it stays on the links, flapping), collapsible
+ * (pulled in tight there), or removable (taken off and stowed).
+ */
+export type SliderKind = 'fixed' | 'collapsible' | 'removable';
+export const SLIDER_KINDS: readonly SliderKind[] = ['fixed', 'collapsible', 'removable'];
+
+/** How often the main goes wrong as it opens. */
+export type MalfunctionRate = 'none' | 'sometimes' | 'always';
+export const MALFUNCTION_RATES: readonly MalfunctionRate[] = ['none', 'sometimes', 'always'];
+/** "Sometimes": one opening in this many. */
+export const MALFUNCTION_ODDS = 5;
+
 export interface Gear {
   kind: CanopyKind;
   canopyAreaFt2: number;
@@ -31,6 +44,9 @@ export interface Gear {
   altimeter: AltimeterKind;
   /** An audible altimeter in the helmet, beeping at the circuit heights. */
   audible: boolean;
+  slider: SliderKind;
+  /** A reserve static line: cutting the main away pulls the reserve. */
+  rsl: boolean;
 }
 
 /** Where the jump starts: in the plane, or already under canopy, on downwind or on final. */
@@ -48,6 +64,8 @@ export interface JumpPlan {
   exitHeight: number;
   /** Compass heading of jump run, degrees, or null to fly it into the wind. */
   runDeg: number | null;
+  /** How often the main goes wrong. */
+  malfunction: MalfunctionRate;
 }
 
 export interface Setup {
@@ -61,6 +79,9 @@ export interface Setup {
 
 export const rigFor = (gear: Gear): RigParams =>
   deriveRig(rigConfig(gear.kind, gear.canopyAreaFt2, gear.exitWeightKg));
+
+/** The reserve packed with this gear, sized for the weight. */
+export const reserveRigFor = (gear: Gear): RigParams => deriveRig(reserveConfig(gear.exitWeightKg));
 
 /** Whether two gears fly the same: same canopy, same weight. */
 export const sameFlight = (a: Gear, b: Gear): boolean =>
@@ -105,8 +126,10 @@ export function defaultSetup(): Setup {
       color: 'blue',
       altimeter: 'digital',
       audible: false,
+      slider: 'collapsible',
+      rsl: true,
     },
-    jump: { start: 'plane', exitHeight: 4000, runDeg: null },
+    jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'none' },
   };
 }
 
@@ -143,10 +166,13 @@ export function validSetup(saved: unknown): Setup {
   if (isCanopyColor(g.color)) gear.color = g.color;
   if (oneOf(g.altimeter, ['none', 'analog', 'digital'] as const)) gear.altimeter = g.altimeter;
   if (typeof g.audible === 'boolean') gear.audible = g.audible;
+  if (oneOf(g.slider, SLIDER_KINDS)) gear.slider = g.slider;
+  if (typeof g.rsl === 'boolean') gear.rsl = g.rsl;
   const j = (s.jump ?? {}) as Partial<Record<keyof JumpPlan, unknown>>;
   if (oneOf(j.start, STARTS)) setup.jump.start = j.start;
   if (finite(j.exitHeight)) setup.jump.exitHeight = validExitHeight(j.exitHeight);
   if (finite(j.runDeg)) setup.jump.runDeg = validHeading(j.runDeg);
+  if (oneOf(j.malfunction, MALFUNCTION_RATES)) setup.jump.malfunction = j.malfunction;
   return setup;
 }
 

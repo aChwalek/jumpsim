@@ -3,6 +3,7 @@ import { keyLabel } from '../input/keyLabels';
 import type { AltimeterKind } from '../setup';
 import type { Controls } from '../sim/flightModel';
 import type { JumpLog } from '../sim/jump';
+import type { Malfunction } from '../sim/opening';
 import type { Touchdown } from '../sim/landing';
 import { Altimeter } from './altimeter';
 import { keysHtml, type InputKind, type KeysPhase, type PadKind } from './keys';
@@ -43,13 +44,19 @@ const metres = (m: number): string => num(Math.round(m));
 
 /** What the jump itself was, for the card at the end. */
 function jumpRows(log: JumpLog): string {
-  const pull = log.aad
-    ? `<tr><td>${metres(log.openHeight)} m</td><td>${T.hud.aadOpen}</td></tr>`
-    : `<tr><td>${metres(log.pullHeight ?? 0)} m</td><td>${T.hud.pulled(metres(log.openHeight))}</td></tr>`;
-  return `
-    <tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>${T.hud.freefall((log.topSpeed * 3.6).toFixed(0))}</td></tr>
-    ${pull}
-    <tr><td>${num(log.openingLoad, 1)} g</td><td>${T.hud.openingLoad}</td></tr>`;
+  const t = T.hud;
+  const rows: string[] = [`<tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>${t.freefall((log.topSpeed * 3.6).toFixed(0))}</td></tr>`];
+  if (log.pullHeight !== null) {
+    const what = log.cutawayHeight === null ? t.pulled(metres(log.openHeight)) : t.pulledOnly;
+    rows.push(`<tr><td>${metres(log.pullHeight)} m</td><td>${what}</td></tr>`);
+  }
+  if (log.malfunction === 'streamer') rows.push(`<tr><td>${t.streamer}</td><td>${t.streamerRow}</td></tr>`);
+  if (log.cutawayHeight !== null) rows.push(`<tr><td>${metres(log.cutawayHeight)} m</td><td>${t.cutawayRow}</td></tr>`);
+  if (log.reserveBy !== null && log.reserveHeight !== null) {
+    rows.push(`<tr><td>${metres(log.reserveHeight)} m</td><td>${t.reserveRow(log.reserveBy, metres(log.openHeight))}</td></tr>`);
+  }
+  rows.push(`<tr><td>${num(log.openingLoad, 1)} g</td><td>${t.openingLoad}</td></tr>`);
+  return rows.join('');
 }
 
 const hint = (): string => `<p class="hint">${T.hud.again(keyLabel)}</p>`;
@@ -124,11 +131,21 @@ export class Hud {
     this.gear.textContent = text;
   }
 
-  /** Hit the ground with no canopy over the head. `opening`: one was coming out. */
-  showImpact(log: JumpLog, opening: boolean, speed: number): void {
+  /**
+   * Hit the ground with no canopy over the head. `opening`: one was coming
+   * out; `malfunction`: and had gone wrong.
+   */
+  showImpact(log: JumpLog, opening: boolean, speed: number, malfunction: Malfunction | null = null): void {
+    const t = T.hud;
+    const [title, text] =
+      opening && malfunction === 'streamer'
+        ? [t.streamerTitle, t.streamerText(keyLabel('KeyX'))]
+        : opening
+          ? [t.lowTitle, t.lowText]
+          : [t.noPullTitle, log.cutawayHeight !== null ? t.noReserveText : t.noPullText];
     this.result.innerHTML = `
-      <h1>${opening ? T.hud.lowTitle : T.hud.noPullTitle}</h1>
-      <p>${opening ? T.hud.lowText : T.hud.noPullText}</p>
+      <h1>${title}</h1>
+      <p>${text}</p>
       <table>
         <tr><td>${(speed * 3.6).toFixed(0)} km/h</td><td>${T.hud.atImpact}</td></tr>
         <tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>${T.hud.freefallOnly}</td></tr>

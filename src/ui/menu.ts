@@ -42,10 +42,15 @@ import {
   type AltimeterKind,
   type Gear,
   type JumpPlan,
+  type MalfunctionRate,
+  type SliderKind,
+  MALFUNCTION_ODDS,
+  MALFUNCTION_RATES,
+  SLIDER_KINDS,
   type Setup,
   type Start,
 } from '../setup';
-import type { CanopyKind } from '../sim/rig';
+import { reserveSize, type CanopyKind } from '../sim/rig';
 import { trimSpeeds } from '../sim/telemetry';
 import {
   WIND_MAX_KMH,
@@ -696,7 +701,7 @@ export class Menu {
         return `
           <span class="big">${gear.canopyAreaFt2}<small class="unit">ft²</small> <small>${kindName(gear.kind)}</small>${swatch(gear.color)}</span>
           <span>${gear.exitWeightKg} kg · ${num(rig.wingLoading, 2)} lb/ft² · ${loadingLabel(rig.wingLoading)}</span>
-          <span class="dim">${g.altimeterLine[gear.altimeter]} · ${gear.audible ? g.audibleOn : g.audibleOff}</span>`;
+          <span class="dim">${g.altimeterLine[gear.altimeter]} · ${gear.audible ? g.audibleOn : g.audibleOff} · ${g.sliderLine[gear.slider]}${gear.rsl ? ' · RSL' : ''}</span>`;
       }
       case 'dz': {
         return `
@@ -789,6 +794,13 @@ export class Menu {
         (altimeter) => this.setGear({ altimeter }),
       ),
       this.choice<boolean>(g.audible, yesNo(), () => gear().audible, (audible) => this.setGear({ audible }), { hint: g.audibleHint }),
+      this.choice<SliderKind>(g.slider, options(SLIDER_KINDS, (k) => g.sliders[k]), () => gear().slider, (slider) => this.setGear({ slider }), {
+        note: () => g.sliderNote[gear().slider](keyLabel('KeyG')),
+      }),
+      this.choice<boolean>(g.rsl, yesNo(), () => gear().rsl, (rsl) => this.setGear({ rsl }), {
+        hint: g.rslHint,
+        note: () => g.rslNote(String(reserveSize(gear().exitWeightKg)), gear().rsl, keyLabel('KeyX')),
+      }),
     );
     screen.append(this.detailHints());
     return screen;
@@ -949,6 +961,16 @@ export class Menu {
         },
         compass.el,
       ),
+      this.choice<MalfunctionRate>(
+        j.malfunction,
+        options(MALFUNCTION_RATES, (m) => ({ none: j.never, sometimes: j.oneIn(num(MALFUNCTION_ODDS)), always: j.everyJump })[m]),
+        () => plan().malfunction,
+        (malfunction) => this.setJump({ malfunction }),
+        {
+          note: () => (plan().malfunction === 'none' ? j.malfunctionOff : j.malfunctionOn(keyLabel('KeyX'))),
+          disabled: noPlane,
+        },
+      ),
     );
     screen.append(this.detailHints());
     return screen;
@@ -969,7 +991,7 @@ export class Menu {
         QUALITY_LEVELS.map((_, i) => ({ value: i, label: T.setup.quality[i]! })),
         () => s.quality,
         (quality) => this.setSettings({ quality }),
-        { note: () => t.qualityNote(keyLabel('KeyG')) },
+        { note: () => t.qualityNote },
       ),
       this.choice<boolean>(t.autoResolution, yesNo(), () => s.autoResolution, (autoResolution) => this.setSettings({ autoResolution }), {
         note: () => t.autoResolutionNote,

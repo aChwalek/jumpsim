@@ -1,6 +1,8 @@
 // The logbook: every jump that ended on the ground, and what they add up to.
 // Kept in the browser, like the setup.
 
+import type { ReserveBy } from './sim/jump';
+import type { Malfunction } from './sim/opening';
 import type { CanopyKind } from './sim/rig';
 import type { LandingRating } from './sim/landing';
 import type { GustLevel, SkyKind } from './sim/weather';
@@ -28,6 +30,15 @@ export interface LogEntry {
     seconds: number;
     topSpeed: number;
     aad: boolean;
+  };
+  /** A malfunction, a cutaway, a reserve: only when there was one. */
+  emergency?: {
+    malfunction: Malfunction | null;
+    /** Where the main was cut away, m, or null. */
+    cutawayHeight: number | null;
+    /** Where the reserve was pulled, m, and by what; null if it stayed in. */
+    reserveHeight: number | null;
+    reserveBy: ReserveBy | null;
   };
   /** Time flying the canopy, s. */
   canopySeconds: number;

@@ -9,7 +9,7 @@
 
 import * as THREE from 'three';
 import type { RigParams } from '../sim/rig';
-import { GEAR_LAYER } from './scene';
+import { GEAR_LAYER, OUTSIDE_LAYER } from './scene';
 
 const UPPER_ARM = 0.3;
 const FOREARM = 0.28;
@@ -26,6 +26,19 @@ const HIP_BACK = 0.08;
 const TORSO_TOP = -0.12;
 const TORSO_BACK = 0.13;
 export const SHOULDER = new THREE.Vector3(0.19, -0.18, 0.12);
+/**
+ * Where each pair of risers meets the harness, right-hand side: the three
+ * rings on top of the main lift web, just in front of the collarbone.
+ */
+export const RING = new THREE.Vector3(0.12, -0.15, 0.035);
+/** Where the bridle leaves the main container, on its top flap, pilot frame. */
+export const PIN = new THREE.Vector3(0, -0.33, 0.39);
+/** Where the reserve's spring pilot chute leaves, on top of the container, pilot frame. */
+export const RESERVE_PIN = new THREE.Vector3(0, -0.2, 0.36);
+/** The pilot chute's handle, in its pouch at the bottom of the container, pilot frame. */
+export const BOC = new THREE.Vector3(0.12, -0.64, 0.39);
+/** The cutaway pillow on the right main lift web and the reserve handle on the left, pilot frame (right side given). */
+export const HANDLES = new THREE.Vector3(0.1, -0.33, 0.0);
 /** The altimeter reads one turn of the needle over this height, m. */
 const DIAL_RANGE = 4000;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -40,6 +53,8 @@ export interface Pose {
   kneeR: number;
   /** Each leg out to its side. */
   spread: number;
+  /** Both legs swung to the right together, rad. */
+  sway: number;
   /**
    * The trunk leaning about the eyes, as when crouched in a door: `lean`
    * to the left (hips go right), `bow` forward (hips go back).
@@ -59,6 +74,7 @@ export const makePose = (): Pose => ({
   kneeL: 0,
   kneeR: 0,
   spread: 0,
+  sway: 0,
   lean: 0,
   bow: 0,
   handL: new THREE.Vector3(),
@@ -73,6 +89,7 @@ export function copyPose(out: Pose, p: Pose): Pose {
   out.kneeL = p.kneeL;
   out.kneeR = p.kneeR;
   out.spread = p.spread;
+  out.sway = p.sway;
   out.lean = p.lean;
   out.bow = p.bow;
   out.handL.copy(p.handL);
@@ -89,6 +106,7 @@ export function blendPose(out: Pose, to: Pose, k: number): Pose {
   out.kneeL += (to.kneeL - out.kneeL) * k;
   out.kneeR += (to.kneeR - out.kneeR) * k;
   out.spread += (to.spread - out.spread) * k;
+  out.sway += (to.sway - out.sway) * k;
   out.lean += (to.lean - out.lean) * k;
   out.bow += (to.bow - out.bow) * k;
   out.handL.lerp(to.handL, k);
@@ -173,6 +191,8 @@ export class Body {
   private readonly arms: Arm[] = [];
   private readonly altimeter = new THREE.Group();
   private readonly needle: THREE.Mesh;
+  private readonly cutawayHandle: THREE.Mesh;
+  private readonly reserveHandle: THREE.Mesh;
   private readonly eye: THREE.Vector3;
   private readonly lean = new THREE.Quaternion();
   private readonly euler = new THREE.Euler(0, 0, 0, 'ZXY');
@@ -214,8 +234,43 @@ export class Body {
       box(0.25, 0.035, 0.012, 0, middle + 0.1, front - 0.006, webbing),
       // The container on the back, the pilot chute's handle at its foot.
       box(0.34, 0.5, 0.15, 0, middle, back + 0.075, container),
-      box(0.05, 0.03, 0.03, 0.12, middle - 0.24, back + 0.16, new THREE.MeshLambertMaterial({ color: 0xffd84a })),
+      box(0.05, 0.03, 0.03, BOC.x, BOC.y, BOC.z, new THREE.MeshLambertMaterial({ color: 0xffd84a })),
+      // The reserve's flap on top of the main's.
+      box(0.3, 0.012, 0.13, 0, middle + 0.12, back + 0.15, webbing),
     );
+    // The two handles of an emergency: cutaway pillow right, reserve left.
+    this.cutawayHandle = box(0.05, 0.07, 0.025, HANDLES.x, HANDLES.y, HANDLES.z - 0.006, new THREE.MeshLambertMaterial({ color: 0xd8261c, emissive: 0x2a0503 }));
+    this.reserveHandle = box(0.055, 0.045, 0.02, -HANDLES.x, HANDLES.y, HANDLES.z - 0.006, new THREE.MeshLambertMaterial({ color: 0xb9bec6, emissive: 0x202226 }));
+    this.trunk.add(this.cutawayHandle, this.reserveHandle);
+
+    // Head, neck and helmet: only ever seen from outside, the eyes are in it.
+    const outside = (mesh: THREE.Mesh): THREE.Mesh => {
+      mesh.layers.set(OUTSIDE_LAYER);
+      return mesh;
+    };
+    const eye = rig.eyePos;
+    const skin = new THREE.MeshLambertMaterial({ color: 0xc89a7c });
+    const shell = new THREE.MeshLambertMaterial({ color: 0xe4e4e0 });
+    const visor = new THREE.MeshLambertMaterial({ color: 0x121418, emissive: 0x050608 });
+    // The eyes are high in the model (10 cm over the risers' joint): from
+    // outside, where the eyes cannot be told apart, the head sits a little
+    // lower, so the neck is a neck and not a stalk. Collar of the jumpsuit.
+    const drop = 0.06;
+    const neckTop = new THREE.Vector3(0, eye.y - 0.1 - drop, 0.07);
+    const neckFoot = new THREE.Vector3(0, TORSO_TOP - 0.02, 0.1);
+    const neck = outside(new THREE.Mesh(new THREE.CapsuleGeometry(0.058, neckTop.distanceTo(neckFoot), 3, 10), suit));
+    neck.position.addVectors(neckTop, neckFoot).multiplyScalar(0.5);
+    neck.quaternion.setFromUnitVectors(UP, new THREE.Vector3().subVectors(neckTop, neckFoot).normalize());
+    const head = outside(new THREE.Mesh(new THREE.SphereGeometry(0.1, 18, 14), skin));
+    head.position.set(0, eye.y + 0.005 - drop, eye.z + 0.065);
+    // A full-face helmet: the shell, and the dark visor across the front.
+    const helmet = outside(new THREE.Mesh(new THREE.SphereGeometry(0.122, 22, 16).scale(0.94, 1, 1.08), shell));
+    helmet.position.set(0, eye.y + 0.025 - drop, eye.z + 0.07);
+    const glass = outside(
+      new THREE.Mesh(new THREE.SphereGeometry(0.126, 18, 8, 1.5 * Math.PI - 0.95, 1.9, 1.05, 0.72).scale(0.94, 1, 1.08), visor),
+    );
+    glass.position.copy(helmet.position);
+    this.trunk.add(neck, head, helmet, glass);
 
     // Legs: thigh and shin turn at hip and knee, the shoe at the end.
     const pilotY = rig.pilotPos.y;
@@ -269,6 +324,17 @@ export class Body {
     this.group.add(this.altimeter);
   }
 
+  /** Shows the handles still in their place on the harness, or not once pulled. */
+  setHandles(cutaway: boolean, reserve: boolean): void {
+    this.cutawayHandle.visible = cutaway;
+    this.reserveHandle.visible = reserve;
+  }
+
+  /** Where a hand is, pilot frame, after the last pose. */
+  handPoint(out: THREE.Vector3, right: boolean): THREE.Vector3 {
+    return out.copy(this.arms[right ? 1 : 0]!.hand.position);
+  }
+
   /** Shows or hides the free arms (and the altimeter on them). */
   showArms(visible: boolean): void {
     for (const arm of this.arms) arm.upper.visible = arm.fore.visible = arm.hand.visible = visible;
@@ -288,8 +354,8 @@ export class Body {
     this.trunk.position.copy(this.eye).sub(this.a.copy(this.eye).applyQuaternion(this.lean));
 
     const [left, right] = [this.legs[0]!, this.legs[1]!];
-    left.thigh.rotation.set(p.hipL, 0, -p.spread);
-    right.thigh.rotation.set(p.hipR, 0, p.spread);
+    left.thigh.rotation.set(p.hipL, 0, -p.spread + p.sway);
+    right.thigh.rotation.set(p.hipR, 0, p.spread + p.sway);
     left.shin.rotation.x = -p.kneeL;
     right.shin.rotation.x = -p.kneeR;
 

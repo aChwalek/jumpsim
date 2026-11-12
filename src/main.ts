@@ -3,19 +3,33 @@ import { Altisonic } from './audio/altisonic';
 import { Sound } from './audio/sound';
 import { T, lang, num, setLanguage } from './i18n';
 import { InputDevices, type Action } from './input/devices';
-import { readKeyboardLayout } from './input/keyLabels';
+import { keyLabel, readKeyboardLayout } from './input/keyLabels';
 import { rampControls } from './input/ramp';
 import { CANOPY_COLORS } from './render/canopyColors';
 import { CLOUD_BASE, CLOUD_DEPTH } from './render/clouds';
 import { daylight, sunPosition } from './render/daylight';
 import { PlaneView } from './render/planeView';
-import { FREEFALL_STANCES, Posture, type Stance } from './render/posture';
-import { RigView } from './render/rigView';
+import { CanopyView, type SliderState } from './render/canopyView';
+import { ChaseCamera, type ChaseTarget } from './render/chaseCamera';
+import { FREEFALL_STANCES, LegSwing, Posture, type LegCues, type Stance } from './render/posture';
+import { RigView, type RigFrame } from './render/rigView';
 import { TopView } from './render/topView';
-import { Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
+import { GEAR_LAYER, OUTSIDE_LAYER, Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
 import { logJump, type Outcome } from './logbook';
 import { QUALITY_LEVELS, loadSettings, saveSettings } from './settings';
-import { cloneSetup, kindName, loadSetup, loadingLabel, rigFor, runHeading, sameFlight, type Setup, type Start } from './setup';
+import {
+  MALFUNCTION_ODDS,
+  cloneSetup,
+  kindName,
+  loadSetup,
+  loadingLabel,
+  reserveRigFor,
+  rigFor,
+  runHeading,
+  sameFlight,
+  type Setup,
+  type Start,
+} from './setup';
 import { Arrival } from './sim/arrival';
 import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
@@ -25,7 +39,7 @@ import { PROPELLER } from './sim/plane';
 import { detectTouchdown, feetHeight, type Touchdown } from './sim/landing';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
-import { DEG, vec3 } from './sim/vec';
+import { DEG, rotateInv, vec3 } from './sim/vec';
 import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
 import type { KeysPhase } from './ui/keys';
@@ -57,9 +71,24 @@ let world: World = buildWorld(dz, light);
 scene.add(world.object);
 
 let rig = rigFor(setup.gear);
+let reserveRig = reserveRigFor(setup.gear);
 let model = new FlightModel(rig);
 let rigView = new RigView(rig, CANOPY_COLORS[setup.gear.color].cells, light);
-scene.add(rigView.object, rigView.pilot, rigView.shadow);
+scene.add(rigView.object);
+/** A reserve's seven cells: white, with a darker band either side of the middle. */
+const RESERVE_PALETTE = [0xf2f2ee, 0x1f3f78, 0xf2f2ee, 0xf2f2ee, 0xf2f2ee, 0x1f3f78, 0xf2f2ee];
+/** The main once cut away, drifting down on its own; drawn until the next jump. */
+let releasedView: CanopyView | null = null;
+/** What the main's slider is doing. */
+let sliderState: SliderState = 'open';
+/** Where the camera is: the pilot's eyes, or outside following them. */
+let view: 'eyes' | 'outside' = 'eyes';
+const chase = new ChaseCamera();
+const chaseTarget: ChaseTarget = { focus: new THREE.Vector3(), heading: 0, distance: 10, above: 0.2 };
+const legSwing = new LegSwing();
+const legCues: LegCues = { prep: 0, fore: 0, side: 0 };
+/** A short message over the HUD's cue, until a time (performance.now ms). */
+let flash: { text: string; until: number } | null = null;
 const planeView = new PlaneView();
 scene.add(planeView.object);
 const menu = new Menu(setup, settings);
@@ -69,7 +98,7 @@ const env: Environment = { wind: vec3(), airDensity: AIR_DENSITY_SEA_LEVEL };
 let airTime = 0;
 
 /** Height of the canopy above the feet, m: where the wind the canopy flies in is taken. */
-const canopyAboveFeet = (): number => rig.canopyPos.y - rig.feetPos.y;
+const canopyAboveFeet = (): number => model.rig.canopyPos.y - model.rig.feetPos.y;
 
 /** Brings the wind up to date for the canopy's height and the time. */
 function updateWind(): void {
@@ -106,14 +135,59 @@ function applyDz(): void {
 function applyGear(previous: Setup['gear']): void {
   const gear = setup.gear;
   if (sameFlight(gear, previous) && gear.color === previous.color) return;
-  scene.remove(rigView.object, rigView.pilot, rigView.shadow);
-  rigView.dispose();
   if (!sameFlight(gear, previous)) {
     rig = rigFor(gear);
+    reserveRig = reserveRigFor(gear);
     model = new FlightModel(rig);
   }
-  rigView = new RigView(rig, CANOPY_COLORS[gear.color].cells, light);
-  scene.add(rigView.object, rigView.pilot, rigView.shadow);
+  newRigView();
+}
+
+/** A fresh pilot under a fresh main, packed: after a change of gear, or a jump that used the reserve. */
+function newRigView(): void {
+  scene.remove(rigView.object);
+  rigView.dispose();
+  rigView = new RigView(rig, CANOPY_COLORS[setup.gear.color].cells, light);
+  scene.add(rigView.object);
+}
+
+/** Back under the main, whatever the last jump did with it. */
+function resetCanopies(): void {
+  if (releasedView) {
+    scene.remove(releasedView.object, releasedView.shadow, releasedView.deployment.object);
+    releasedView.dispose();
+    releasedView = null;
+  }
+  if (rigView.detached || rigView.canopy.reserve) newRigView();
+  model.rig = rig;
+  sliderState = 'open';
+  rigView.canopy.setSlider('open', true);
+  applySliderDrag();
+}
+
+/**
+ * The slider's drag on the flight: the calibration flies it open on the
+ * links, a pocket of fabric of some 0.15 m² of drag on a 170; collapsed it
+ * drags a third as much, and taken off not at all. It scales with the canopy.
+ */
+function applySliderDrag(): void {
+  const scale = model.rig.area / (170 * 0.0929);
+  const reserve = model.rig !== rig;
+  model.dragAreaDelta = reserve ? 0 : sliderState === 'collapsed' ? -0.1 * scale : sliderState === 'stowed' ? -0.15 * scale : 0;
+}
+
+/** The main is cut away: its view goes on drawing it, on its own. */
+function releaseMain(): void {
+  releasedView = rigView.detachCanopy();
+  scene.add(releasedView.object, releasedView.shadow, releasedView.deployment.object);
+}
+
+/** The reserve comes out: the pilot will hang from it. */
+function attachReserve(): void {
+  // Fired by the AAD with the main still packed: that main is never drawn again.
+  if (!rigView.detached) rigView.detachCanopy().dispose();
+  rigView.attachCanopy(new CanopyView(reserveRig, RESERVE_PALETTE, light, true));
+  applySliderDrag();
 }
 
 function showGear(): void {
@@ -194,6 +268,10 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
     hour: setup.hour,
     weather: { ...weather },
     canopy: { kind: gear.kind, areaFt2: gear.canopyAreaFt2, exitWeightKg: gear.exitWeightKg, wingLoading: rig.wingLoading },
+    emergency:
+      log && (log.cutawayHeight !== null || log.reserveBy !== null || log.malfunction)
+        ? { malfunction: log.malfunction, cutawayHeight: log.cutawayHeight, reserveHeight: log.reserveHeight, reserveBy: log.reserveBy }
+        : undefined,
     freefall:
       jump && log && jump.phase !== 'plane'
         ? {
@@ -217,10 +295,13 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
 function spawn(kind: Start): void {
   scenario = kind;
   airTime = 0;
+  resetCanopies();
   const spots = spawnsFor(dz, setup.weather.windFromDeg, { headingDeg: runHeading(setup), height: setup.jump.exitHeight });
   if (kind === 'plane') {
     windAt(env.wind, setup.weather, spots.plane.height, airTime);
-    jump = new Jump(model, spots.plane, env, dz.groundAt);
+    const rate = setup.jump.malfunction;
+    const malfunction = rate === 'always' || (rate === 'sometimes' && Math.random() < 1 / MALFUNCTION_ODDS) ? 'streamer' : null;
+    jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, { reserve: reserveRig, rsl: setup.gear.rsl, malfunction });
   } else {
     jump = null;
     const s = spots[kind];
@@ -240,6 +321,11 @@ function spawn(kind: Start): void {
   stepsHeard = 0;
   canopyTime = 0;
   posture.reset();
+  legSwing.reset();
+  chase.reset();
+  rigView.body.setHandles(true, true);
+  lastVel.x = Number.NaN;
+  flash = null;
   neck = null;
   paused = false;
   devices.recentre();
@@ -288,6 +374,26 @@ const actions: Record<Action, () => void> = {
     settings.showKeys = !settings.showKeys;
     applySettings();
     menu.refresh();
+  },
+  cutaway: () => {
+    if (!paused && jump && !touchdown && !arrival) jump.cutaway();
+  },
+  slider: () => {
+    if (paused) return;
+    const underMain = (!jump || (jump.phase === 'canopy' && jump.canopy === 'main')) && !touchdown && !arrival;
+    if (!underMain || sliderState !== 'open') return;
+    if (setup.gear.slider === 'fixed') {
+      flash = { text: `${T.cue.sliderFixed}<small>${T.cue.sliderStays}</small>`, until: performance.now() + 2000 };
+      return;
+    }
+    sliderState = setup.gear.slider === 'collapsible' ? 'collapsed' : 'stowed';
+    rigView.canopy.setSlider(sliderState);
+    applySliderDrag();
+  },
+  camera: () => {
+    view = view === 'eyes' ? 'outside' : 'eyes';
+    chase.reset();
+    devices.recentre();
   },
   cycleQuality: () => {
     settings.quality = (settings.quality + 1) % QUALITY_LEVELS.length;
@@ -418,7 +524,7 @@ function hitWithoutCanopy(j: Jump): void {
   s.pos.y -= Math.min(0, j.height()) - 0.05;
   s.vel.x = s.vel.y = s.vel.z = 0;
   sound.land({ sink: speed, groundSpeed: 0, wet: false });
-  hud.showImpact(j.log, j.phase === 'opening', speed);
+  hud.showImpact(j.log, j.phase === 'opening', speed, j.opening?.malfunction ?? null);
   logThisJump('impact', speed, 0);
 }
 
@@ -545,13 +651,174 @@ function stance(): Stance {
     case 'plane':
       return 'door';
     case 'freefall':
+      // Just cut away: the hands are still on the handles.
+      if (jump.cutawayAt !== null && jump.time - jump.cutawayAt < 0.45) return 'cutaway';
       return jump.body.position;
     case 'opening':
       if (jump.inflation !== null) return 'hanging';
+      if (jump.canopy === 'reserve') return jump.log.reserveBy === 'hand' ? 'reserve' : 'belly';
       return jump.opening?.stage === 'throw' ? 'throw' : 'belly';
     default:
       return 'hanging';
   }
+}
+
+const ease = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+
+/** Where the pilot chute and bag of the canopy overhead are. */
+function deployStage(out: RigFrame): void {
+  out.bagOut = 0;
+  out.deployTime = 0;
+  if (!jump) {
+    // Started under canopy: it has long been open.
+    out.deploy = 'canopy';
+    out.deployTime = 10;
+    out.bagOut = 1;
+    return;
+  }
+  const reserve = jump.canopy === 'reserve';
+  const o = jump.opening;
+  if (jump.phase === 'canopy') {
+    out.deploy = reserve ? 'free' : 'canopy';
+    out.deployTime = 10;
+    out.bagOut = 1;
+  } else if (jump.phase !== 'opening' || !o) {
+    out.deploy = 'stowed';
+  } else if (o.stage === 'throw') {
+    out.deploy = 'hand';
+    out.deployTime = o.time;
+  } else if (o.stage === 'bag') {
+    // The pilot chute inflates and the bridle comes tight, then the bag lifts off.
+    const lift = o.timing.throwOut + (reserve ? 0.15 : 0.45);
+    if (o.time < lift) {
+      out.deploy = 'tow';
+      out.deployTime = o.time - o.timing.throwOut;
+    } else {
+      out.deploy = 'bag';
+      out.deployTime = o.time - lift;
+      out.bagOut = ease((o.time - lift) / Math.max(0.1, o.timing.lineStretch - lift));
+    }
+  } else {
+    // A reserve's free bag lets go once the canopy is out of it and filling.
+    out.deploy = reserve && o.inflation > 0.6 ? 'free' : 'canopy';
+    out.deployTime = o.time - o.timing.lineStretch;
+    out.bagOut = 1;
+  }
+}
+
+const rigFrame: RigFrame = {
+  time: 0,
+  dt: 0,
+  wind: new THREE.Vector3(),
+  airDensity: 1.2,
+  deploy: 'stowed',
+  deployTime: 0,
+  bagOut: 0,
+};
+const releasedPos = new THREE.Vector3();
+const releasedAtt = new THREE.Quaternion();
+const releasedAir = new THREE.Vector3();
+const releasedTop = new THREE.Vector3();
+const fallTo = new THREE.Vector3();
+const heapFrom = new THREE.Vector3();
+const noHands = neutralControls();
+const releasedRisers = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+/** The pilot's velocity last frame, to feel the harness push the legs about. */
+const lastVel = vec3(Number.NaN);
+const push = vec3();
+
+/** The main once cut away, drawn where it drifts, then in a heap where it lands. */
+function drawReleased(dt: number): void {
+  const free = jump?.released;
+  if (!releasedView || !free) return;
+  releasedPos.set(free.pos.x, free.pos.y, free.pos.z);
+  releasedAtt.set(free.att.x, free.att.y, free.att.z, free.att.w);
+  releasedAir.copy(rigFrame.wind).sub(releasedTop.set(free.vel.x, free.vel.y, free.vel.z));
+  releasedView.setCrumple(free.crumple);
+  if (free.landedFor !== null) {
+    fallTo.set(free.fallTo.x, 0, free.fallTo.z);
+    releasedView.setHeap(ease(free.landedFor / 1.8), releasedPos, fallTo);
+  }
+  const ground = dz.groundAt(free.pos.x, free.pos.z);
+  releasedView.update(
+    releasedPos,
+    releasedAtt,
+    { time: airTime, dt, air: releasedAir, controls: noHands, hands: noHands, pilotAtt: null, ground },
+    light,
+  );
+  releasedView.topAttach(releasedTop);
+  releasedView.deployment.update({
+    stage: 'canopy',
+    dt,
+    wind: rigFrame.wind,
+    airDensity: env.airDensity,
+    hand: releasedTop,
+    pin: releasedTop,
+    vel: releasedPos,
+    launch: releasedPos,
+    bagOut: releasedTop,
+    canopyTop: releasedTop,
+    canopy: releasedView,
+    pilotChuteOpen: 0,
+    stageTime: 10,
+    risers: releasedRisers,
+    ground,
+  });
+}
+
+/**
+ * What the legs do under canopy: get ready to land low down, and swing as
+ * the harness pushes the body about.
+ */
+function updateLegs(dt: number, hanging: boolean): void {
+  const s = model.state;
+  if (dt > 0 && hanging && !Number.isNaN(lastVel.x)) {
+    // What the harness does beyond holding the pilot up, in the pilot's axes.
+    rotateInv(push, s.pilotAtt, vec3((s.vel.x - lastVel.x) / dt, (s.vel.y - lastVel.y) / dt + 9.81, (s.vel.z - lastVel.z) / dt));
+    legSwing.update(dt, Math.max(-15, Math.min(15, -push.z)), Math.max(-15, Math.min(15, push.x)));
+  } else if (!hanging) legSwing.reset();
+  if (dt > 0) {
+    lastVel.x = s.vel.x;
+    lastVel.y = s.vel.y;
+    lastVel.z = s.vel.z;
+  }
+  const height = feetHeight(model, dz.groundAt);
+  legCues.prep = hanging ? ease((6 - height) / 4) : 0;
+  legCues.fore = legSwing.fore;
+  legCues.side = legSwing.side;
+}
+
+/** What the outside camera frames: pilot and canopy under canopy, the jumper alone in freefall. */
+function aimChase(): ChaseTarget {
+  const t = chaseTarget;
+  const s = model.state;
+  t.focus.set(s.pos.x, s.pos.y, s.pos.z);
+  const inflation = jump ? jump.inflation : 1;
+  const falling = jump !== null && (jump.phase === 'freefall' || (jump.phase === 'opening' && inflation === null));
+  if (jump && jump.phase === 'plane') {
+    // From behind the wing on the door's side, to see the jumper in it.
+    t.heading = (runHeading(setup) + 38) * DEG;
+    t.distance = 9;
+    t.above = 0.1;
+  } else if (falling && jump) {
+    t.heading = jump.body.headingDeg() * DEG;
+    t.distance = 5.5;
+    t.above = 0.55;
+  } else {
+    // Halfway up the lines, so canopy and pilot are both in the picture.
+    const k = arrival ? 1 - ease(arrival.time / 2) : (inflation ?? 0);
+    const up = releasedTop.set(0, model.rig.canopyPos.y * 0.42 * k, 0).applyQuaternion(rigView.canopy.object.quaternion);
+    t.focus.add(up);
+    // On the ground the canopy tips over: the pilot's own heading then.
+    if (arrival) {
+      const q = model.state.pilotAtt;
+      const ahead = releasedAir.set(0, 0, -1).applyQuaternion(releasedAtt.set(q.x, q.y, q.z, q.w));
+      t.heading = Math.atan2(ahead.x, -ahead.z);
+    } else t.heading = telemetry.headingDeg * DEG;
+    t.distance = arrival ? 9 : 6 + 8 * k;
+    t.above = arrival ? 0.3 : 0.16;
+  }
+  return t;
 }
 
 /** Which keys the side of the screen shows: what can be done right now. */
@@ -564,8 +831,20 @@ function keysPhase(): KeysPhase | null {
 
 /** What the HUD says to do next. */
 function cue(): string {
+  if (flash && performance.now() < flash.until) return flash.text;
+  const mainOut = jump !== null && jump.canopy === 'main' && (jump.phase === 'canopy' || (jump.phase === 'opening' && jump.inflation !== null));
+  if (devices.cutawayHeld > 0 && devices.cutawayHeld < 1 && mainOut && !touchdown) {
+    return `${T.cue.cuttingAway}<small>${T.cue.keepHolding(keyLabel('KeyX'))}</small>`;
+  }
   if (!jump || impact) return '';
   const c = T.cue;
+  if (jump.phase === 'freefall' && jump.cutawayAt !== null && jump.canopy === 'main') {
+    return `${c.mainReleased}<small>${setup.gear.rsl ? c.rslPulls : c.pullReserve}</small>`;
+  }
+  const o = jump.opening;
+  if (jump.phase === 'opening' && o?.malfunction === 'streamer' && o.stage === 'inflation' && o.time > o.timing.lineStretch + 1.2) {
+    return `${c.streamer}<small>${c.holdToCutaway(keyLabel('KeyX'))}</small>`;
+  }
   if (jump.phase === 'plane') {
     const exit = c.exitIn[jump.body.position];
     return `${c.greenLight}<small>${exit ? `${exit} · ` : ''}${c.spaceToExit}</small>`;
@@ -599,7 +878,9 @@ function drawMap(now: number): void {
   const key = `${setup.dz}|${world.ready()}|${setup.hour}|${setup.weather.sky}|${size}`;
   if (key === mapDrawn || now - mapDrawnAt < 200) return;
   const groundY = dz.groundAt(dz.target.x, dz.target.z);
-  const hide = [sky, light.clouds.layer, rigView.object, rigView.pilot, rigView.shadow, planeView.object];
+  // The pilot, the canopy and its shadows all hang from the rig's object; a cut-away canopy is on its own.
+  const released = releasedView ? [releasedView.object, releasedView.shadow, releasedView.deployment.object] : [];
+  const hide = [sky, light.clouds.layer, rigView.object, planeView.object, ...released];
   if (!topView.draw(menu.map.canvas, dz.target.x, dz.target.z, groundY, MAP_HALF, hide)) return;
   mapDrawn = key;
   mapDrawnAt = now;
@@ -636,6 +917,9 @@ function frame(now: number): void {
     }
   }
 
+  // The main cut away goes its own way; the reserve takes its place overhead.
+  if (jump?.released && !releasedView) releaseMain();
+  if (jump && jump.canopy === 'reserve' && !rigView.canopy.reserve) attachReserve();
   const inflation = jump ? jump.inflation : 1;
   rigView.setInflation(inflation);
   // The hands are on the risers from line stretch until they let go on the
@@ -645,14 +929,35 @@ function frame(now: number): void {
   const pose = stance();
   const moving = live ? Math.min(elapsed, 0.1) : 0;
   const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : undefined;
-  rigView.body.setPose(posture.update(moving, pose, FREEFALL_STANCES.has(pose) ? devices.body : still, legs));
+  updateLegs(moving, pose === 'hanging' && !touchdown);
+  rigView.body.setPose(posture.update(moving, pose, FREEFALL_STANCES.has(pose) ? devices.body : still, legs, legCues));
   rigView.body.showArms(!onRisers);
   rigView.body.setHeight(feetHeight(model, dz.groundAt));
-  rigView.update(model, applied, dz.groundAt, light, hands);
+  if (jump) rigView.body.setHandles(jump.cutawayAt === null, !(jump.canopy === 'reserve' && jump.log.reserveBy === 'hand'));
+  // On the ground the canopy empties and goes down in a heap.
+  if (arrival && !rigView.detached) {
+    if (arrival.time < 0.05) heapFrom.set(model.state.pos.x, model.state.pos.y, model.state.pos.z);
+    fallTo.set(arrival.fallTo.x, 0, arrival.fallTo.z);
+    rigView.canopy.setHeap(ease((arrival.time - 0.3) / 2.2), heapFrom, fallTo);
+  } else if (!rigView.detached) rigView.canopy.setHeap(0);
+  rigFrame.time = airTime;
+  rigFrame.dt = moving;
+  rigFrame.wind.set(env.wind.x, env.wind.y, env.wind.z);
+  rigFrame.airDensity = env.airDensity;
+  deployStage(rigFrame);
+  rigView.update(model, applied, dz.groundAt, light, hands, rigFrame);
+  drawReleased(moving);
   if (jump) planeView.update(jump.plane);
-  model.pilotPoint(eye, rig.eyePos);
-  camera.position.set(eye.x, eye.y, eye.z);
-  aimCamera(moving);
+  model.pilotPoint(eye, model.rig.eyePos);
+  if (view === 'outside') {
+    camera.layers.enable(GEAR_LAYER);
+    camera.layers.enable(OUTSIDE_LAYER);
+    chase.update(camera, aimChase(), Math.min(elapsed, 0.1), devices.lookYaw, devices.lookPitch, devices.zoom, dz.groundAt);
+  } else {
+    camera.layers.set(0);
+    camera.position.set(eye.x, eye.y, eye.z);
+    aimCamera(moving);
+  }
   sky.position.copy(camera.position);
   // The windsock and the flags follow the gusts at their own height.
   if (live && setup.weather.gusts !== 'none') {
@@ -663,25 +968,30 @@ function frame(now: number): void {
   world.update(camera.position, now / 1000);
   drawMap(now);
   renderer.render(scene, camera);
-  // The gear in the hands goes on top, from the same eye.
-  gearCamera.position.copy(camera.position);
-  gearCamera.quaternion.copy(camera.quaternion);
-  // Keeping the colours and clearing only the depth puts it over the picture.
-  renderer.autoClearColor = false;
-  renderer.render(scene, gearCamera);
-  renderer.autoClearColor = true;
+  if (view === 'eyes') {
+    // The gear in the hands goes on top, from the same eye.
+    gearCamera.position.copy(camera.position);
+    gearCamera.quaternion.copy(camera.quaternion);
+    // Keeping the colours and clearing only the depth puts it over the picture.
+    renderer.autoClearColor = false;
+    renderer.render(scene, gearCamera);
+    renderer.autoClearColor = true;
+  }
 
   // The air past the head, in the head's own axes. On the ground that is
   // what is left of the speed, then only the wind.
-  model.pilotPointVelocity(eyeVel, rig.eyePos);
+  model.pilotPointVelocity(eyeVel, model.rig.eyePos);
   air.set(env.wind.x - eyeVel.x, env.wind.y - eyeVel.y, env.wind.z - eyeVel.z);
   const airspeed = air.length();
   air.applyQuaternion(unlook.copy(camera.quaternion).invert());
+  // The slider is most of the flapping: much less of it collapsed, none once off.
+  const streamer = jump?.phase === 'opening' && jump.opening?.malfunction === 'streamer' && inflation !== null;
+  const flapping = sliderState === 'open' || rigView.canopy.reserve ? 1 : sliderState === 'collapsed' ? 0.35 : 0.15;
   sound.update({
     airspeed: impact ? 0 : airspeed,
     fromRight: airspeed > 0.1 ? -air.x / airspeed : 0,
     live,
-    canopy: inflation ?? 0,
+    canopy: streamer ? 1 : (inflation ?? 0) * flapping,
   });
   if (jump) {
     // The plane: how far, which way, and how fast it is going away.
@@ -746,6 +1056,10 @@ if (import.meta.env.DEV) {
     world: { get: () => world },
     env: { get: () => env },
     jump: { get: () => jump },
+    rigView: { get: () => rigView },
+    releasedView: { get: () => releasedView },
+    view: { get: () => view, set: (v: 'eyes' | 'outside') => (view = v) },
+    arrival: { get: () => arrival },
   });
   Object.assign(window, { sim });
 }

@@ -13,7 +13,7 @@ export type InputKind = 'keyboard' | 'gamepad';
 export type PadKind = 'xbox' | 'playstation';
 
 /** A gamepad control, drawn rather than spelt out. */
-type PadControl = 'a' | 'y' | 'start' | 'lb' | 'rb' | 'lt' | 'rt' | 'ls' | 'rs' | 'cross' | 'up' | 'down' | 'left' | 'right';
+type PadControl = 'a' | 'b' | 'x' | 'y' | 'start' | 'view' | 'lb' | 'rb' | 'lt' | 'rt' | 'ls' | 'rs' | 'cross' | 'up' | 'down' | 'left' | 'right';
 
 /** Keyboard keys as written on the caps, or gamepad controls; and what they do. */
 type Row = [keys: string[], what: string];
@@ -27,6 +27,7 @@ function keyboardRows(phase: KeysPhase): Row[] {
         [[t.space], t.exit],
         [['↑', '↓', '←', '→'], t.exitPosition],
         [[t.mouse], t.look],
+        [[k('KeyB')], t.outsideCamera],
       ];
     case 'freefall':
       return [
@@ -36,7 +37,8 @@ function keyboardRows(phase: KeysPhase): Row[] {
         [[k('KeyR'), k('KeyF')], t.upDown],
         [['↑', '↓'], t.sitHeadDown],
         [['←', '→'], t.bellyBack],
-        [[t.space], t.pull],
+        [[t.space], t.pullReserve],
+        [[k('KeyB')], t.outsideCamera],
       ];
     case 'canopy':
       return [
@@ -45,12 +47,16 @@ function keyboardRows(phase: KeysPhase): Row[] {
         [[k('KeyQ'), k('KeyE')], t.fronts],
         [[k('KeyW')], t.bothFronts],
         [[t.shift], t.hold],
+        [[k('KeyG')], t.slider],
+        [[k('KeyX')], t.cutaway],
         [[t.mouse], t.lookRecentre(k('KeyC'))],
+        [[k('KeyB')], t.cameraZoom],
       ];
     case 'ground':
       return [
         [[k('KeyR')], t.restart],
         [['1', '2', '3'], t.starts],
+        [[k('KeyB')], t.outsideCamera],
       ];
   }
 }
@@ -63,6 +69,7 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
         [['a'], t.exit],
         [['cross'], t.exitPosition],
         [['rs'], t.look],
+        [['view'], t.camera],
       ];
     case 'freefall':
       return [
@@ -71,17 +78,22 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
         [['lb', 'rb'], t.upDown],
         [['up', 'down'], t.sitHeadDown],
         [['left', 'right'], t.bellyBack],
-        [['a'], t.pull],
+        [['a'], t.pullReserve],
+        [['view'], t.camera],
       ];
     case 'canopy':
       return [
         [['lt', 'rt'], t.toggles],
         [['lb', 'rb'], t.fronts],
+        [['x'], t.slider],
+        [['b'], t.cutaway],
         [['rs'], t.look],
+        [['view'], t.camera],
       ];
     case 'ground':
       return [
         [['y'], t.restart],
+        [['view'], t.camera],
         [['start'], t.menu],
       ];
   }
@@ -128,6 +140,21 @@ function padIcon(c: PadControl, kind: PadKind): string {
             `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><path d="M8.5 8.5 L17.5 17.5 M17.5 8.5 L8.5 17.5" stroke="#8fb4ff" stroke-width="2.4" stroke-linecap="round"/>`,
             T.keys.psCross,
           );
+    case 'b':
+      // Xbox: the red B. PlayStation: the red circle.
+      return kind === 'xbox'
+        ? svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="#c4332b" stroke="${LINE}"/><text x="13" y="18" font-size="14" ${FONT}>B</text>`, 'B')
+        : svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><circle cx="13" cy="13" r="5.5" fill="none" stroke="#ff6b6b" stroke-width="2.2"/>`, T.keys.circle);
+    case 'x':
+      // Xbox: the blue X. PlayStation: the pink square.
+      return kind === 'xbox'
+        ? svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="#2b6fc4" stroke="${LINE}"/><text x="13" y="18" font-size="14" ${FONT}>X</text>`, 'X')
+        : svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><rect x="8.5" y="8.5" width="9" height="9" fill="none" stroke="#f19bd4" stroke-width="2"/>`, T.keys.square);
+    case 'view': {
+      // The small button on the left: View on an Xbox pad, Share / Create on a PlayStation one.
+      const name = kind === 'xbox' ? 'View' : 'Share';
+      return svg(46, 20, `<rect x="1.5" y="2.5" width="43" height="15" rx="7.5" fill="${BODY}" stroke="${LINE}"/><text x="23" y="14" font-size="9.5" ${FONT}>${name}</text>`, name);
+    }
     case 'y':
       // Xbox: the yellow Y. PlayStation: the green triangle.
       return kind === 'xbox'
