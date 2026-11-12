@@ -63,18 +63,20 @@ interface Finer {
 
 /**
  * The height of the terrain as it is drawn: flat triangles between points
- * `spacing` apart on lines through the origin, closer inside `finer`. They
- * cut the corners that `groundAt` rounds.
+ * `spacing` apart on lines through the origin, closer inside the squares of
+ * `finer`, each inside the one before. They cut the corners that `groundAt`
+ * rounds.
  */
-export function facetedHeight(groundAt: (x: number, z: number) => number, spacing: number, finer?: Finer): (x: number, z: number) => number {
+export function facetedHeight(groundAt: (x: number, z: number) => number, spacing: number, finer: Finer[] = []): (x: number, z: number) => number {
   return (x, z) => {
     let step = spacing;
     let ox = 0;
     let oz = 0;
-    if (finer && Math.max(Math.abs(x - finer.x), Math.abs(z - finer.z)) < finer.size / 2 - finer.spacing) {
-      step = finer.spacing;
-      ox = finer.x - finer.size / 2;
-      oz = finer.z - finer.size / 2;
+    for (const f of finer) {
+      if (Math.max(Math.abs(x - f.x), Math.abs(z - f.z)) >= f.size / 2 - f.spacing) break;
+      step = f.spacing;
+      ox = f.x - f.size / 2;
+      oz = f.z - f.size / 2;
     }
     const x0 = ox + Math.floor((x - ox) / step) * step;
     const z0 = oz + Math.floor((z - oz) / step) * step;

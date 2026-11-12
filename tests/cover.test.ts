@@ -48,7 +48,7 @@ describe('the height of the terrain as drawn', () => {
   });
 
   test('a finer square is drawn finer', () => {
-    const fine = facetedHeight(dome, 100, { x: 0, z: 0, size: 400, spacing: 10 });
+    const fine = facetedHeight(dome, 100, [{ x: 0, z: 0, size: 400, spacing: 10 }]);
     expect(fine(5, 0)).toBeCloseTo((dome(0, 0) + dome(10, 0)) / 2, 9);
     expect(fine(350, 50)).toBe(drawn(350, 50));
   });

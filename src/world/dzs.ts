@@ -145,7 +145,7 @@ export const DZS: DzInfo[] = [
   // The A75 viaduct: the road's height above the landing field at the exit, as built into data/millau.ts.
   real('millau', 'Viaduc de Millau', undefined, 'franceAlti', () => import('./data/millau'), { height: 277, standing: true }),
   // The Becco dell'Aquila: the height down to the landing field, as in tools/dz/brento.json.
-  real('brento', "Becco dell'Aquila", undefined, 'trentino', () => import('./data/brento'), { height: 1185 }),
+  real('brento', "Becco dell'Aquila", undefined, 'trentino', () => import('./data/brento'), { height: 1232 }),
 ];
 
 export function dzInfo(id: DzId): DzInfo {

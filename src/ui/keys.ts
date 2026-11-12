@@ -29,10 +29,9 @@ function keyboardRows(phase: KeysPhase): Row[] {
       return [
         [[k('KeyW'), k('KeyS')], t.run],
         [[k('KeyA'), k('KeyD')], t.sidestep],
-        [[k('KeyQ'), k('KeyE')], t.turn],
+        [[t.mouse], t.lookTurn],
         [[t.space], t.leap],
         [['↑', '↓', '←', '→'], t.exitPosition],
-        [[t.mouse], t.look],
         [[k('KeyT'), k('KeyL')], t.targetLock],
         [[k('KeyB')], t.outsideCamera],
       ];
@@ -108,8 +107,8 @@ function keyboardRows(phase: KeysPhase): Row[] {
     case 'ground':
       return [
         [[k('KeyW'), k('KeyS')], t.walk],
-        [[k('KeyQ'), k('KeyE')], t.turn],
         [[k('KeyA'), k('KeyD')], t.sidestep],
+        [[t.mouse], t.lookTurn],
         [[t.space], t.gather],
         [[k('KeyR')], t.restart],
         [['1', '2', '3'], t.starts],
@@ -127,10 +126,9 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
     case 'ledge':
       return [
         [['ls'], t.run],
-        [['lt', 'rt'], t.turn],
+        [['rs'], t.lookTurn],
         [['a'], t.leap],
-        [['cross'], t.exitPosition],
-        [['rs'], t.look],
+        [['b', 'y', 'x'], t.positionsPad],
         [['rs'], t.targetLockPad],
         [['view'], t.camera],
       ];
@@ -138,7 +136,7 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
       return [
         [['a'], t.exit],
         [['ls'], t.exitSpot],
-        [['cross'], t.exitPosition],
+        [['b', 'y', 'x'], t.positionsPad],
         [['rs'], t.look],
         [['rs'], t.targetLockPad],
         [['view'], t.camera],
@@ -146,8 +144,9 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
     case 'freefall':
       return [
         [['ls'], t.fwdBackSlide],
-        [['lt', 'rt'], t.turn],
-        [['lb', 'rb'], t.upDown],
+        [['rs'], t.turnUpDown],
+        [['lb'], t.lookHeld],
+        [['b', 'y', 'x'], t.positionsPad],
         [['up', 'down'], t.sitHeadDown],
         [['left', 'right'], t.bellyBack],
         [['ls'], t.trackPress],
@@ -158,8 +157,8 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
     case 'wingsuit':
       return [
         [['ls'], t.diveFlare],
-        [['lt', 'rt'], t.turn],
-        [['lb', 'rb'], t.wingsWideTight],
+        [['rs'], t.turnWings],
+        [['lb'], t.lookHeld],
         [['left', 'right'], t.wingsuitRoll],
         [['a'], t.pullReserve],
         [['rs'], t.targetLockPad],
@@ -199,6 +198,9 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
       ];
     case 'ground':
       return [
+        [['ls'], t.walk],
+        [['rs'], t.lookTurn],
+        [['a'], t.gather],
         [['y'], t.restart],
         [['rs'], t.targetLockPad],
         [['view'], t.camera],

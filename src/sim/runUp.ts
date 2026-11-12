@@ -13,9 +13,12 @@ import { DEG, set, vec3 } from './vec';
 
 /** Flat out with a rig on the back, m/s. */
 export const RUN_SPEED = 7;
-/** Backing up, or stepping sideways, m/s. */
-const BACK_SPEED = 1.4;
-const SIDE_SPEED = 1.4;
+/**
+ * Running backwards, or sideways, m/s: slower than straight ahead, and
+ * diagonally no faster than that either.
+ */
+const BACK_SPEED = 4;
+const SIDE_SPEED = 5;
 /** Building up speed, m/s²: flat out in about two seconds, seven metres. */
 const ACCEL = 3.5;
 /** Slowing down, m/s². */
@@ -100,10 +103,15 @@ export class RunUp {
       return true;
     }
     const f = Math.max(-1, Math.min(1, input.forward));
-    const wanted = f >= 0 ? f * RUN_SPEED : f * BACK_SPEED;
+    let wanted = f >= 0 ? f * RUN_SPEED : f * BACK_SPEED;
+    let sideways = Math.max(-1, Math.min(1, input.slide)) * SIDE_SPEED;
+    const all = Math.hypot(wanted, sideways);
+    if (all > RUN_SPEED) {
+      wanted *= RUN_SPEED / all;
+      sideways *= RUN_SPEED / all;
+    }
     const faster = (to: number, v: number): boolean => Math.abs(to) > Math.abs(v) && to * v >= 0;
     this.forward = approach(this.forward, wanted, faster(wanted, this.forward) ? ACCEL : BRAKE, dt);
-    const sideways = Math.max(-1, Math.min(1, input.slide)) * SIDE_SPEED;
     this.side = approach(this.side, sideways, faster(sideways, this.side) ? ACCEL : BRAKE, dt);
     const turn = (Math.max(-1, Math.min(1, input.turn)) * TURN_RATE) / (1 + Math.abs(this.forward) / 2.5);
     this.headingDeg = (((this.headingDeg + (turn * dt) / DEG) % 360) + 360) % 360;
@@ -136,6 +144,11 @@ export class RunUp {
     this.legL = swing;
     this.legR = -swing;
     return false;
+  }
+
+  /** Turned by the mouse, as in any first-person game: `rad` to the right, at once. */
+  turnBy(rad: number): void {
+    this.headingDeg = (((this.headingDeg + rad / DEG) % 360) + 360) % 360;
   }
 
   /** Off the last step: up and on along the run; or from a standing start, out and up off the lip. */
