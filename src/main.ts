@@ -1938,13 +1938,13 @@ function guideCue(): string {
   const g = bots.guide(us);
   if (!g) return '';
   const t = T.cue.guide;
-  // The key that goes there, or on the gamepad the bumper, or the left stick and which way to push it.
+  // The key that goes there, or on the gamepad the stick and which way to push it: the right one up and down, the left one on and back.
   const pad = devices.lastUsed === 'gamepad';
   const how = (code: string, control: PadControl, push = ''): string =>
     pad ? `<i>${padIcon(control, devices.padKind)}${push}</i>` : `<kbd>${keyLabel(code)}</kbd>`;
   const say = (text: string, m: number, by: string): string => `<span>${text} ${Math.round(Math.abs(m))} m${by}</span>`;
   const parts = [
-    Math.abs(g.up) < GUIDE_LEVEL ? `<span class="ok">${t.level}</span>` : g.up > 0 ? say(`▲ ${t.up}`, g.up, how('KeyR', 'lb')) : say(`▼ ${t.down}`, g.up, how('KeyF', 'rb')),
+    Math.abs(g.up) < GUIDE_LEVEL ? `<span class="ok">${t.level}</span>` : g.up > 0 ? say(`▲ ${t.up}`, g.up, how('KeyR', 'rs', ' ↑')) : say(`▼ ${t.down}`, g.up, how('KeyF', 'rs', ' ↓')),
     Math.abs(g.ahead) < GUIDE_NEAR
       ? `<span class="ok">${t.near}</span>`
       : g.ahead > 0
