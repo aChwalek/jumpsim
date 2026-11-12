@@ -2,6 +2,7 @@
 // the gear and the weight under it, and how the jump starts. Remembered from
 // one visit to the next.
 
+import { T } from './i18n';
 import { HOUR_MAX, HOUR_MIN } from './render/daylight';
 import { isCanopyColor, type CanopyColorId } from './render/canopyColors';
 import { DEFAULT_RIG, deriveRig, reserveConfig, rigConfig, type CanopyKind, type RigParams } from './sim/rig';
@@ -13,7 +14,8 @@ export const CANOPY_SIZES: Record<CanopyKind, number[]> = {
   classic: [260, 230, 210, 190, 170, 150, 135, 120, 107, 96, 84],
   triCell: [120, 107, 96, 84, 75, 67],
 };
-export const KIND_NAMES: Record<CanopyKind, string> = { classic: 'classique', triCell: 'tri-cell' };
+/** The kind of canopy as the language in use names it. */
+export const kindName = (kind: CanopyKind): string => T.setup.kinds[kind];
 /** Pilot plus all gear, kg. */
 export const WEIGHT_MIN = 50;
 export const WEIGHT_MAX = 130;
@@ -101,12 +103,8 @@ export const runHeading = (setup: Setup): number => setup.jump.runDeg ?? setup.w
 
 /** Who usually flies a canopy loaded like this, lb/ft². */
 export function loadingLabel(wingLoading: number): string {
-  if (wingLoading < 0.8) return 'école';
-  if (wingLoading < 1.1) return 'débutant';
-  if (wingLoading < 1.35) return 'intermédiaire';
-  if (wingLoading < 1.7) return 'confirmé';
-  if (wingLoading < 2.1) return 'expert';
-  return 'compétition';
+  const level = [0.8, 1.1, 1.35, 1.7, 2.1].findIndex((top) => wingLoading < top);
+  return T.setup.loading[level < 0 ? 5 : level]!;
 }
 
 /** The usual wind of a drop zone, as the weather of a first visit. */

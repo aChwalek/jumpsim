@@ -1,9 +1,12 @@
 // The keys for what the pilot is doing right now, down one side of the
-// screen: the keyboard's (AZERTY letters, as the help in the menu gives them)
+// screen: the keyboard's (as printed on the keyboard in use, see keyLabels)
 // or the gamepad's, whichever was used last. Gamepad controls are drawn as
 // small pictures of the controls themselves (round face button, bumpers,
 // triggers, sticks, the cross with the right arm lit), named the Xbox or
 // the PlayStation way.
+
+import { T } from '../i18n';
+import { keyLabel } from '../input/keyLabels';
 
 export type KeysPhase = 'plane' | 'freefall' | 'canopy' | 'ground';
 export type InputKind = 'keyboard' | 'gamepad';
@@ -15,71 +18,86 @@ type PadControl = 'a' | 'b' | 'x' | 'y' | 'start' | 'view' | 'lb' | 'rb' | 'lt' 
 /** Keyboard keys as written on the caps, or gamepad controls; and what they do. */
 type Row = [keys: string[], what: string];
 
-const KEYBOARD: Record<KeysPhase, Row[]> = {
-  plane: [
-    [['Espace'], 'sauter'],
-    [['↑', '↓', '←', '→'], 'position de sortie'],
-    [['Souris'], 'regarder'],
-    [['B'], 'caméra extérieure'],
-  ],
-  freefall: [
-    [['Z', 'S'], 'avancer / reculer'],
-    [['Q', 'D'], 'tourner'],
-    [['A', 'E'], 'glisser'],
-    [['R', 'F'], 'monter / descendre'],
-    [['↑', '↓'], 'assis / tête en bas'],
-    [['←', '→'], 'à plat / dos'],
-    [['Espace'], 'ouvrir · secours'],
-    [['B'], 'caméra extérieure'],
-  ],
-  canopy: [
-    [['Q', 'D'], 'commande gauche / droite'],
-    [['S'], 'les deux commandes'],
-    [['A', 'E'], 'avant gauche / droit'],
-    [['Z'], 'les deux avants'],
-    [['Maj'], 'maintenir les commandes'],
-    [['G'], 'glisseur'],
-    [['X'], 'libérer (maintenir)'],
-    [['Souris'], 'regarder, C recentrer'],
-    [['B'], 'caméra, molette distance'],
-  ],
-  ground: [
-    [['R'], 'recommencer'],
-    [['1', '2', '3'], 'circuit / finale / avion'],
-    [['B'], 'caméra extérieure'],
-  ],
-};
+function keyboardRows(phase: KeysPhase): Row[] {
+  const k = keyLabel;
+  const t = T.keys;
+  switch (phase) {
+    case 'plane':
+      return [
+        [[t.space], t.exit],
+        [['↑', '↓', '←', '→'], t.exitPosition],
+        [[t.mouse], t.look],
+        [[k('KeyB')], t.outsideCamera],
+      ];
+    case 'freefall':
+      return [
+        [[k('KeyW'), k('KeyS')], t.fwdBack],
+        [[k('KeyA'), k('KeyD')], t.turn],
+        [[k('KeyQ'), k('KeyE')], t.slide],
+        [[k('KeyR'), k('KeyF')], t.upDown],
+        [['↑', '↓'], t.sitHeadDown],
+        [['←', '→'], t.bellyBack],
+        [[t.space], t.pullReserve],
+        [[k('KeyB')], t.outsideCamera],
+      ];
+    case 'canopy':
+      return [
+        [[k('KeyA'), k('KeyD')], t.toggles],
+        [[k('KeyS')], t.bothToggles],
+        [[k('KeyQ'), k('KeyE')], t.fronts],
+        [[k('KeyW')], t.bothFronts],
+        [[t.shift], t.hold],
+        [[k('KeyG')], t.slider],
+        [[k('KeyX')], t.cutaway],
+        [[t.mouse], t.lookRecentre(k('KeyC'))],
+        [[k('KeyB')], t.cameraZoom],
+      ];
+    case 'ground':
+      return [
+        [[k('KeyR')], t.restart],
+        [['1', '2', '3'], t.starts],
+        [[k('KeyB')], t.outsideCamera],
+      ];
+  }
+}
 
-const GAMEPAD: Record<KeysPhase, [PadControl[], string][] | null> = {
-  plane: [
-    [['a'], 'sauter'],
-    [['cross'], 'position de sortie'],
-    [['rs'], 'regarder'],
-    [['view'], 'caméra'],
-  ],
-  freefall: [
-    [['ls'], 'avancer, reculer, glisser'],
-    [['lt', 'rt'], 'tourner'],
-    [['lb', 'rb'], 'monter / descendre'],
-    [['up', 'down'], 'assis / tête en bas'],
-    [['left', 'right'], 'à plat / dos'],
-    [['a'], 'ouvrir · secours'],
-    [['view'], 'caméra'],
-  ],
-  canopy: [
-    [['lt', 'rt'], 'commande gauche / droite'],
-    [['lb', 'rb'], 'avant gauche / droit'],
-    [['x'], 'glisseur'],
-    [['b'], 'libérer (maintenir)'],
-    [['rs'], 'regarder'],
-    [['view'], 'caméra'],
-  ],
-  ground: [
-    [['y'], 'recommencer'],
-    [['view'], 'caméra'],
-    [['start'], 'menu'],
-  ],
-};
+function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
+  const t = T.keys;
+  switch (phase) {
+    case 'plane':
+      return [
+        [['a'], t.exit],
+        [['cross'], t.exitPosition],
+        [['rs'], t.look],
+        [['view'], t.camera],
+      ];
+    case 'freefall':
+      return [
+        [['ls'], t.fwdBackSlide],
+        [['lt', 'rt'], t.turn],
+        [['lb', 'rb'], t.upDown],
+        [['up', 'down'], t.sitHeadDown],
+        [['left', 'right'], t.bellyBack],
+        [['a'], t.pullReserve],
+        [['view'], t.camera],
+      ];
+    case 'canopy':
+      return [
+        [['lt', 'rt'], t.toggles],
+        [['lb', 'rb'], t.fronts],
+        [['x'], t.slider],
+        [['b'], t.cutaway],
+        [['rs'], t.look],
+        [['view'], t.camera],
+      ];
+    case 'ground':
+      return [
+        [['y'], t.restart],
+        [['view'], t.camera],
+        [['start'], t.menu],
+      ];
+  }
+}
 
 const NAMES: Record<PadKind, Record<'lb' | 'rb' | 'lt' | 'rt', string>> = {
   xbox: { lb: 'LB', rb: 'RB', lt: 'LT', rt: 'RT' },
@@ -120,18 +138,18 @@ function padIcon(c: PadControl, kind: PadKind): string {
             26,
             26,
             `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><path d="M8.5 8.5 L17.5 17.5 M17.5 8.5 L8.5 17.5" stroke="#8fb4ff" stroke-width="2.4" stroke-linecap="round"/>`,
-            'croix',
+            T.keys.psCross,
           );
     case 'b':
       // Xbox: the red B. PlayStation: the red circle.
       return kind === 'xbox'
         ? svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="#c4332b" stroke="${LINE}"/><text x="13" y="18" font-size="14" ${FONT}>B</text>`, 'B')
-        : svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><circle cx="13" cy="13" r="5.5" fill="none" stroke="#ff6b6b" stroke-width="2.2"/>`, 'rond');
+        : svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><circle cx="13" cy="13" r="5.5" fill="none" stroke="#ff6b6b" stroke-width="2.2"/>`, T.keys.circle);
     case 'x':
       // Xbox: the blue X. PlayStation: the pink square.
       return kind === 'xbox'
         ? svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="#2b6fc4" stroke="${LINE}"/><text x="13" y="18" font-size="14" ${FONT}>X</text>`, 'X')
-        : svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><rect x="8.5" y="8.5" width="9" height="9" fill="none" stroke="#f19bd4" stroke-width="2"/>`, 'carré');
+        : svg(26, 26, `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><rect x="8.5" y="8.5" width="9" height="9" fill="none" stroke="#f19bd4" stroke-width="2"/>`, T.keys.square);
     case 'view': {
       // The small button on the left: View on an Xbox pad, Share / Create on a PlayStation one.
       const name = kind === 'xbox' ? 'View' : 'Share';
@@ -145,7 +163,7 @@ function padIcon(c: PadControl, kind: PadKind): string {
             26,
             26,
             `<circle cx="13" cy="13" r="11.5" fill="${BODY}" stroke="${LINE}"/><path d="M13 7.5 L18.5 17 H7.5 Z" fill="none" stroke="#5fd6a4" stroke-width="2" stroke-linejoin="round"/>`,
-            'triangle',
+            T.keys.triangle,
           );
     case 'start': {
       // The small button in the middle: Menu on an Xbox pad, Options on a PlayStation one.
@@ -172,13 +190,13 @@ function padIcon(c: PadControl, kind: PadKind): string {
         28,
         28,
         `<circle cx="14" cy="14" r="12.5" fill="${BODY}" stroke="${LINE}"/><circle cx="14" cy="14" r="7.5" fill="rgba(255,255,255,0.9)"/><text x="14" y="18" font-size="11" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-weight="700" text-anchor="middle" fill="#111">${name}</text>`,
-        `stick ${c === 'ls' ? 'gauche' : 'droit'}`,
+        c === 'ls' ? T.keys.stickL : T.keys.stickR,
       );
     }
     case 'cross':
-      return cross(['up', 'down', 'left', 'right'], 'croix');
+      return cross(['up', 'down', 'left', 'right'], T.keys.dpad);
     default:
-      return cross([c], `croix ${c}`);
+      return cross([c], `${T.keys.dpad} ${c}`);
   }
 }
 
@@ -186,10 +204,12 @@ const caps = (keys: string[]): string => keys.map((k) => `<kbd>${k}</kbd>`).join
 
 /** The overlay for a moment of the jump and a device, as HTML. */
 export function keysHtml(phase: KeysPhase, input: InputKind, pad: PadKind = 'xbox'): string {
-  const padRows = input === 'gamepad' ? GAMEPAD[phase] : null;
+  const padRows = input === 'gamepad' ? gamepadRows(phase) : null;
   const body = padRows
     ? padRows.map(([controls, what]) => `<span>${controls.map((c) => padIcon(c, pad)).join('')}</span><span>${what}</span>`).join('')
-    : KEYBOARD[phase].map(([keys, what]) => `<span>${caps(keys)}</span><span>${what}</span>`).join('');
-  const foot = padRows ? `${padIcon('start', pad)} menu` : `${caps(['V'])} menu · ${caps(['K'])} masquer`;
+    : keyboardRows(phase).map(([keys, what]) => `<span>${caps(keys)}</span><span>${what}</span>`).join('');
+  const foot = padRows
+    ? `${padIcon('start', pad)} ${T.keys.menu}`
+    : `${caps([keyLabel('KeyV')])} ${T.keys.menu} · ${caps([keyLabel('KeyK')])} ${T.keys.hide}`;
   return `${body}<span class="foot">${foot}</span>`;
 }

@@ -2,6 +2,7 @@
 // flies in. The wind is given as forecasts give it, at 10 m above the ground;
 // it is weaker lower down and stronger higher up, and gusts come and go.
 
+import { T } from '../i18n';
 import { DEG, set, type Vec3 } from './vec';
 
 export type SkyKind = 'clear' | 'cumulus' | 'hazy' | 'overcast';
@@ -76,6 +77,5 @@ export function windAt(out: Vec3, w: Weather, heightM: number, seconds: number):
 
 /** Compass point a wind comes from, in French: N, NNE, NE... */
 export function compassPoint(deg: number): string {
-  const points = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSO', 'SO', 'OSO', 'O', 'ONO', 'NO', 'NNO'];
-  return points[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16]!;
+  return T.compass[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16]!;
 }

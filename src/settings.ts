@@ -1,13 +1,10 @@
 // How the sim runs on this computer, as opposed to the jump: picture quality,
-// sound, the mouse. Remembered from one visit to the next.
+// sound, the mouse, the language. Remembered from one visit to the next.
 
-/** Picture quality: the highest pixel density drawn, as a multiple of CSS pixels. */
-export const QUALITY_LEVELS = [
-  { ratio: 1, label: 'Basse' },
-  { ratio: 1.5, label: 'Moyenne' },
-  { ratio: 2, label: 'Haute' },
-  { ratio: 3, label: 'Max' },
-] as const;
+import { LANGS, browserLanguage, type Lang } from './i18n';
+
+/** Picture quality: the highest pixel density drawn, as a multiple of CSS pixels. Named in T.setup.quality. */
+export const QUALITY_LEVELS = [{ ratio: 1 }, { ratio: 1.5 }, { ratio: 2 }, { ratio: 3 }] as const;
 
 export const SENSITIVITY_MIN = 0.3;
 export const SENSITIVITY_MAX = 3;
@@ -28,6 +25,8 @@ export interface Settings {
   mouseSensitivity: number;
   /** Mouse forward and stick up look down, as in a plane. */
   invertLook: boolean;
+  /** The language on screen. */
+  language: Lang;
 }
 
 export function defaultSettings(): Settings {
@@ -40,6 +39,7 @@ export function defaultSettings(): Settings {
     volume: 1,
     mouseSensitivity: 1,
     invertLook: false,
+    language: browserLanguage(),
   };
 }
 
@@ -59,6 +59,7 @@ export function validSettings(saved: unknown): Settings {
   if (finite(s.volume)) out.volume = clamp(s.volume, 0, 1);
   if (finite(s.mouseSensitivity)) out.mouseSensitivity = clamp(s.mouseSensitivity, SENSITIVITY_MIN, SENSITIVITY_MAX);
   if (typeof s.invertLook === 'boolean') out.invertLook = s.invertLook;
+  if (LANGS.includes(s.language as Lang)) out.language = s.language as Lang;
   return out;
 }
 

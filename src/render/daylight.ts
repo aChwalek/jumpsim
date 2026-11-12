@@ -3,6 +3,7 @@
 // how dark the shadows are.
 
 import * as THREE from 'three';
+import { T } from '../i18n';
 import type { SkyKind } from '../sim/weather';
 
 const DEG = Math.PI / 180;
@@ -186,5 +187,5 @@ export const HOUR_MAX = 21;
 export function formatHour(hour: number): string {
   const h = Math.floor(hour);
   const m = Math.round((hour - h) * 60);
-  return `${h}h${String(m).padStart(2, '0')}`;
+  return T.hour(h, String(m).padStart(2, '0'));
 }

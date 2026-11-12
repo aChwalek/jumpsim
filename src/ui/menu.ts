@@ -1,23 +1,35 @@
 // The menu. The home screen sums up the jump in four cards (gear, drop zone,
-// weather, jump); each opens its own screen to change it. Two corner buttons
-// open the settings and the logbook. Everything can be reached with the
-// mouse, the keyboard or a gamepad (see nav.ts). What changes the scenery is
-// shown at once behind the menu.
+// weather, jump); each opens its own screen to change it. The corner holds
+// the language, the logbook and the settings. Beside the panel, the drop zone
+// from above with the pattern and jump run the setup gives (dzMap.ts).
+// Everything can be reached with the mouse, the keyboard or a gamepad (see
+// nav.ts). What changes the scenery is shown at once behind the menu.
+//
+// Every word comes from the dictionary of the language in use (../i18n):
+// changing the language builds the screens again.
 
+import '@fontsource/barlow/latin-400.css';
+import '@fontsource/barlow/latin-500.css';
+import '@fontsource/barlow/latin-600.css';
+import '@fontsource/barlow/latin-700.css';
+import '@fontsource/barlow-condensed/latin-500.css';
+import '@fontsource/barlow-condensed/latin-600.css';
+import '@fontsource/barlow-condensed/latin-700.css';
 import './menu.css';
+import { LANGS, T, heading, lang, num, setLanguage, type Lang } from '../i18n';
 import { HOUR_MAX, HOUR_MIN, formatHour, sunPosition } from '../render/daylight';
 import { CANOPY_COLORS, type CanopyColorId } from '../render/canopyColors';
-import { OUTCOME_GROUPS, OUTCOME_NAMES, clearLogbook, loadLogbook, logStats, type LogEntry } from '../logbook';
+import { OUTCOME_GROUPS, clearLogbook, loadLogbook, logStats, type LogEntry } from '../logbook';
 import { QUALITY_LEVELS, SENSITIVITY_MAX, SENSITIVITY_MIN, type Settings } from '../settings';
 import {
   CANOPY_SIZES,
   EXIT_HEIGHT_MAX,
   EXIT_HEIGHT_MIN,
   EXIT_HEIGHT_STEP,
-  KIND_NAMES,
   WEIGHT_MAX,
   WEIGHT_MIN,
   cloneSetup,
+  kindName,
   loadingLabel,
   nearestSize,
   rigFor,
@@ -33,6 +45,8 @@ import {
   type MalfunctionRate,
   type SliderKind,
   MALFUNCTION_ODDS,
+  MALFUNCTION_RATES,
+  SLIDER_KINDS,
   type Setup,
   type Start,
 } from '../setup';
@@ -49,6 +63,20 @@ import {
 } from '../sim/weather';
 import { landingHeading } from '../world/dz';
 import { DZS, dzInfo, type DzId } from '../world/dzs';
+import { keyLabel } from '../input/keyLabels';
+import { DzMap } from './dzMap';
+import {
+  ICON_BACK,
+  ICON_BOOK,
+  ICON_CANOPY,
+  ICON_COG,
+  ICON_DZ,
+  ICON_GLOBE,
+  ICON_MORE,
+  ICON_PLANE,
+  ICON_WEATHER,
+  LOGO,
+} from './icons';
 import { Nav } from './nav';
 
 export type { Start } from '../setup';
@@ -56,12 +84,15 @@ export type { Start } from '../setup';
 type Category = 'gear' | 'dz' | 'weather' | 'jump';
 type ScreenId = 'home' | Category | 'settings' | 'logbook';
 
-const CATEGORIES: { id: Category; title: string }[] = [
-  { id: 'gear', title: 'GEAR' },
-  { id: 'dz', title: 'DZ' },
-  { id: 'weather', title: 'MÉTÉO' },
-  { id: 'jump', title: 'JUMP' },
+const CATEGORIES: { id: Category; icon: string }[] = [
+  { id: 'gear', icon: ICON_CANOPY },
+  { id: 'dz', icon: ICON_DZ },
+  { id: 'weather', icon: ICON_WEATHER },
+  { id: 'jump', icon: ICON_PLANE },
 ];
+
+/** Screens the map stands beside. */
+const WITH_MAP: ReadonlySet<ScreenId> = new Set<ScreenId>(['home', 'gear', 'dz', 'weather', 'jump']);
 
 interface Option<T> {
   value: T;
@@ -70,44 +101,12 @@ interface Option<T> {
   html?: string;
 }
 
-const SKIES: Option<SkyKind>[] = [
-  { value: 'clear', label: 'Grand bleu' },
-  { value: 'cumulus', label: 'Cumulus' },
-  { value: 'hazy', label: 'Voilé' },
-  { value: 'overcast', label: 'Couvert' },
-];
-const GUSTS: Option<GustLevel>[] = [
-  { value: 'none', label: 'Aucune' },
-  { value: 'light', label: 'Légères' },
-  { value: 'strong', label: 'Fortes' },
-];
-const ALTIMETERS: Option<AltimeterKind>[] = [
-  { value: 'none', label: 'Aucun' },
-  { value: 'analog', label: 'À aiguille' },
-  { value: 'digital', label: 'Digital' },
-];
-const SLIDERS: Option<SliderKind>[] = [
-  { value: 'fixed', label: 'Fixe' },
-  { value: 'collapsible', label: 'Rétractable' },
-  { value: 'removable', label: 'Amovible' },
-];
-const SLIDER_NOTES: Record<SliderKind, string> = {
-  fixed: 'Il reste sur les maillons et claque au vent tout le vol.',
-  collapsible: 'G (manette : X) sous voile pour le replier sur les maillons : moins de traînée, moins de bruit.',
-  removable: 'G (manette : X) sous voile pour l\'enlever et le ranger : la voile vole un peu plus vite.',
-};
-const MALFUNCTIONS: Option<MalfunctionRate>[] = [
-  { value: 'none', label: 'Jamais' },
-  { value: 'sometimes', label: `1 sur ${MALFUNCTION_ODDS}` },
-  { value: 'always', label: 'À chaque saut' },
-];
-const YES_NO: Option<boolean>[] = [
-  { value: false, label: 'Non' },
-  { value: true, label: 'Oui' },
-];
-const START_NAMES: Record<Start, string> = { plane: 'Avion', pattern: 'Circuit', final: 'Finale' };
+const STARTS: readonly Start[] = ['plane', 'pattern', 'final'];
 /** Straight to a start from the menu, as in flight. */
 const START_KEYS: Record<string, Start | undefined> = { Digit1: 'pattern', Digit2: 'final', Digit3: 'plane' };
+
+/** A small picture of each drop zone from above, for the list (tools/dz/thumbs.mjs makes them). */
+const thumbUrl = (id: DzId): string => `${import.meta.env.BASE_URL}dz/thumbs/${id}.jpg`;
 
 // ---------------------------------------------------------------- helpers
 
@@ -121,6 +120,13 @@ function h<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', ...children:
   return node;
 }
 
+/** An element from markup. */
+function html(markup: string): Element {
+  const t = document.createElement('template');
+  t.innerHTML = markup.trim();
+  return t.content.firstElementChild!;
+}
+
 function button(cls: string, ...children: Child[]): HTMLButtonElement {
   const b = h('button', cls, ...children);
   b.type = 'button';
@@ -128,10 +134,11 @@ function button(cls: string, ...children: Child[]): HTMLButtonElement {
 }
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
-/** A number as French prints it: 4 000, 1,10. */
-const num = (v: number, digits = 0): string =>
-  v.toLocaleString('fr-FR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
-const heading = (deg: number): string => `${String(Math.round(deg)).padStart(3, '0')}°`;
+const options = <V>(values: readonly V[], label: (v: V) => string): Option<V>[] => values.map((value) => ({ value, label: label(value) }));
+const yesNo = (): Option<boolean>[] => [
+  { value: false, label: T.no },
+  { value: true, label: T.yes },
+];
 
 /** A colour swatch: the cells of the canopy side by side. */
 const swatch = (id: CanopyColorId): string =>
@@ -142,19 +149,20 @@ const swatch = (id: CanopyColorId): string =>
 /** Where the sun is seen from final, flying this heading. */
 function sunOnFinal(azimuthDeg: number, finalDeg: number): string {
   const off = ((azimuthDeg - finalDeg + 540) % 360) - 180;
-  if (Math.abs(off) < 50) return 'face à toi en finale';
-  if (Math.abs(off) > 130) return 'dans le dos en finale';
-  return off > 0 ? 'à droite en finale' : 'à gauche en finale';
+  const where = T.menu.weather.sunOnFinal;
+  if (Math.abs(off) < 50) return where.ahead;
+  if (Math.abs(off) > 130) return where.behind;
+  return off > 0 ? where.right : where.left;
 }
 
 /** How the wind meets a plane on this heading. */
 function windOnRun(runDeg: number, windFromDeg: number, windKmh: number): string {
-  if (windKmh === 0) return 'sans vent';
+  const w = T.menu.jump.windOnRun;
+  if (windKmh === 0) return w.calm;
   const off = ((windFromDeg - runDeg + 540) % 360) - 180;
-  if (Math.abs(off) <= 30) return 'face au vent';
-  if (Math.abs(off) >= 150) return 'vent arrière';
-  const side = off > 0 ? 'droite' : 'gauche';
-  return Math.abs(off) < 70 ? `vent de trois-quarts ${side}` : `vent de travers ${side}`;
+  if (Math.abs(off) <= 30) return w.head;
+  if (Math.abs(off) >= 150) return w.tail;
+  return Math.abs(off) < 70 ? w.quarter(off > 0) : w.cross(off > 0);
 }
 
 /** Rough freefall time from an exit to a pull at 1000 m, s: about 10 s to get up to speed, then 53 m/s. */
@@ -179,7 +187,8 @@ class Compass {
     this.el.innerHTML = `
       <svg viewBox="-30 -30 60 60">
         <circle r="27" class="ring" />
-        <text y="-18.5" text-anchor="middle">N</text>
+        ${[0, 90, 180, 270].map((a) => `<path class="tick" transform="rotate(${a})" d="M 0 -27 L 0 -23" />`).join('')}
+        <text y="-15.5" text-anchor="middle">N</text>
         <g class="run">
           <path class="track" d="M 0 24 L 0 -16" />
           <path d="M -5 -14 L 0 -23 L 5 -14 Z" />
@@ -199,14 +208,15 @@ class Compass {
   }
 }
 
+/** Gamepad buttons in a hint: {A} is drawn as the button. */
+const padMarkup = (text: string): string => text.replace(/\{([^}]+)\}/g, '<i class="btn">$1</i>');
+
 /** Hints at the foot of a screen, for the keyboard and for the gamepad. */
 function hints(keys: string, pad: string): HTMLElement {
   const p = h('p', 'hints');
-  p.innerHTML = `<span class="keys">${keys}</span><span class="pad">${pad}</span>`;
+  p.innerHTML = `<span class="keys">${keys}</span><span class="pad">${padMarkup(pad)}</span>`;
   return p;
 }
-
-const PAD = (b: string): string => `<i class="btn">${b}</i>`;
 
 interface RowOptions {
   /** Small text after the label. */
@@ -216,6 +226,8 @@ interface RowOptions {
   /** A line under the control. */
   note?: () => string;
   disabled?: () => boolean;
+  /** Finds the row again once the screens are built anew. */
+  key?: string;
 }
 
 // ---------------------------------------------------------------- menu
@@ -230,21 +242,24 @@ export class Menu {
   onPreview: (setup: Setup) => void = () => {};
   /** Called when a setting changes: it is already in the settings object. */
   onSettings: () => void = () => {};
+  /** The drop zone from above, beside the panel. */
+  readonly map = new DzMap();
 
   private readonly root: HTMLElement;
-  private readonly panel = h('div', 'panel');
   private readonly nav: Nav;
   private readonly setup: Setup;
   private readonly screens = new Map<ScreenId, HTMLElement>();
   private readonly cards = new Map<Category, HTMLButtonElement>();
-  private readonly updaters: (() => void)[] = [];
+  private updaters: (() => void)[] = [];
   private screen: ScreenId = 'home';
   private canCancel = false;
-  private readonly resume = button('resume', 'Reprendre le saut');
-  private readonly jump = button('jump');
-  private readonly cornerSettings = button('corner-btn');
-  private readonly cornerLogbook = button('corner-btn');
-  private readonly logbookBody = h('div', 'body logbook');
+  private panel!: HTMLElement;
+  private resume!: HTMLButtonElement;
+  private jump!: HTMLButtonElement;
+  private cornerSettings!: HTMLButtonElement;
+  private cornerLogbook!: HTMLButtonElement;
+  private cornerLanguage!: HTMLButtonElement;
+  private logbookBody!: HTMLElement;
   private clearArmed = 0;
 
   constructor(
@@ -266,26 +281,7 @@ export class Menu {
       () => this.isOpen,
     );
     this.nav.onPadChange = (pad) => this.root.classList.toggle('pad', pad);
-
-    this.screens.set('home', this.buildHome());
-    this.screens.set('gear', this.buildGear());
-    this.screens.set('dz', this.buildDz());
-    this.screens.set('weather', this.buildWeather());
-    this.screens.set('jump', this.buildJump());
-    this.screens.set('settings', this.buildSettings());
-    this.screens.set('logbook', this.buildLogbook());
-    for (const s of this.screens.values()) this.panel.append(s);
-
-    const corner = h('div', 'menu-corner');
-    this.cornerLogbook.innerHTML = `${ICON_BOOK}<span>Carnet</span><i class="btn pad">X</i>`;
-    this.cornerSettings.innerHTML = `${ICON_COG}<span>Réglages</span><i class="btn pad">Y</i>`;
-    this.cornerLogbook.title = 'Carnet de sauts et statistiques';
-    this.cornerSettings.title = 'Réglages : qualité, son, souris, touches';
-    this.cornerLogbook.addEventListener('click', () => this.toggleScreen('logbook'));
-    this.cornerSettings.addEventListener('click', () => this.toggleScreen('settings'));
-    corner.append(this.nav.add(this.cornerLogbook), this.nav.add(this.cornerSettings));
-    root.replaceChildren(this.panel, corner);
-
+    this.build();
     window.addEventListener('keydown', (e) => this.key(e));
     this.show('home');
   }
@@ -327,7 +323,69 @@ export class Menu {
   /** Shows settings changed from the keyboard in flight. */
   refresh(): void {
     for (const update of this.updaters) update();
+    this.map.update(this.setup);
     this.nav.refresh();
+  }
+
+  /** For the screenshots: straight to a screen. */
+  debugShow(id: ScreenId): void {
+    this.show(id);
+  }
+
+  /** For the screenshots: picks a drop zone as the DZ screen does. */
+  debugSetDz(id: DzId): void {
+    this.setDz(id);
+  }
+
+  // ------------------------------------------------------------ building
+
+  /** Builds every screen, in the language in use. */
+  private build(): void {
+    this.screens.clear();
+    this.cards.clear();
+    this.updaters = [];
+    this.panel = h('div', 'panel');
+    this.resume = button('resume', T.menu.resume);
+    this.jump = button('jump');
+
+    this.screens.set('home', this.buildHome());
+    this.screens.set('gear', this.buildGear());
+    this.screens.set('dz', this.buildDz());
+    this.screens.set('weather', this.buildWeather());
+    this.screens.set('jump', this.buildJump());
+    this.screens.set('settings', this.buildSettings());
+    this.logbookBody = h('div', 'body logbook');
+    this.screens.set('logbook', this.buildLogbook());
+    for (const s of this.screens.values()) this.panel.append(s);
+
+    const corner = h('div', 'menu-corner');
+    this.cornerLanguage = button('corner-btn lang');
+    this.cornerLanguage.innerHTML = `${ICON_GLOBE}${LANGS.map((l) => `<span class="lang-opt${l === lang ? ' on' : ''}">${l.toUpperCase()}</span>`).join('')}`;
+    this.cornerLanguage.title = T.menu.languageTitle;
+    this.cornerLanguage.dataset.key = 'lang';
+    this.cornerLanguage.addEventListener('click', () => this.setLanguage(LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length]!));
+    this.cornerLogbook = button('corner-btn');
+    this.cornerSettings = button('corner-btn');
+    this.cornerLogbook.innerHTML = `${ICON_BOOK}<span>${T.menu.logbook}</span><i class="btn pad">X</i>`;
+    this.cornerSettings.innerHTML = `${ICON_COG}<span>${T.menu.settings}</span><i class="btn pad">Y</i>`;
+    this.cornerLogbook.title = T.menu.logbookTitle;
+    this.cornerSettings.title = T.menu.settingsTitle;
+    this.cornerLogbook.addEventListener('click', () => this.toggleScreen('logbook'));
+    this.cornerSettings.addEventListener('click', () => this.toggleScreen('settings'));
+    corner.append(this.nav.add(this.cornerLanguage), this.nav.add(this.cornerLogbook), this.nav.add(this.cornerSettings));
+    this.root.replaceChildren(this.panel, this.map.el, corner);
+  }
+
+  /** Switches the language and builds the screens again, where they were. */
+  private setLanguage(next: Lang): void {
+    if (next === lang) return;
+    const key = (this.nav.current as HTMLElement | null)?.dataset.key;
+    this.settings.language = next;
+    setLanguage(next);
+    this.build();
+    this.onSettings();
+    const again = key ? this.root.querySelector<HTMLElement>(`[data-key="${key}"]`) : null;
+    this.show(this.screen, again);
   }
 
   // ------------------------------------------------------------ moving around
@@ -336,6 +394,8 @@ export class Menu {
     const from = this.screen;
     this.screen = id;
     for (const [key, el] of this.screens) el.hidden = key !== id;
+    this.root.dataset.screen = id;
+    this.map.setShown(WITH_MAP.has(id));
     this.cornerSettings.classList.toggle('on', id === 'settings');
     this.cornerLogbook.classList.toggle('on', id === 'logbook');
     if (id === 'logbook') this.fillLogbook();
@@ -446,13 +506,18 @@ export class Menu {
   // ------------------------------------------------------------ rows
 
   /** A setting on its own line: label, value, control, note. */
-  private row(label: string, o: RowOptions & { adjust?: (step: -1 | 1, big: boolean) => void; activate?: () => void }, ...content: HTMLElement[]): HTMLElement {
+  private row(
+    label: string,
+    o: RowOptions & { adjust?: (step: -1 | 1, big: boolean) => void; activate?: () => void },
+    ...content: HTMLElement[]
+  ): HTMLElement {
     const head = h('div', 'head', h('span', 'label', label));
     if (o.hint) head.append(h('span', 'hint', o.hint));
     const value = h('b', 'value');
     head.append(value);
     const note = h('p', 'note');
     const row = h('div', 'row', head, ...content, note);
+    if (o.key) row.dataset.key = o.key;
     this.nav.add(row, { adjust: o.adjust, activate: o.activate, disabled: o.disabled });
     this.updaters.push(() => {
       value.textContent = o.value?.() ?? '';
@@ -463,18 +528,18 @@ export class Menu {
   }
 
   /** A row of buttons, one of them lit; left and right move the light. */
-  private choice<T>(
+  private choice<V>(
     label: string,
-    options: Option<T>[] | (() => Option<T>[]),
-    get: () => T,
-    set: (value: T) => void,
+    choices: Option<V>[] | (() => Option<V>[]),
+    get: () => V,
+    set: (value: V) => void,
     o: RowOptions & { cls?: string } = {},
   ): HTMLElement {
     const box = h('div', `choices ${o.cls ?? ''}`);
-    let offered: Option<T>[] = [];
+    let offered: Option<V>[] = [];
     let key = '';
     const offer = (): void => {
-      const list = typeof options === 'function' ? options() : options;
+      const list = typeof choices === 'function' ? choices() : choices;
       const k = list.map((x) => `${String(x.value)}:${x.label}`).join('|');
       if (k === key) return;
       key = k;
@@ -509,10 +574,10 @@ export class Menu {
     return row;
   }
 
-  /** A slider; left and right step it, more with Shift. */
+  /** A slider; left and right step it, more with Shift. `circular`: a heading, with no filled part. */
   private slider(
     label: string,
-    range: { min: number; max: number; step: number; big: number },
+    range: { min: number; max: number; step: number; big: number; circular?: boolean },
     get: () => number,
     set: (value: number) => void,
     o: RowOptions = {},
@@ -524,13 +589,16 @@ export class Menu {
     input.max = String(range.max);
     input.step = String(range.step);
     input.tabIndex = -1;
+    if (range.circular) input.classList.add('circular');
     input.addEventListener('input', () => set(Number(input.value)));
     const control = beside ? h('div', 'beside', beside, input) : input;
     const adjust = (step: -1 | 1, big: boolean): void =>
       set(clamp(get() + step * (big ? range.big : range.step), range.min, range.max));
     const row = this.row(label, { ...o, adjust }, control);
     this.updaters.push(() => {
-      input.value = String(get());
+      const v = get();
+      input.value = String(v);
+      input.style.setProperty('--fill', `${((v - range.min) / (range.max - range.min)) * 100}%`);
       input.disabled = !!o.disabled?.();
     });
     return row;
@@ -551,7 +619,8 @@ export class Menu {
   private screenShell(id: ScreenId, title: string | null): { screen: HTMLElement; body: HTMLElement } {
     const screen = h('section', `screen screen-${id}`);
     const bar = h('header', 'screen-bar');
-    const back = button('back', '‹ Retour');
+    const back = button('back');
+    back.innerHTML = `${ICON_BACK}<span>${T.menu.back}</span>`;
     back.addEventListener('click', () => this.show('home'));
     bar.append(this.nav.add(back));
     if (title) bar.append(h('h2', 'title', title));
@@ -559,7 +628,8 @@ export class Menu {
       const tabs = h('nav', 'tabs');
       tabs.innerHTML = '<i class="btn pad">LB</i>';
       for (const c of CATEGORIES) {
-        const t = button(c.id === id ? 'on' : '', c.title);
+        const t = button(c.id === id ? 'on' : '');
+        t.innerHTML = `${c.icon}<span>${T.menu.categories[c.id]}</span>`;
         t.tabIndex = -1;
         t.addEventListener('click', () => this.show(c.id));
         tabs.append(t);
@@ -573,19 +643,19 @@ export class Menu {
   }
 
   private detailHints(): HTMLElement {
-    return hints(
-      '↑ ↓ choisir la ligne · ← → régler (Maj : plus vite) · Tab catégorie suivante · Échap retour',
-      `${PAD('↕')} ligne · ${PAD('↔')} régler · ${PAD('LB')} ${PAD('RB')} catégorie · ${PAD('B')} retour · ${PAD('Start')} sauter`,
-    );
+    return hints(T.menu.hints.detail, T.menu.hints.detailPad);
   }
 
   private buildHome(): HTMLElement {
     const screen = h('section', 'screen screen-home');
-    const head = h('header', 'title-bar', h('h1', '', 'jumpsim'), h('p', '', 'pilotage sous voile'));
+    const head = html(`<header class="title-bar">${LOGO}<div><h1>jumpsim</h1><p>${T.menu.tagline}</p></div></header>`);
     const grid = h('div', 'cards');
     for (const c of CATEGORIES) {
       const sum = h('div', 'sum');
-      const card = button(`cat-card cat-${c.id}`, h('span', 'cat', c.title), sum, h('span', 'more', 'Modifier ›'));
+      const top = html(
+        `<span class="cat-head">${c.icon}<span class="cat">${T.menu.categories[c.id]}</span><span class="more">${T.menu.edit}${ICON_MORE}</span></span>`,
+      );
+      const card = button(`cat-card cat-${c.id}`, top, sum);
       card.addEventListener('click', () => this.show(c.id));
       this.cards.set(c.id, card);
       grid.append(this.nav.add(card));
@@ -596,19 +666,25 @@ export class Menu {
     this.updaters.push(() => {
       const { start, exitHeight } = this.setup.jump;
       const info = dzInfo(this.setup.dz);
-      this.jump.innerHTML =
+      const sub =
         start === 'plane'
-          ? `Sauter<span>${num(exitHeight)} m</span>`
-          : `Partir<span>${start === 'pattern' ? `en circuit · ${info.starts.pattern} m` : `en finale · ${info.starts.final} m`}</span>`;
+          ? `${num(exitHeight)} m · ${info.name}`
+          : start === 'pattern'
+            ? T.menu.goPattern(num(info.starts.pattern))
+            : T.menu.goFinal(num(info.starts.final));
+      this.jump.innerHTML = `<span class="go-icon">${start === 'plane' ? ICON_PLANE : ICON_CANOPY}</span><span class="go-label">${
+        start === 'plane' ? T.menu.jumpButton : T.menu.go
+      }</span><span class="go-sub">${sub}</span><i class="btn pad">Start</i>`;
     });
     const go = h('div', 'go', this.nav.add(this.resume), this.nav.add(this.jump));
+    const m = T.menu.hints;
     screen.append(
       head,
       grid,
       go,
       hints(
-        'Clic, ou flèches et Entrée · 1 circuit · 2 finale · 3 avion<span class="resume-hint"> · Échap reprendre</span>',
-        `${PAD('A')} choisir · ${PAD('Start')} sauter<span class="resume-hint"> · ${PAD('B')} reprendre</span> · ${PAD('X')} carnet · ${PAD('Y')} réglages`,
+        `${m.home}<span class="resume-hint">${m.homeResume}</span>`,
+        `${m.homePad}<span class="resume-hint">${m.homePadResume}</span>${m.homePadMore}`,
       ),
     );
     return screen;
@@ -621,46 +697,51 @@ export class Menu {
     switch (c) {
       case 'gear': {
         const rig = rigFor(gear);
-        const kind = gear.kind === 'classic' ? 'classique' : 'tri-cell';
-        const alti = gear.altimeter === 'none' ? 'Sans altimètre' : `Altimètre ${gear.altimeter === 'analog' ? 'à aiguille' : 'digital'}`;
+        const g = T.menu.gear;
         return `
-          <span class="big">${gear.canopyAreaFt2} ft² <small>${kind}</small>${swatch(gear.color)}</span>
+          <span class="big">${gear.canopyAreaFt2}<small class="unit">ft²</small> <small>${kindName(gear.kind)}</small>${swatch(gear.color)}</span>
           <span>${gear.exitWeightKg} kg · ${num(rig.wingLoading, 2)} lb/ft² · ${loadingLabel(rig.wingLoading)}</span>
-          <span class="dim">${alti} · ${gear.audible ? 'altison' : 'sans altison'} · glisseur ${SLIDERS.find((o) => o.value === gear.slider)!.label.toLowerCase()}${gear.rsl ? ' · RSL' : ''}</span>`;
+          <span class="dim">${g.altimeterLine[gear.altimeter]} · ${gear.audible ? g.audibleOn : g.audibleOff} · ${g.sliderLine[gear.slider]}${gear.rsl ? ' · RSL' : ''}</span>`;
       }
       case 'dz': {
         return `
-          <span class="big">${info.name}</span>
-          <span>${info.note}</span>
-          <span class="dim">Vent habituel du ${heading(info.wind.fromDeg)}, ${Math.round(info.wind.speed * 3.6)} km/h</span>`;
+          <span class="big">${info.name}${info.icao ? `<small class="chip">${info.icao}</small>` : ''}</span>
+          <span>${info.club ?? T.dz.made}</span>
+          <span class="dim">${info.note}</span>`;
       }
       case 'weather': {
-        const sky = SKIES.find((s) => s.value === weather.sky)!.label;
+        const w = T.menu.weather;
+        const sky = w.skies[weather.sky];
         const sun = sunPosition(info.lat, info.lon, hour, info.utcOffsetH);
         const gust = gustPeakKmh(weather);
         const wind =
           weather.windKmh === 0
-            ? 'Vent calme'
-            : `Vent du ${heading(weather.windFromDeg)} (${compassPoint(weather.windFromDeg)}) · ${weather.windKmh} km/h${gust > weather.windKmh ? `, rafales ${gust}` : ''}`;
+            ? w.calm
+            : w.windLine(heading(weather.windFromDeg), compassPoint(weather.windFromDeg), String(weather.windKmh), gust > weather.windKmh ? String(gust) : null);
+        const sunLine =
+          weather.sky === 'overcast'
+            ? w.sunHidden
+            : w.sunLine(num(Math.max(0, sun.elevationDeg)), sunOnFinal(sun.azimuthDeg, landingHeading(info, weather.windFromDeg)));
         return `
-          <span class="big">${formatHour(hour)} · ${sky}</span>
+          <span class="big">${formatHour(hour)} <small>${sky}</small></span>
           <span class="wind">${windArrow(weather.windFromDeg, weather.windKmh === 0)}${wind}</span>
-          <span class="dim">Soleil ${weather.sky === 'overcast' ? 'caché' : `à ${num(Math.max(0, sun.elevationDeg))}°, ${sunOnFinal(sun.azimuthDeg, landingHeading(info, weather.windFromDeg))}`}</span>`;
+          <span class="dim">${sunLine}</span>`;
       }
       case 'jump': {
+        const j = T.menu.jump;
         if (jump.start !== 'plane') {
           const spot = jump.start === 'pattern' ? info.starts.pattern : info.starts.final;
           return `
-            <span class="big">${START_NAMES[jump.start]} · ${spot} m</span>
-            <span>Départ sous voile, ${jump.start === 'pattern' ? 'au début de la vent arrière' : 'en finale'}</span>
-            <span class="dim">Pas d'avion ni de chute</span>`;
+            <span class="big">${num(spot)}<small class="unit">m</small> <small>${j.starts[jump.start]}</small></span>
+            <span>${j.underCanopy[jump.start]}</span>
+            <span class="dim">${j.noPlane}</span>`;
         }
         const run = runHeading(this.setup);
         const aloft = Math.round(weather.windKmh * windGradient(jump.exitHeight));
         return `
-          <span class="big">Avion · ${num(jump.exitHeight)} m</span>
-          <span>Axe ${heading(run)}, ${windOnRun(run, weather.windFromDeg, weather.windKmh)}</span>
-          <span class="dim">Vent en altitude ${aloft} km/h · environ ${Math.round(freefallSeconds(jump.exitHeight))} s de chute</span>`;
+          <span class="big">${num(jump.exitHeight)}<small class="unit">m</small> <small>${j.starts.plane}</small></span>
+          <span>${j.runLine(heading(run), windOnRun(run, weather.windFromDeg, weather.windKmh))}</span>
+          <span class="dim">${j.aloftLine(String(aloft), String(Math.round(freefallSeconds(jump.exitHeight))))}</span>`;
       }
     }
   }
@@ -668,56 +749,57 @@ export class Menu {
   private buildGear(): HTMLElement {
     const { screen, body } = this.screenShell('gear', null);
     const gear = (): Gear => this.setup.gear;
+    const g = T.menu.gear;
     body.append(
       this.choice<CanopyKind>(
-        'VOILE',
-        (Object.keys(CANOPY_SIZES) as CanopyKind[]).map((k) => ({ value: k, label: KIND_NAMES[k] })),
+        g.kind,
+        (Object.keys(CANOPY_SIZES) as CanopyKind[]).map((k) => ({ value: k, label: kindName(k) })),
         () => gear().kind,
         (kind) => this.setGear({ kind }),
-        { note: () => (gear().kind === 'classic' ? 'Voile 9 caissons classique, de l\'école au swoop.' : 'Voile tri-cell croisée : petite, rapide, pour le swoop.') },
+        { note: () => g.kindNote[gear().kind] },
       ),
       this.choice<number>(
-        'TAILLE',
+        g.size,
         () => CANOPY_SIZES[gear().kind].map((s) => ({ value: s, label: String(s) })),
         () => gear().canopyAreaFt2,
         (canopyAreaFt2) => this.setGear({ canopyAreaFt2 }),
         { hint: 'ft²', value: () => `${gear().canopyAreaFt2} ft²`, cls: 'sizes' },
       ),
       this.choice<CanopyColorId>(
-        'COULEUR',
-        (Object.keys(CANOPY_COLORS) as CanopyColorId[]).map((id) => ({ value: id, label: CANOPY_COLORS[id].name, html: swatch(id) })),
+        g.color,
+        (Object.keys(CANOPY_COLORS) as CanopyColorId[]).map((id) => ({ value: id, label: T.setup.colors[id], html: swatch(id) })),
         () => gear().color,
         (color) => this.setGear({ color }),
-        { value: () => CANOPY_COLORS[gear().color].name, cls: 'colors' },
+        { value: () => T.setup.colors[gear().color], cls: 'colors' },
       ),
       this.slider(
-        'POIDS ÉQUIPÉ',
+        g.weight,
         { min: WEIGHT_MIN, max: WEIGHT_MAX, step: 1, big: 5 },
         () => gear().exitWeightKg,
         (exitWeightKg) => this.setGear({ exitWeightKg }),
         {
-          hint: 'toi et tout le matériel',
+          hint: g.weightHint,
           value: () => `${gear().exitWeightKg} kg`,
           note: () => {
             const rig = rigFor(gear());
             const { forward, sink } = trimSpeeds(rig);
-            return `Charge alaire ${num(rig.wingLoading, 2)} lb/ft² (${loadingLabel(rig.wingLoading)}) · bras hauts ${num(forward * 3.6)} km/h, chute ${num(sink, 1)} m/s, finesse ${num(forward / sink, 1)}`;
+            return g.loadingNote(num(rig.wingLoading, 2), loadingLabel(rig.wingLoading), num(forward * 3.6), num(sink, 1), num(forward / sink, 1));
           },
         },
       ),
-      this.choice<AltimeterKind>('ALTIMÈTRE', ALTIMETERS, () => gear().altimeter, (altimeter) => this.setGear({ altimeter })),
-      this.choice<boolean>('ALTISON', YES_NO, () => gear().audible, (audible) => this.setGear({ audible }), {
-        hint: 'bips sous voile à 300, 200 et 100 m',
+      this.choice<AltimeterKind>(
+        g.altimeterRow,
+        options(['none', 'analog', 'digital'] as const, (a) => g.altimeter[a]),
+        () => gear().altimeter,
+        (altimeter) => this.setGear({ altimeter }),
+      ),
+      this.choice<boolean>(g.audible, yesNo(), () => gear().audible, (audible) => this.setGear({ audible }), { hint: g.audibleHint }),
+      this.choice<SliderKind>(g.slider, options(SLIDER_KINDS, (k) => g.sliders[k]), () => gear().slider, (slider) => this.setGear({ slider }), {
+        note: () => g.sliderNote[gear().slider](keyLabel('KeyG')),
       }),
-      this.choice<SliderKind>('GLISSEUR', SLIDERS, () => gear().slider, (slider) => this.setGear({ slider }), {
-        note: () => SLIDER_NOTES[gear().slider],
-      }),
-      this.choice<boolean>('RSL', YES_NO, () => gear().rsl, (rsl) => this.setGear({ rsl }), {
-        hint: 'la libération tire le secours',
-        note: () =>
-          `Secours ${reserveSize(gear().exitWeightKg)} ft², 7 caissons. ${
-            gear().rsl ? 'Libérer (X maintenu) ouvre le secours tout seul.' : 'Après la libération, Espace pour tirer la poignée de secours.'
-          }`,
+      this.choice<boolean>(g.rsl, yesNo(), () => gear().rsl, (rsl) => this.setGear({ rsl }), {
+        hint: g.rslHint,
+        note: () => g.rslNote(String(reserveSize(gear().exitWeightKg)), gear().rsl, keyLabel('KeyX')),
       }),
     );
     screen.append(this.detailHints());
@@ -728,8 +810,19 @@ export class Menu {
     const { screen, body } = this.screenShell('dz', null);
     const list = h('div', 'dzs');
     for (const d of DZS) {
-      const check = h('i', 'check', '✓');
-      const card = button('dz', h('b', '', d.name), h('span', '', d.note), check);
+      const check = h('i', 'check');
+      const thumb = h('img', 'thumb');
+      thumb.src = thumbUrl(d.id);
+      thumb.alt = '';
+      thumb.loading = 'lazy';
+      thumb.addEventListener('error', () => thumb.classList.add('missing'));
+      const text = html(
+        `<span class="dz-text"><b>${d.name}${d.icao ? `<small class="chip">${d.icao}</small>` : ''}</b><span class="club">${
+          d.club ?? T.dz.made
+        }</span><span class="note">${d.note}</span></span>`,
+      );
+      const card = button('dz', h('span', 'thumb-box', thumb), text, check);
+      card.dataset.key = `dz-${d.id}`;
       card.addEventListener('click', () => this.setDz(d.id));
       list.append(this.nav.add(card));
       this.updaters.push(() => {
@@ -738,65 +831,65 @@ export class Menu {
         const loading = on && !d.loaded();
         card.classList.toggle('on', on);
         card.classList.toggle('loading', loading);
-        check.textContent = loading ? 'chargement…' : '✓';
+        check.innerHTML = loading ? `<i class="spinner"></i>` : on ? '✓' : '';
       });
     }
     const note = h('p', 'note');
-    const credit = h('p', 'note credit');
     this.updaters.push(() => {
       const info = dzInfo(this.setup.dz);
-      note.textContent = `Vent habituel à ${info.name} : du ${heading(info.wind.fromDeg)}, ${Math.round(info.wind.speed * 3.6)} km/h. Changer de DZ remet la météo à ce vent.`;
-      credit.textContent = info.credit ?? '';
+      note.textContent = T.menu.dz.usualNote(info.name, heading(info.wind.fromDeg), String(Math.round(info.wind.speed * 3.6)));
     });
-    body.append(list, note, credit);
-    screen.append(
-      hints(
-        '↑ ↓ choisir · Entrée prendre cette DZ · Tab catégorie suivante · Échap retour',
-        `${PAD('↕')} choisir · ${PAD('A')} prendre · ${PAD('LB')} ${PAD('RB')} catégorie · ${PAD('B')} retour · ${PAD('Start')} sauter`,
-      ),
-    );
+    body.append(list, note);
+    screen.append(hints(T.menu.hints.dz, T.menu.hints.dzPad));
     return screen;
   }
 
   private buildWeather(): HTMLElement {
     const { screen, body } = this.screenShell('weather', null);
     const w = (): Weather => this.setup.weather;
+    const t = T.menu.weather;
     const compass = new Compass();
     this.updaters.push(() => compass.set(w().windFromDeg, w().windKmh));
     body.append(
-      this.slider('HEURE', { min: HOUR_MIN, max: HOUR_MAX, step: 0.25, big: 1 }, () => this.setup.hour, (hour) => this.setHour(hour), {
-        hint: 'heure locale, début juillet',
+      this.slider(t.hour, { min: HOUR_MIN, max: HOUR_MAX, step: 0.25, big: 1 }, () => this.setup.hour, (hour) => this.setHour(hour), {
+        hint: t.hourHint,
         value: () => formatHour(this.setup.hour),
         note: () => {
           const info = dzInfo(this.setup.dz);
           const sun = sunPosition(info.lat, info.lon, this.setup.hour, info.utcOffsetH);
-          const hidden = w().sky === 'overcast' ? ' (derrière les nuages)' : '';
-          return `Soleil à ${num(Math.max(0, sun.elevationDeg))}° au-dessus de l'horizon, ${sunOnFinal(sun.azimuthDeg, landingHeading(info, w().windFromDeg))}${hidden}`;
+          return t.sunNote(
+            num(Math.max(0, sun.elevationDeg)),
+            sunOnFinal(sun.azimuthDeg, landingHeading(info, w().windFromDeg)),
+            w().sky === 'overcast',
+          );
         },
       }),
-      this.choice<SkyKind>('CIEL', SKIES, () => w().sky, (sky) => this.setWeather({ sky })),
+      this.choice<SkyKind>(t.sky, options(['clear', 'cumulus', 'hazy', 'overcast'] as const, (s) => t.skies[s]), () => w().sky, (sky) =>
+        this.setWeather({ sky }),
+      ),
       this.slider(
-        'DIRECTION DU VENT',
-        { min: 0, max: 355, step: 5, big: 45 },
+        t.windDir,
+        { min: 0, max: 355, step: 5, big: 45, circular: true },
         () => w().windFromDeg,
         (windFromDeg) => this.setWeather({ windFromDeg }),
-        { value: () => `du ${heading(w().windFromDeg)} (${compassPoint(w().windFromDeg)})` },
+        { value: () => t.windFrom(heading(w().windFromDeg), compassPoint(w().windFromDeg)) },
         compass.el,
       ),
-      this.slider('FORCE DU VENT', { min: 0, max: WIND_MAX_KMH, step: 1, big: 5 }, () => w().windKmh, (windKmh) => this.setWeather({ windKmh }), {
-        hint: 'à 10 m du sol',
-        value: () => (w().windKmh === 0 ? 'calme' : `${w().windKmh} km/h`),
+      this.slider(t.windSpeed, { min: 0, max: WIND_MAX_KMH, step: 1, big: 5 }, () => w().windKmh, (windKmh) => this.setWeather({ windKmh }), {
+        hint: t.windSpeedHint,
+        value: () => (w().windKmh === 0 ? t.calmValue : `${w().windKmh} km/h`),
       }),
-      this.choice<GustLevel>('RAFALES', GUSTS, () => w().gusts, (gusts) => this.setWeather({ gusts }), {
+      this.choice<GustLevel>(t.gusts, options(['none', 'light', 'strong'] as const, (g) => t.gustLevels[g]), () => w().gusts, (gusts) =>
+        this.setWeather({ gusts }), {
         value: () => {
           const gust = gustPeakKmh(w());
-          return gust > w().windKmh ? `jusqu'à ${gust} km/h` : '';
+          return gust > w().windKmh ? t.gustUpTo(String(gust)) : '';
         },
       }),
-      this.action('Vent habituel de la DZ', () => this.setWeather(usualWeather(this.setup.dz, w().sky)), {
+      this.action(t.usual, () => this.setWeather(usualWeather(this.setup.dz, w().sky)), {
         note: () => {
           const info = dzInfo(this.setup.dz);
-          return `${info.name} : du ${heading(info.wind.fromDeg)}, ${Math.round(info.wind.speed * 3.6)} km/h, sans rafales`;
+          return t.usualNote(info.name, heading(info.wind.fromDeg), String(Math.round(info.wind.speed * 3.6)));
         },
       }),
     );
@@ -808,52 +901,48 @@ export class Menu {
     const { screen, body } = this.screenShell('jump', null);
     const plan = (): JumpPlan => this.setup.jump;
     const noPlane = (): boolean => plan().start !== 'plane';
+    const j = T.menu.jump;
     const compass = new Compass();
     this.updaters.push(() => compass.set(this.setup.weather.windFromDeg, this.setup.weather.windKmh, runHeading(this.setup)));
     body.append(
-      this.choice<Start>(
-        'DÉPART',
-        (['plane', 'pattern', 'final'] as const).map((s) => ({ value: s, label: START_NAMES[s] })),
-        () => plan().start,
-        (start) => this.setJump({ start }),
-        {
-          note: () => {
-            const info = dzInfo(this.setup.dz);
-            if (plan().start === 'pattern') return `Sous voile à ${info.starts.pattern} m, au début de la vent arrière.`;
-            if (plan().start === 'final') return `Sous voile à ${info.starts.final} m, en finale.`;
-            return 'Sortie d\'avion, chute libre, ouverture, puis le vol sous voile.';
-          },
+      this.choice<Start>(j.start, options(STARTS, (s) => j.starts[s]), () => plan().start, (start) => this.setJump({ start }), {
+        note: () => {
+          const info = dzInfo(this.setup.dz);
+          const start = plan().start;
+          if (start === 'pattern') return j.startNote.pattern(num(info.starts.pattern));
+          if (start === 'final') return j.startNote.final(num(info.starts.final));
+          return j.startNote.plane;
         },
-      ),
+      }),
       this.slider(
-        'ALTITUDE DE LARGAGE',
+        j.exitHeight,
         { min: EXIT_HEIGHT_MIN, max: EXIT_HEIGHT_MAX, step: EXIT_HEIGHT_STEP, big: 500 },
         () => plan().exitHeight,
         (exitHeight) => this.setJump({ exitHeight }),
         {
-          hint: 'au-dessus de la DZ',
+          hint: j.exitHint,
           value: () => `${num(plan().exitHeight)} m`,
           note: () => {
             const exit = plan().exitHeight;
-            if (exit <= 1500) return 'Hop & pop : ouvre presque tout de suite.';
-            return `Environ ${Math.round(freefallSeconds(exit))} s de chute libre pour ouvrir à 1 000 m.`;
+            if (exit <= 1500) return j.hopPop;
+            return j.freefallNote(String(Math.round(freefallSeconds(exit))), num(1000));
           },
           disabled: noPlane,
         },
       ),
       this.choice<boolean>(
-        'AXE DE LARGAGE',
+        j.runAxis,
         [
-          { value: true, label: 'Face au vent' },
-          { value: false, label: 'Au choix' },
+          { value: true, label: j.intoWind },
+          { value: false, label: j.custom },
         ],
         () => plan().runDeg === null,
         (intoWind) => this.setJump({ runDeg: intoWind ? null : this.setup.weather.windFromDeg }),
         { disabled: noPlane },
       ),
       this.slider(
-        'CAP DE L\'AVION',
-        { min: 0, max: 355, step: 5, big: 45 },
+        j.runHeading,
+        { min: 0, max: 355, step: 5, big: 45, circular: true },
         () => runHeading(this.setup),
         (runDeg) => this.setJump({ runDeg: validHeading(runDeg) }),
         {
@@ -861,116 +950,94 @@ export class Menu {
           note: () => {
             const { weather } = this.setup;
             const aloft = Math.round(weather.windKmh * windGradient(plan().exitHeight));
-            return `${windOnRun(runHeading(this.setup), weather.windFromDeg, weather.windKmh)} · vent à ${num(plan().exitHeight)} m : ${aloft} km/h du ${heading(weather.windFromDeg)} · la cible passe côté porte, à gauche`;
+            return j.runNote(
+              windOnRun(runHeading(this.setup), weather.windFromDeg, weather.windKmh),
+              num(plan().exitHeight),
+              String(aloft),
+              heading(weather.windFromDeg),
+            );
           },
           disabled: () => noPlane() || plan().runDeg === null,
         },
         compass.el,
       ),
-      this.choice<MalfunctionRate>('INCIDENT À L\'OUVERTURE', MALFUNCTIONS, () => plan().malfunction, (malfunction) => this.setJump({ malfunction }), {
-        note: () =>
-          plan().malfunction === 'none'
-            ? 'La principale s\'ouvre toujours bien.'
-            : 'La principale peut partir en torche : X maintenu pour libérer, puis le secours.',
-        disabled: noPlane,
-      }),
+      this.choice<MalfunctionRate>(
+        j.malfunction,
+        options(MALFUNCTION_RATES, (m) => ({ none: j.never, sometimes: j.oneIn(num(MALFUNCTION_ODDS)), always: j.everyJump })[m]),
+        () => plan().malfunction,
+        (malfunction) => this.setJump({ malfunction }),
+        {
+          note: () => (plan().malfunction === 'none' ? j.malfunctionOff : j.malfunctionOn(keyLabel('KeyX'))),
+          disabled: noPlane,
+        },
+      ),
     );
     screen.append(this.detailHints());
     return screen;
   }
 
   private buildSettings(): HTMLElement {
-    const { screen, body } = this.screenShell('settings', 'RÉGLAGES');
     const s = this.settings;
+    const t = T.menu.settingsScreen;
+    const { screen, body } = this.screenShell('settings', t.title);
     body.append(
-      h('h3', 'section', 'AFFICHAGE'),
+      this.choice<Lang>(t.language, options(LANGS, (l) => ({ fr: 'Français', en: 'English' })[l]), () => lang, (l) => this.setLanguage(l), {
+        hint: t.languageHint,
+        key: 'language',
+      }),
+      h('h3', 'section', t.display),
       this.choice<number>(
-        'QUALITÉ',
-        QUALITY_LEVELS.map((q, i) => ({ value: i, label: q.label })),
+        t.quality,
+        QUALITY_LEVELS.map((_, i) => ({ value: i, label: T.setup.quality[i]! })),
         () => s.quality,
         (quality) => this.setSettings({ quality }),
-        { note: () => 'Définition maximale de l\'image. Baisse-la si ça saccade. (G en vol)' },
+        { note: () => t.qualityNote },
       ),
-      this.choice<boolean>('RÉSOLUTION AUTO', YES_NO, () => s.autoResolution, (autoResolution) => this.setSettings({ autoResolution }), {
-        note: () => 'Baisse la définition toute seule quand les images par seconde chutent.',
+      this.choice<boolean>(t.autoResolution, yesNo(), () => s.autoResolution, (autoResolution) => this.setSettings({ autoResolution }), {
+        note: () => t.autoResolutionNote,
       }),
-      this.choice<boolean>('COMPTEUR D\'IMAGES', YES_NO, () => s.showFps, (showFps) => this.setSettings({ showFps }), {
-        hint: 'en haut à gauche, en vol',
+      this.choice<boolean>(t.fps, yesNo(), () => s.showFps, (showFps) => this.setSettings({ showFps }), { hint: t.fpsHint }),
+      this.choice<boolean>(t.keysOnScreen, yesNo(), () => s.showKeys, (showKeys) => this.setSettings({ showKeys }), {
+        hint: t.keysOnScreenHint(keyLabel('KeyK')),
       }),
-      this.choice<boolean>('TOUCHES À L\'ÉCRAN', YES_NO, () => s.showKeys, (showKeys) => this.setSettings({ showKeys }), {
-        hint: 'sur le côté, en vol · K',
-      }),
-      h('h3', 'section', 'AUDIO'),
-      this.choice<boolean>('SON', YES_NO, () => s.sound, (sound) => this.setSettings({ sound }), { hint: 'M en vol' }),
-      this.slider('VOLUME', { min: 0, max: 100, step: 5, big: 20 }, () => Math.round(s.volume * 100), (v) => this.setSettings({ volume: v / 100 }), {
+      h('h3', 'section', t.audio),
+      this.choice<boolean>(t.sound, yesNo(), () => s.sound, (sound) => this.setSettings({ sound }), { hint: t.soundHint }),
+      this.slider(t.volume, { min: 0, max: 100, step: 5, big: 20 }, () => Math.round(s.volume * 100), (v) => this.setSettings({ volume: v / 100 }), {
         value: () => `${Math.round(s.volume * 100)} %`,
         disabled: () => !s.sound,
       }),
-      h('h3', 'section', 'CONTRÔLES'),
+      h('h3', 'section', t.controls),
       this.slider(
-        'SENSIBILITÉ DE LA SOURIS',
+        t.sensitivity,
         { min: SENSITIVITY_MIN, max: SENSITIVITY_MAX, step: 0.1, big: 0.5 },
         () => s.mouseSensitivity,
         (v) => this.setSettings({ mouseSensitivity: Math.round(v * 10) / 10 }),
         { value: () => `${num(s.mouseSensitivity, 1)}×` },
       ),
-      this.choice<boolean>('REGARD INVERSÉ', YES_NO, () => s.invertLook, (invertLook) => this.setSettings({ invertLook }), {
-        hint: 'souris et stick droit',
+      this.choice<boolean>(t.invertLook, yesNo(), () => s.invertLook, (invertLook) => this.setSettings({ invertLook }), {
+        hint: t.invertLookHint,
       }),
-      h('h3', 'section', 'TOUCHES'),
+      h('h3', 'section', t.keys),
       this.nav.add(this.controlsTable()),
     );
-    screen.append(
-      hints(
-        '↑ ↓ choisir la ligne · ← → régler · Échap retour',
-        `${PAD('↕')} ligne · ${PAD('↔')} régler · ${PAD('B')} retour`,
-      ),
-    );
+    screen.append(hints(T.menu.hints.settings, T.menu.hints.settingsPad));
     return screen;
   }
 
   private controlsTable(): HTMLElement {
-    const rows: [string, string, string][] = [
-      ['Commande gauche / droite', 'Q / D', 'gâchettes LT / RT'],
-      ['Les deux commandes (frein, arrondi)', 'S', 'les deux gâchettes'],
-      ['Élévateur avant gauche / droit', 'A / E', 'LB / RB'],
-      ['Les deux élévateurs avant', 'Z', 'LB + RB'],
-      ['Garder les commandes où elles sont', 'Maj', '—'],
-      ['Regarder autour', 'souris · C recentre', 'stick droit'],
-      ['Sauter de l\'avion, puis ouvrir', 'Espace', 'A'],
-      ['Glisseur : le replier ou l\'enlever', 'G', 'X'],
-      ['Libérer la principale (maintenir)', 'X', 'B'],
-      ['Poignée de secours, une fois libéré', 'Espace', 'A'],
-      ['Caméra : yeux / extérieure (molette : distance)', 'B', 'View'],
-      ['En chute : tourner', 'Q / D', 'gâchettes'],
-      ['En chute : avancer, reculer, glisser', 'Z / S · A / E', 'stick gauche'],
-      ['En chute : monter / descendre', 'R / F', 'LB / RB'],
-      ['En chute : assis / tête en bas', '↑ / ↓', 'croix haut / bas'],
-      ['En chute : à plat / dos', '← / →', 'croix gauche / droite'],
-      ['Recommencer (pas en chute)', 'R', 'Y'],
-      ['Partir en circuit / finale / avion', '1 / 2 / 3', '—'],
-      ['Menu', 'V ou Échap', 'Start'],
-      ['Masquer l\'affichage · pause', 'H · P', '—'],
-      ['Son · touches à l\'écran', 'M · K', '—'],
-    ];
+    const t = T.menu.settingsScreen;
     const table = h('table', 'controls');
-    table.innerHTML = `<thead><tr><th></th><th>Clavier</th><th>Manette</th></tr></thead><tbody>${rows
+    table.innerHTML = `<thead><tr><th></th><th>${t.keyboard}</th><th>${t.gamepad}</th></tr></thead><tbody>${t
+      .controlsTable(keyLabel)
       .map(([what, keys, pad]) => `<tr><td>${what}</td><td>${keys}</td><td>${pad}</td></tr>`)
       .join('')}</tbody>`;
     return h('div', 'row table-row', table);
   }
 
   private buildLogbook(): HTMLElement {
-    const screen = h('section', 'screen screen-logbook');
-    const bar = h('header', 'screen-bar');
-    const back = button('back', '‹ Retour');
-    back.addEventListener('click', () => this.show('home'));
-    bar.append(this.nav.add(back), h('h2', 'title', 'CARNET DE SAUTS'));
-    screen.append(
-      bar,
-      this.logbookBody,
-      hints('↑ ↓ parcourir · Échap retour', `${PAD('↕')} parcourir · ${PAD('B')} retour`),
-    );
+    const { screen } = this.screenShell('logbook', T.menu.logbookScreen.title);
+    screen.querySelector('.body')!.replaceWith(this.logbookBody);
+    screen.append(hints(T.menu.hints.logbook, T.menu.hints.logbookPad));
     return screen;
   }
 
@@ -978,23 +1045,24 @@ export class Menu {
   private fillLogbook(): void {
     const entries = loadLogbook();
     const stats = logStats(entries);
+    const t = T.menu.logbookScreen;
     const body = this.logbookBody;
     body.replaceChildren();
     const time = (s: number): string => {
       const m = Math.floor(s / 60);
-      return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${m} min ${String(Math.round(s % 60)).padStart(2, '0')}`;
+      return m >= 60 ? t.hours(Math.floor(m / 60), String(m % 60).padStart(2, '0')) : t.minutes(m, String(Math.round(s % 60)).padStart(2, '0'));
     };
     const tile = (value: string, label: string, sub = ''): string =>
       `<div class="tile"><b>${value}</b><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
     const upright = stats.groups[0]! + stats.groups[1]!;
     const tiles = h('div', 'tiles');
     tiles.innerHTML = [
-      tile(String(stats.jumps), stats.jumps > 1 ? 'sauts' : 'saut', `dont ${stats.planeJumps} d'avion`),
-      tile(time(stats.freefallSeconds), 'de chute libre'),
-      tile(time(stats.canopySeconds), 'sous voile'),
-      tile(stats.jumps ? `${Math.round((100 * upright) / stats.jumps)} %` : '—', 'posés debout ou courus'),
-      tile(stats.bestDistance === null ? '—' : `${num(stats.bestDistance)} m`, 'meilleure précision', stats.recentDistance === null ? '' : `${num(stats.recentDistance)} m en moyenne sur les 10 derniers`),
-      tile(stats.lowestPull === null ? '—' : `${num(stats.lowestPull)} m`, 'ouverture la plus basse', stats.aadFires ? `déclencheur : ${stats.aadFires} fois` : ''),
+      tile(num(stats.jumps), t.jumps(stats.jumps), t.fromPlane(num(stats.planeJumps))),
+      tile(time(stats.freefallSeconds), t.freefall),
+      tile(time(stats.canopySeconds), t.canopy),
+      tile(stats.jumps ? `${Math.round((100 * upright) / stats.jumps)} %` : '—', t.upright),
+      tile(stats.bestDistance === null ? '—' : `${num(stats.bestDistance)} m`, t.best, stats.recentDistance === null ? '' : t.recent(num(stats.recentDistance))),
+      tile(stats.lowestPull === null ? '—' : `${num(stats.lowestPull)} m`, t.lowest, stats.aadFires ? t.aadFires(stats.aadFires) : ''),
     ].join('');
     body.append(tiles);
 
@@ -1003,19 +1071,17 @@ export class Menu {
       bar.innerHTML = `<div class="stack">${stats.groups
         .map((count, i) => (count ? `<i class="o${i}" style="flex:${count}"></i>` : ''))
         .join('')}</div><div class="legend">${OUTCOME_GROUPS.map(
-        (g, i) => `<span><i class="o${i}"></i>${g.label} ${stats.groups[i]}</span>`,
+        (g, i) => `<span><i class="o${i}"></i>${T.logbook.groups[g.id]} ${stats.groups[i]}</span>`,
       ).join('')}</div>`;
       body.append(bar);
     }
 
-    body.append(h('h3', 'section', 'SAUTS'));
-    if (!entries.length) {
-      body.append(h('p', 'empty', 'Pas encore de saut. Chaque saut qui finit au sol s\'inscrit ici.'));
-    }
+    body.append(h('h3', 'section', t.list));
+    if (!entries.length) body.append(h('p', 'empty', t.empty));
     for (const e of [...entries].reverse()) body.append(this.nav.add(this.logRow(e)));
 
     if (entries.length) {
-      const clear = button('action danger', 'Effacer le carnet');
+      const clear = button('action danger', t.clear);
       const act = (): void => {
         if (performance.now() < this.clearArmed) {
           clearLogbook();
@@ -1025,8 +1091,8 @@ export class Menu {
           return;
         }
         this.clearArmed = performance.now() + 4000;
-        clear.textContent = 'Sûr ? Encore une fois pour tout effacer';
-        setTimeout(() => (clear.textContent = 'Effacer le carnet'), 4000);
+        clear.textContent = t.clearConfirm;
+        setTimeout(() => (clear.textContent = T.menu.logbookScreen.clear), 4000);
       };
       clear.tabIndex = -1;
       clear.addEventListener('click', act);
@@ -1036,32 +1102,25 @@ export class Menu {
   }
 
   private logRow(e: LogEntry): HTMLElement {
+    const t = T.menu.logbookScreen;
     const date = new Date(e.time);
-    const when = `${date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })} ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
-    const start = e.start === 'plane' && e.freefall ? `Avion ${num(e.freefall.exitHeight)} m` : START_NAMES[e.start];
-    const canopy = `${e.canopy.areaFt2} ft²${e.canopy.kind === 'triCell' ? ' tri-cell' : ''} · ${e.canopy.exitWeightKg} kg`;
-    const ff = e.freefall
-      ? e.freefall.aad
-        ? ` · déclencheur`
-        : e.freefall.pullHeight !== null
-          ? ` · ouvert à ${num(e.freefall.pullHeight)} m`
-          : ''
-      : '';
+    const when = `${date.toLocaleDateString(T.locale, { day: '2-digit', month: '2-digit' })} ${date.toLocaleTimeString(T.locale, {
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`;
+    const start = e.start === 'plane' && e.freefall ? t.fromPlaneAt(num(e.freefall.exitHeight)) : T.menu.jump.starts[e.start];
+    const canopy = `${e.canopy.areaFt2} ft²${e.canopy.kind === 'triCell' ? ` ${kindName('triCell')}` : ''} · ${e.canopy.exitWeightKg} kg`;
+    const ff = e.freefall ? (e.freefall.aad ? t.aad : e.freefall.pullHeight !== null ? t.pulledAt(num(e.freefall.pullHeight)) : '') : '';
     const bad = e.outcome === 'hard' || e.outcome === 'crash' || e.outcome === 'impact';
     const result =
       e.outcome === 'impact'
         ? `${num(e.sink * 3.6)} km/h`
-        : `${e.distance === undefined ? '' : `${num(e.distance)} m de la cible · `}${num(e.sink, 1)} m/s${e.wet ? ' · dans l\'eau' : ''}`;
+        : `${e.distance === undefined ? '' : t.fromTarget(num(e.distance))}${num(e.sink, 1)} m/s${e.wet ? t.wet : ''}`;
     const row = h('div', 'row entry');
     row.innerHTML = `
       <span class="n">#${e.n}</span>
-      <span class="what"><b>${e.dzName}</b> · ${start}${ff}<small>${when} · ${canopy} · vent ${e.weather.windKmh} km/h</small></span>
-      <span class="res${bad ? ' bad' : ''}"><b>${OUTCOME_NAMES[e.outcome]}</b><small>${result}</small></span>`;
+      <span class="what"><b>${e.dzName}</b> · ${start}${ff}<small>${when} · ${canopy} · ${t.wind(String(e.weather.windKmh))}</small></span>
+      <span class="res${bad ? ' bad' : ''}"><b>${T.logbook.outcomes[e.outcome]}</b><small>${result}</small></span>`;
     return row;
   }
 }
-
-const ICON_COG =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.1 4.4.1-.9-.1-.9 2-1.6-2-3.4-2.4.9a7.8 7.8 0 0 0-1.6-.9L15.8 3h-3.9l-.4 2.5c-.6.2-1.1.5-1.6.9l-2.4-.9-2 3.4 2 1.6-.1.9.1.9-2 1.6 2 3.4 2.4-.9c.5.4 1 .7 1.6.9l.4 2.5h3.9l.4-2.5c.6-.2 1.1-.5 1.6-.9l2.4.9 2-3.4-2-1.6Z"/></svg>';
-const ICON_BOOK =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5a1.5 1.5 0 0 0 0 3H19M8.5 7h7M8.5 10.5h7"/></svg>';
