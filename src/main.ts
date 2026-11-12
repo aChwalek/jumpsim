@@ -5,7 +5,7 @@ import { T, lang, num, setLanguage } from './i18n';
 import { InputDevices, type Action } from './input/devices';
 import { keyLabel, readKeyboardLayout } from './input/keyLabels';
 import { rampControls } from './input/ramp';
-import { CANOPY_COLORS } from './render/canopyColors';
+import { CANOPY_COLORS, RESERVE_PALETTE } from './render/canopyColors';
 import { CLOUD_BASE, CLOUD_DEPTH } from './render/clouds';
 import { daylight, sunPosition } from './render/daylight';
 import { PlaneView } from './render/planeView';
@@ -44,6 +44,7 @@ import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
 import type { KeysPhase } from './ui/keys';
 import { Menu } from './ui/menu';
+import { Multiplayer, roomFromUrl } from './net/multiplayer';
 import { buildWorld, type World } from './world/build';
 import { isWet, spawnsFor, type DzPack } from './world/dz';
 import { dzInfo } from './world/dzs';
@@ -75,8 +76,6 @@ let reserveRig = reserveRigFor(setup.gear);
 let model = new FlightModel(rig);
 let rigView = new RigView(rig, CANOPY_COLORS[setup.gear.color].cells, light);
 scene.add(rigView.object);
-/** A reserve's seven cells: white, with a darker band either side of the middle. */
-const RESERVE_PALETTE = [0xf2f2ee, 0x1f3f78, 0xf2f2ee, 0xf2f2ee, 0xf2f2ee, 0x1f3f78, 0xf2f2ee];
 /** The main once cut away, drifting down on its own; drawn until the next jump. */
 let releasedView: CanopyView | null = null;
 /** What the main's slider is doing. */
@@ -92,6 +91,11 @@ let flash: { text: string; until: number } | null = null;
 const planeView = new PlaneView();
 scene.add(planeView.object);
 const menu = new Menu(setup, settings);
+/** Jumping with others, when the address names a room (`?room=name`). */
+const room = roomFromUrl();
+const net = room ? new Multiplayer(room, scene, () => light) : null;
+/** How many were in the room when the HUD last said. */
+let playersShown = 0;
 
 const env: Environment = { wind: vec3(), airDensity: AIR_DENSITY_SEA_LEVEL };
 /** Seconds of sim time since the start, which drives the gusts. */
@@ -194,7 +198,10 @@ function showGear(): void {
   const { gear } = setup;
   const loading = `${num(rig.wingLoading, 2)} lb/ft² · ${loadingLabel(rig.wingLoading)}`;
   const kind = gear.kind === 'classic' ? '' : ` ${kindName(gear.kind)}`;
-  hud.setGear(`${dz.name} · ${gear.canopyAreaFt2} ft²${kind} · ${gear.exitWeightKg} kg · ${loading}`);
+  const together = net ? ` · ${net.room} (${net.players})` : '';
+  hud.setGear(`${dz.name} · ${gear.canopyAreaFt2} ft²${kind} · ${gear.exitWeightKg} kg · ${loading}${together}`);
+  playersShown = net?.players ?? 0;
+  net?.setHello(setup.dz, gear);
 }
 
 /**
@@ -887,6 +894,31 @@ function drawMap(now: number): void {
   menu.map.pictureDrawn(setup.dz);
 }
 
+/** Our jumper as the others will draw it. */
+function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation: number | null, elapsed: number): void {
+  const o = net.out;
+  const s = model.state;
+  o.phase = jump ? jump.phase : 'none';
+  o.stance = pose;
+  o.deploy = rigFrame.deploy;
+  o.deployTime = rigFrame.deployTime;
+  o.bagOut = rigFrame.bagOut;
+  o.reserve = jump?.canopy === 'reserve';
+  o.cutaway = jump !== null && jump.cutawayAt !== null;
+  o.onRisers = onRisers;
+  o.mainHandle = jump === null || jump.cutawayAt === null;
+  o.reserveHandle = jump === null || !(jump.canopy === 'reserve' && jump.log.reserveBy === 'hand');
+  o.landed = arrival !== null;
+  o.inflation = inflation;
+  Object.assign(o.controls, applied);
+  Object.assign(o.hands, hands);
+  Object.assign(o.pos, s.pos);
+  Object.assign(o.vel, s.vel);
+  Object.assign(o.att, s.att);
+  Object.assign(o.pilotAtt, s.pilotAtt);
+  net.send(elapsed);
+}
+
 let last = performance.now();
 let frameAverage = 1 / 60;
 
@@ -947,6 +979,11 @@ function frame(now: number): void {
   deployStage(rigFrame);
   rigView.update(model, applied, dz.groundAt, light, hands, rigFrame);
   drawReleased(moving);
+  if (net) {
+    sendJumper(net, pose, onRisers, inflation, elapsed);
+    net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: dz.groundAt }, setup.dz);
+    if (net.players !== playersShown) showGear();
+  }
   if (jump) planeView.update(jump.plane);
   model.pilotPoint(eye, model.rig.eyePos);
   if (view === 'outside') {
@@ -1047,7 +1084,7 @@ requestAnimationFrame(frame);
 
 if (import.meta.env.DEV) {
   // The rig can change between jumps: these always give the current one.
-  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, fly, light, apply, resolution, settings };
+  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, fly, light, apply, resolution, settings, net };
   Object.defineProperties(sim, {
     model: { get: () => model },
     rig: { get: () => rig },

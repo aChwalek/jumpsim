@@ -18,4 +18,7 @@ export const CANOPY_COLORS: Record<CanopyColorId, { cells: number[] }> = {
   },
 };
 
-export const isCanopyColor = (id: unknown): id is CanopyColorId => typeof id === 'string' && id in CANOPY_COLORS;
+export const isCanopyColor = (id: unknown): id is CanopyColorId => typeof id === 'string' && Object.hasOwn(CANOPY_COLORS, id);
+
+/** A reserve's seven cells: white, with a darker band either side of the middle. */
+export const RESERVE_PALETTE = [W, 0x1f3f78, W, W, W, 0x1f3f78, W];

@@ -3,3 +3,4 @@ dist
 .DS_Store
 *.local
 .wrangler
+worker/worker-configuration.d.ts

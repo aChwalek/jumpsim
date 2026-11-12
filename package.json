@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "dev:signal": "mkdir -p dist && wrangler dev --port 8787",
+    "build": "tsc --noEmit && npm run typecheck:worker && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "deploy": "tsc --noEmit && vite build --sourcemap false && wrangler deploy"
+    "typecheck:worker": "wrangler types worker/worker-configuration.d.ts > /dev/null && tsc -p worker",
+    "deploy": "tsc --noEmit && npm run typecheck:worker && vite build --sourcemap false && wrangler deploy"
   },
   "dependencies": {
     "@fontsource/barlow": "^5.3.0",
