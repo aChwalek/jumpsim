@@ -33,6 +33,7 @@ function keyboardRows(phase: KeysPhase): Row[] {
         [[t.space], t.leap],
         [['↑', '↓', '←', '→'], t.exitPosition],
         [[t.mouse], t.look],
+        [[k('KeyT'), k('KeyL')], t.targetLock],
         [[k('KeyB')], t.outsideCamera],
       ];
     case 'plane':
@@ -40,6 +41,7 @@ function keyboardRows(phase: KeysPhase): Row[] {
         [[t.space], t.exit],
         [['↑', '↓', '←', '→'], t.exitPosition],
         [[t.mouse], t.look],
+        [[k('KeyT'), k('KeyL')], t.targetLock],
         [[k('KeyB')], t.outsideCamera],
       ];
     case 'freefall':
@@ -52,6 +54,7 @@ function keyboardRows(phase: KeysPhase): Row[] {
         [['←', '→'], t.bellyBack],
         [[t.shift], t.track],
         [[t.space], t.pullReserve],
+        [[k('KeyT'), k('KeyL')], t.targetLock],
         [[k('KeyB')], t.outsideCamera],
       ];
     case 'canopy':
@@ -64,12 +67,14 @@ function keyboardRows(phase: KeysPhase): Row[] {
         [[k('KeyG')], t.slider],
         [[k('KeyX')], t.cutaway],
         [[t.mouse], t.lookRecentre(k('KeyC'))],
+        [[k('KeyT'), k('KeyL')], t.targetLock],
         [[k('KeyB')], t.cameraZoom],
       ];
     case 'ground':
       return [
         [[k('KeyR')], t.restart],
         [['1', '2', '3'], t.starts],
+        [[k('KeyT'), k('KeyL')], t.targetLock],
         [[k('KeyB')], t.outsideCamera],
       ];
   }
@@ -87,6 +92,7 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
         [['a'], t.leap],
         [['cross'], t.exitPosition],
         [['rs'], t.look],
+        [['rs'], t.targetLockPad],
         [['view'], t.camera],
       ];
     case 'plane':
@@ -94,6 +100,7 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
         [['a'], t.exit],
         [['cross'], t.exitPosition],
         [['rs'], t.look],
+        [['rs'], t.targetLockPad],
         [['view'], t.camera],
       ];
     case 'freefall':
@@ -105,6 +112,7 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
         [['left', 'right'], t.bellyBack],
         [['ls'], t.trackPress],
         [['a'], t.pullReserve],
+        [['rs'], t.targetLockPad],
         [['view'], t.camera],
       ];
     case 'canopy':
@@ -114,11 +122,13 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
         [['x'], t.slider],
         [['b'], t.cutaway],
         [['rs'], t.look],
+        [['rs'], t.targetLockPad],
         [['view'], t.camera],
       ];
     case 'ground':
       return [
         [['y'], t.restart],
+        [['rs'], t.targetLockPad],
         [['view'], t.camera],
         [['start'], t.menu],
       ];
