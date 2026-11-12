@@ -14,5 +14,10 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
   // Branches other than main get their own Preview URL (`wrangler preview`).
-  "previews": {}
+  // Bindings are not inherited: each Preview gets its own rooms.
+  "previews": {
+    "durable_objects": {
+      "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+    }
+  }
 }
