@@ -431,7 +431,7 @@ function showRoom(): void {
     ready: net.isReady,
     players: state.list.map((p) => ({ name: p.name, ready: p.ready, self: p.id === state.selfId, host: p.id === host?.id })),
     publicDz: publicDz(net.room),
-    loadAt: net.isPublic ? net.nextLoadAt : null,
+    loadAt: net.onClock ? net.nextLoadAt : null,
   });
 }
 
@@ -1896,7 +1896,7 @@ const LOAD_CUE_S = 10;
 /** What the HUD says to do next. */
 function cue(): string {
   if (flash && performance.now() < flash.until) return flash.text;
-  if (net?.isPublic && net.isReady) {
+  if (net?.onClock && net.isReady) {
     const left = Math.ceil((net.nextLoadAt - Date.now()) / 1000);
     if (left <= LOAD_CUE_S) return `${T.cue.loadIn(left)}<small>${T.cue.loadAboard}</small>`;
   }
