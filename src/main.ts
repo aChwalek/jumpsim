@@ -44,6 +44,7 @@ import { Recorder, type Replay, type ReplayFrame } from './crashReplay';
 import { TrackPlayer, TrackRecorder, makeTrackFrame, type Track, type TrackEvent } from './replay/track';
 import { loadTrack, saveTrack } from './replay/store';
 import { TrackView } from './render/trackView';
+import { FreeCamera } from './render/freeCamera';
 import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
 import { noBodyInputs, stepPosition, type BodyPosition } from './sim/freefall';
@@ -475,6 +476,8 @@ interface Watching {
   jumped: boolean;
   /** When the smoke was lit, on the track's clock. */
   smokeLitAt: number | null;
+  /** The camera let loose to walk about the scene; null while it follows the jumper. */
+  free: FreeCamera | null;
   /** The live objects hidden meanwhile, and whether they were shown. */
   hidden: [THREE.Object3D, boolean][];
 }
@@ -1141,6 +1144,7 @@ function watchTrack(track: Track, from: { logbook: false } | { logbook: true; re
     liveDz: from.logbook ? from.liveDz : setup.dz,
     jumped: true,
     smokeLitAt,
+    free: null,
     hidden,
   };
   hud.setWatching({ n: meta.n, dz: dzInfo(meta.setup.dz).name, start: player.start, end: player.end, marks: player.marks });
@@ -1222,6 +1226,12 @@ function watchAction(action: Action): boolean {
     case 'replay':
       leaveWatching();
       return true;
+    case 'camera':
+      // Let loose from where it is, or back behind the jumper.
+      w.free = w.free ? null : new FreeCamera(camera);
+      chase.reset();
+      devices.recentre();
+      return true;
     // The menu leaves the replay (see actions.openMenu); the rest as always.
     case 'openMenu':
     case 'padMenu':
@@ -1274,7 +1284,9 @@ function aimWatching(w: Watching, dt: number): void {
     hud.setAltimeter(w.view.setup.gear.altimeter, feetHeight(w.view.model, groundAtTarget));
   }
   w.jumped = false;
-  chase.update(camera, t, dt, devices.lookYaw, devices.lookPitch, devices.zoom, solid);
+  // Let loose, it stays where it was taken whatever the replay does.
+  if (w.free) w.free.update(camera, dt, devices.free, solid);
+  else chase.update(camera, t, dt, devices.lookYaw, devices.lookPitch, devices.zoom, solid);
 }
 
 /** The ground the altimeter was zeroed on: the landing area. */
@@ -1772,7 +1784,7 @@ function flying(j: Jump): { name: string; glide: string } {
 /** Which keys the side of the screen shows: what can be done right now. */
 function keysPhase(): KeysPhase | null {
   if (menu.isOpen) return null;
-  if (watching) return 'replay';
+  if (watching) return watching.free ? 'replayFree' : 'replay';
   if (touchdown || arrival || impact) return 'ground';
   if (!jump || jump.phase === 'canopy' || jump.phase === 'opening') return singleCanopy() ? 'baseCanopy' : 'canopy';
   if (jump.phase === 'standing') return 'ledge';
@@ -2199,7 +2211,7 @@ function showWatching(w: Watching, elapsed: number): void {
     },
     elapsed,
   );
-  hud.showWatched(p.time, p.speed, p.paused, p.done);
+  hud.showWatched(p.time, p.speed, p.paused, p.done, w.free !== null);
 }
 
 applyWeather();

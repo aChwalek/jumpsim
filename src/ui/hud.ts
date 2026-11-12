@@ -172,16 +172,16 @@ export class Hud {
     const at = (t: number | null, kind: keyof TrackMarks): string =>
       t === null ? '' : `<i class="mark ${kind}" style="left:${((100 * (t - w.start)) / length).toFixed(2)}%" title="${T.hud.marks[kind]}"></i>`;
     this.watch.innerHTML = `
-      <div class="head"><b>${T.hud.watchTitle}</b><span class="what">${T.hud.watchWhat(w.n, w.dz)}</span><span class="speed"></span></div>
+      <div class="head"><b>${T.hud.watchTitle}</b><span class="what">${T.hud.watchWhat(w.n, w.dz)}</span><span class="cam"></span><span class="speed"></span></div>
       <div class="track"><div class="fill"></div>${at(w.marks.exit, 'exit')}${at(w.marks.open, 'open')}${at(w.marks.landing, 'landing')}<div class="knob"></div></div>
       <div class="foot"><span class="time"></span><span class="buttons"><button data-watch="toggle"></button><button data-watch="close" title="${T.hud.watchClose}">✕</button></span></div>`;
   }
 
-  /** Where the replay is, how fast, and whether it waits. */
-  showWatched(time: number, speed: number, paused: boolean, done: boolean): void {
+  /** Where the replay is, how fast, whether it waits, and whether the camera is let loose. */
+  showWatched(time: number, speed: number, paused: boolean, done: boolean, free: boolean): void {
     const w = this.watched;
     if (!w) return;
-    const key = `${time.toFixed(1)}|${speed}|${paused}|${done}`;
+    const key = `${time.toFixed(1)}|${speed}|${paused}|${done}|${free}`;
     if (key === this.lastWatched) return;
     this.lastWatched = key;
     const k = Math.max(0, Math.min(1, (time - w.start) / Math.max(1e-3, w.end - w.start)));
@@ -189,6 +189,7 @@ export class Hud {
     q('.fill')!.style.width = `${(k * 100).toFixed(2)}%`;
     q('.knob')!.style.left = `${(k * 100).toFixed(2)}%`;
     q('.time')!.textContent = `${clock(time - w.start)} / ${clock(w.end - w.start)}`;
+    q('.cam')!.textContent = free ? T.hud.freeCamera : '';
     q('.speed')!.textContent = paused ? (done ? T.hud.watchEnd : T.hud.watchPaused) : speed === 1 ? '' : `×${speed}`;
     const toggle = q<HTMLButtonElement>('[data-watch="toggle"]')!;
     toggle.textContent = paused ? '▶' : '❚❚';
