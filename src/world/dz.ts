@@ -2,7 +2,7 @@
 // sim needs to fly over it. World axes: +X east, -Z north, +Y up, metres,
 // origin at the landing target. Real drop zones will be more packs like this.
 
-import type { JumpRun } from '../sim/plane';
+import { AIRCRAFT, type AircraftId, type JumpRun } from '../sim/plane';
 
 export interface Rect {
   x: number;
@@ -144,9 +144,11 @@ export interface DzPack {
   final: { downwind: number; height: number };
   /**
    * Jump run, flown into the wind: where it starts, metres downwind of the
-   * target and to the plane's right; height above the ground, airspeed.
+   * target and off to the side away from the door, so that the target passes
+   * on the door side; height above the ground, airspeed, and the plane
+   * (a Pilatus PC-6 if not given).
    */
-  jumpRun: { downwind: number; right: number; height: number; indicatedAirspeed: number };
+  jumpRun: { downwind: number; offset: number; height: number; indicatedAirspeed: number; aircraft?: AircraftId };
 }
 
 /** Which way finals are flown with the wind from this direction, compass degrees. */
@@ -195,12 +197,13 @@ export function spawnsFor(
     const s = (dz.patternSideDeg * Math.PI) / 180;
     side = Math.abs(p.side) * Math.sign(rx * Math.sin(s) - rz * Math.cos(s) || 1);
   }
-  // Jump run: ahead along its heading, and to the plane's right.
+  // Jump run: ahead along its heading, and off the target on the side away from the door.
   const heading = (((run.headingDeg ?? windFromDeg) % 360) + 360) % 360;
   const h = (heading * Math.PI) / 180;
   const ahead = { x: Math.sin(h), z: -Math.cos(h) };
   const right = { x: Math.cos(h), z: Math.sin(h) };
   const back = runLeadIn(jr.downwind, heading, windFromDeg);
+  const aside = -AIRCRAFT[jr.aircraft ?? 'pc6'].doorSide * jr.offset;
   return {
     pattern: {
       x: x - p.upwind * dx + side * rx,
@@ -210,11 +213,12 @@ export function spawnsFor(
     },
     final: { x: x + f.downwind * dx, z: z + f.downwind * dz_, height: f.height, headingDeg: land },
     plane: {
-      x: x - back * ahead.x + jr.right * right.x,
-      z: z - back * ahead.z + jr.right * right.z,
+      x: x - back * ahead.x + aside * right.x,
+      z: z - back * ahead.z + aside * right.z,
       height: run.height ?? jr.height,
       headingDeg: heading,
       indicatedAirspeed: jr.indicatedAirspeed,
+      aircraft: jr.aircraft,
     },
   };
 }
@@ -504,6 +508,6 @@ export function createValbrise(): DzPack {
     // Into the wind along the north side, a little short of the spot: out
     // at once, the canopy opens about over the target; after ten seconds,
     // well upwind of it.
-    jumpRun: { downwind: 500, right: 60, height: 4000, indicatedAirspeed: 40 },
+    jumpRun: { downwind: 500, offset: 60, height: 4000, indicatedAirspeed: 40 },
   };
 }

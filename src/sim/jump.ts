@@ -8,7 +8,7 @@
 import type { Controls, Environment, FlightModel } from './flightModel';
 import { Freefall, freefallParams, type BodyInputs, type BodyPosition } from './freefall';
 import { MAIN_OPENING, Opening, RESERVE_HANDLE_OPENING, RESERVE_OPENING, STOWED_BRAKE, type Malfunction } from './opening';
-import { DOOR_EYE, Plane, type JumpRun } from './plane';
+import { Plane, type JumpRun } from './plane';
 import { ReleasedCanopy } from './released';
 import type { RigParams } from './rig';
 import { DEG, quatFromYaw, rotate, set, vec3 } from './vec';
@@ -281,7 +281,7 @@ export class Jump {
     const plane = this.plane;
     Object.assign(s.pilotAtt, plane.level);
     Object.assign(s.att, plane.level);
-    plane.point(this.eye, DOOR_EYE);
+    plane.point(this.eye, plane.type.doorEye);
     rotate(this.tmp, s.pilotAtt, this.model.rig.eyePos);
     set(s.pos, this.eye.x - this.tmp.x, this.eye.y - this.tmp.y, this.eye.z - this.tmp.z);
     set(s.vel, plane.vel.x, plane.vel.y, plane.vel.z);
@@ -293,9 +293,9 @@ export class Jump {
     const s = this.model.state;
     const b = this.body.state;
     set(b.pos, s.pos.x, s.pos.y, s.pos.z);
-    // Off the sill to the left, out of the plane's way.
-    const left = rotate(this.tmp, this.plane.level, set(this.tmp, -1, 0, 0));
-    set(b.vel, s.vel.x + left.x * PUSH_OFF, s.vel.y - 0.5, s.vel.z + left.z * PUSH_OFF);
+    // Off the sill, out of the plane's way.
+    const out = rotate(this.tmp, this.plane.level, set(this.tmp, this.plane.type.doorSide, 0, 0));
+    set(b.vel, s.vel.x + out.x * PUSH_OFF, s.vel.y - 0.5, s.vel.z + out.z * PUSH_OFF);
     Object.assign(b.att, s.pilotAtt);
     b.yawRate = 0;
     this.phase = 'freefall';

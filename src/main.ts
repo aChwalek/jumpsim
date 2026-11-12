@@ -35,7 +35,6 @@ import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
 import { noBodyInputs, type BodyPosition } from './sim/freefall';
 import { Jump } from './sim/jump';
-import { PROPELLER } from './sim/plane';
 import { detectTouchdown, feetHeight, type Touchdown } from './sim/landing';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
@@ -649,7 +648,7 @@ function stance(): Stance {
   if (!jump) return 'hanging';
   switch (jump.phase) {
     case 'plane':
-      return 'door';
+      return jump.plane.type.doorSide < 0 ? 'door' : 'doorRight';
     case 'freefall':
       // Just cut away: the hands are still on the handles.
       if (jump.cutawayAt !== null && jump.time - jump.cutawayAt < 0.45) return 'cutaway';
@@ -797,7 +796,7 @@ function aimChase(): ChaseTarget {
   const falling = jump !== null && (jump.phase === 'freefall' || (jump.phase === 'opening' && inflation === null));
   if (jump && jump.phase === 'plane') {
     // From behind the wing on the door's side, to see the jumper in it.
-    t.heading = (runHeading(setup) + 38) * DEG;
+    t.heading = (runHeading(setup) - 38 * jump.plane.type.doorSide) * DEG;
     t.distance = 9;
     t.above = 0.1;
   } else if (falling && jump) {
@@ -994,9 +993,20 @@ function frame(now: number): void {
     canopy: streamer ? 1 : (inflation ?? 0) * flapping,
   });
   if (jump) {
-    // The plane: how far, which way, and how fast it is going away.
+    // The plane: how far, which way, and how fast it is going away, heard
+    // from its nearest propeller.
     const plane = jump.plane;
-    plane.point(propeller, PROPELLER);
+    let near = Infinity;
+    for (const hub of plane.type.propellers) {
+      plane.point(toPlane, hub);
+      const d = (toPlane.x - eye.x) ** 2 + (toPlane.y - eye.y) ** 2 + (toPlane.z - eye.z) ** 2;
+      if (d < near) {
+        near = d;
+        propeller.x = toPlane.x;
+        propeller.y = toPlane.y;
+        propeller.z = toPlane.z;
+      }
+    }
     toPlane.set(propeller.x - eye.x, propeller.y - eye.y, propeller.z - eye.z);
     const distance = toPlane.length();
     const away =

@@ -39,7 +39,7 @@ export const LOOKS = {
     pattern: { upwind: 180, side: 190, height: 250 },
     final: { downwind: 220, height: 80 },
     // Pilatus PC-6, 4000 m above the ground.
-    jumpRun: { downwind: 500, right: 60, height: 4000, indicatedAirspeed: 39 },
+    jumpRun: { downwind: 500, offset: 60, height: 4000, indicatedAirspeed: 39 },
   },
   // Skydive Empuriabrava (LEAP), between the canal town and the wetlands of
   // the Aiguamolls de l'Empordà.
@@ -69,7 +69,7 @@ export const LOOKS = {
     pattern: { upwind: 180, side: 150, height: 300 },
     final: { downwind: 240, height: 80 },
     // Twin Otter and Pilatus Porter, up to 4000 m.
-    jumpRun: { downwind: 500, right: 60, height: 4000, indicatedAirspeed: 41 },
+    jumpRun: { downwind: 500, offset: 60, height: 4000, indicatedAirspeed: 41 },
   },
   // Caraïbe Parachutisme on Saint-François aerodrome (TFFC), at the east end
   // of Grande-Terre, between the golf course, the marina and the reef.
@@ -95,6 +95,6 @@ export const LOOKS = {
     pattern: { upwind: 200, side: 150, height: 300 },
     final: { downwind: 260, height: 90 },
     // Cessna 206, 3200 m for the licensed jumpers.
-    jumpRun: { downwind: 500, right: 60, height: 3200, indicatedAirspeed: 40 },
+    jumpRun: { downwind: 500, offset: 60, height: 3200, indicatedAirspeed: 40 },
   },
 } satisfies Record<string, Look>;
