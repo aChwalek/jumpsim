@@ -344,6 +344,14 @@ export const en: Strings = {
       sensitivity: 'MOUSE SENSITIVITY',
       invertLook: 'INVERT LOOK',
       invertLookHint: 'mouse and right stick',
+      together: 'MULTIPLAYER',
+      multiplayer: 'JUMP WITH OTHERS',
+      multiplayerNote: (room: string | null, on: boolean) =>
+        room === null
+          ? 'Add ?room=name to the page\'s address and share it: whoever opens it is in the same room.'
+          : on
+            ? `In room “${room}”: you see whoever is in it, at the same DZ.`
+            : `Offline: not joining room “${room}”.`,
       keys: 'KEYS',
       keyboard: 'Keyboard',
       gamepad: 'Gamepad',

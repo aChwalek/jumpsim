@@ -348,6 +348,14 @@ export const fr = {
       sensitivity: 'SENSIBILITÉ DE LA SOURIS',
       invertLook: 'REGARD INVERSÉ',
       invertLookHint: 'souris et stick droit',
+      together: 'MULTIJOUEUR',
+      multiplayer: 'SAUTER À PLUSIEURS',
+      multiplayerNote: (room: string | null, on: boolean) =>
+        room === null
+          ? 'Ajoute ?room=nom à l\'adresse de la page, et donne-la aux autres : vous serez dans la même salle.'
+          : on
+            ? `Dans la salle « ${room} » : tu vois ceux qui y sont, sur la même DZ.`
+            : `Hors ligne : tu ne rejoins pas la salle « ${room} ».`,
       keys: 'TOUCHES',
       keyboard: 'Clavier',
       gamepad: 'Manette',

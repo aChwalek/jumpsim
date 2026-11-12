@@ -93,7 +93,7 @@ scene.add(planeView.object);
 const menu = new Menu(setup, settings);
 /** Jumping with others, when the address names a room (`?room=name`). */
 const room = roomFromUrl();
-const net = room ? new Multiplayer(room, scene, () => light) : null;
+let net: Multiplayer | null = null;
 /** How many were in the room when the HUD last said. */
 let playersShown = 0;
 
@@ -235,8 +235,19 @@ function applySettings(): void {
   devices.invertLook = settings.invertLook;
   if (settings.language !== lang) setLanguage(settings.language);
   hud.applyLanguage();
+  applyMultiplayer();
   showGear();
   saveSettings(settings);
+}
+
+/** Joins the room, or leaves it, as the settings say. */
+function applyMultiplayer(): void {
+  const wanted = settings.multiplayer && room !== null;
+  if (wanted && !net && room) net = new Multiplayer(room, scene, () => light);
+  else if (!wanted && net) {
+    net.dispose();
+    net = null;
+  }
 }
 applySettings();
 
@@ -1084,7 +1095,7 @@ requestAnimationFrame(frame);
 
 if (import.meta.env.DEV) {
   // The rig can change between jumps: these always give the current one.
-  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, fly, light, apply, resolution, settings, net };
+  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, fly, light, apply, resolution, settings };
   Object.defineProperties(sim, {
     model: { get: () => model },
     rig: { get: () => rig },
@@ -1097,6 +1108,7 @@ if (import.meta.env.DEV) {
     releasedView: { get: () => releasedView },
     view: { get: () => view, set: (v: 'eyes' | 'outside') => (view = v) },
     arrival: { get: () => arrival },
+    net: { get: () => net },
   });
   Object.assign(window, { sim });
 }

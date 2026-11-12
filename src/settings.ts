@@ -27,6 +27,8 @@ export interface Settings {
   invertLook: boolean;
   /** The language on screen. */
   language: Lang;
+  /** Join the room named in the address (`?room=name`), if any. */
+  multiplayer: boolean;
 }
 
 export function defaultSettings(): Settings {
@@ -40,6 +42,7 @@ export function defaultSettings(): Settings {
     mouseSensitivity: 1,
     invertLook: false,
     language: browserLanguage(),
+    multiplayer: true,
   };
 }
 
@@ -60,6 +63,7 @@ export function validSettings(saved: unknown): Settings {
   if (finite(s.mouseSensitivity)) out.mouseSensitivity = clamp(s.mouseSensitivity, SENSITIVITY_MIN, SENSITIVITY_MAX);
   if (typeof s.invertLook === 'boolean') out.invertLook = s.invertLook;
   if (LANGS.includes(s.language as Lang)) out.language = s.language as Lang;
+  if (typeof s.multiplayer === 'boolean') out.multiplayer = s.multiplayer;
   return out;
 }
 
