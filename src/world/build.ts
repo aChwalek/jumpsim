@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Lighting } from '../render/scene';
 import { buildBridges } from './bridge';
+import { buildCliffTop, rockTexture } from './cliffTop';
 import type { DzPack } from './dz';
 import { buildGrass } from './grass';
 import { buildDisc, buildSurfaces, buildTerrain, buildWater, loadPhotos } from './ground';
@@ -29,12 +30,15 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
   const grassLight = new THREE.Color().copy(light.ground);
   const grass = buildGrass({ ...dz.grass, target: dz.target }, grassLight);
   // Aerial photos, where the drop zone has some: they show as they come in.
-  const photos = dz.imagery ? loadPhotos(dz.imagery, dz.grass.area.color, dz.imageryGain) : undefined;
+  const photos = dz.imagery ? loadPhotos(dz.imagery, dz.grass.area.color, dz.imageryGain, dz.rockTint) : undefined;
   const water = buildWater(dz.water, light.horizon, dz.waterAreas, photos);
   const flags = buildFlags(dz.flags, light.fabric, groundAt);
   const trees = buildTrees(dz.trees, groundAt);
+  // Bare rock about a BASE exit on a cliff, which the photos taken from above miss.
+  const rock = dz.cliffTop ? rockTexture(dz.cliffTop.rock) : undefined;
+  const cliffTop = dz.cliffTop ? buildCliffTop(dz.cliffTop, groundAt, dz.base?.pad) : undefined;
   object.add(
-    buildTerrain(dz.grass.area.color, groundAt, dz.landColor, photos, dz.terrainDetail),
+    buildTerrain(dz.grass.area.color, groundAt, dz.landColor, photos, dz.terrainDetail, rock),
     buildSurfaces(dz.surfaces, dz.areas),
     buildBuildings(dz.buildings, groundAt),
     trees.object,
@@ -46,8 +50,9 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     flags.object,
   );
   if (dz.bridges) object.add(buildBridges(dz.bridges, groundAt));
+  if (cliffTop) object.add(cliffTop.object);
   // The run is painted on a tower's roof; a cliff has nothing on it, and off a bridge there is no run.
-  if (dz.base && dz.topAt && dz.base.runUp > 0) object.add(buildLedgeMarks(dz.base, dz.topAt(dz.base.x, dz.base.z)));
+  if (dz.base?.marked && dz.topAt && dz.base.runUp > 0) object.add(buildLedgeMarks(dz.base, dz.topAt(dz.base.x, dz.base.z)));
   if (dz.targetShown !== false) {
     object.add(buildDisc(dz.target.x, dz.target.z, dz.target.radius, dz.targetColor ?? 0xcdbf9a, dz.targetLayer ?? 4));
     if (dz.targetCentre !== false) object.add(buildDisc(dz.target.x, dz.target.z, 0.6, 0xe0452a, (dz.targetLayer ?? 4) + 1));
@@ -77,6 +82,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
       grass.update(eye, seconds);
       water.update(seconds);
       flags.update(seconds);
+      cliffTop?.update(seconds);
     },
     ready() {
       const done = photos?.uniforms.photoReady?.value as THREE.Vector3 | undefined;
@@ -84,6 +90,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     },
     dispose() {
       photos?.dispose();
+      rock?.texture.dispose();
       object.traverse((node) => {
         const { geometry, material } = node as THREE.Mesh;
         geometry?.dispose();

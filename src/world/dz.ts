@@ -3,6 +3,7 @@
 // origin at the landing target. Real drop zones will be more packs like this.
 
 import { AIRCRAFT, type AircraftId, type JumpRun } from '../sim/plane';
+import type { CliffTop } from './cliffTop';
 
 export interface Rect {
   x: number;
@@ -96,13 +97,34 @@ export interface BaseExit {
    * the edge itself, outside the parapet, and jumps out from there.
    */
   runUp: number;
-  /** Width of the run marked on top, m. */
+  /** Width of the run, m. */
   width: number;
+  /** The run is painted on top: two sides, a start line, a yellow edge (a tower's roof). */
+  marked?: boolean;
   /**
    * Height of the top above the ground at its foot, m; for a cliff, whose
    * foot is a slope of fallen rock, the height down to the landing area.
    */
   height: number;
+  /** A steel step built on a cliff's lip to jump from. */
+  pad?: ExitPad;
+}
+
+/**
+ * A level steel step on the lip of a cliff, at the end of the run: a frame
+ * and two rubber mats, its front edge over the wall.
+ */
+export interface ExitPad {
+  /** Centre of its top, m. */
+  x: number;
+  z: number;
+  /** Height of its top, m. */
+  top: number;
+  /** Along the run, and across it, m. */
+  length: number;
+  width: number;
+  /** Compass heading of the run, degrees. */
+  headingDeg: number;
 }
 
 export interface Tree {
@@ -166,6 +188,8 @@ export interface DzPack {
   imagery?: Imagery[];
   /** Brightness the photos are drawn at, 1 as they are. */
   imageryGain?: number;
+  /** The colour of the rock faces, which the photos barely see, and how much of the photo's to keep. */
+  rockTint?: { color: number; photo: number };
   /** Wind the place usually gets: where it comes from, and speed in m/s. */
   wind: { fromDeg: number; speed: number };
   groundAt(x: number, z: number): number;
@@ -180,10 +204,13 @@ export interface DzPack {
   /** An object to BASE jump from. */
   base?: BaseExit;
   /**
-   * A square of terrain drawn finer than the rest, centred on (x, z), for a
-   * cliff: its sides on the 100 m lines of the terrain mesh.
+   * Squares of terrain drawn finer than the rest, centred on (x, z), for a
+   * cliff, coarsest first, each inside the one before: the first's sides on
+   * the 100 m lines of the terrain mesh, the next's on the lines of the first.
    */
-  terrainDetail?: { x: number; z: number; size: number; spacing: number };
+  terrainDetail?: { x: number; z: number; size: number; spacing: number }[];
+  /** The rock, grass and stones on top of a cliff about a BASE exit. */
+  cliffTop?: CliffTop;
   target: { x: number; z: number; radius: number };
   surfaces: Rect[];
   /** Flat surfaces of any shape. */

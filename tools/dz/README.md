@@ -29,7 +29,12 @@ square of it over the near grid, sampled from a national survey where one is
 open (`survey`: `swissalti3d` in Switzerland, `rgealti` in France, through the
 Géoplateforme's altimetry service, `pat` in Trentino), else from the terrain
 tiles at their finest (`terrarium`), which follow a valley floor better than
-the 100 m grid but know no more than the tiles do.
+the 100 m grid but know no more than the tiles do. Off a cliff, `fineRelief.exit`
+(`size_m`, a multiple of the fine spacing, and `spacing_m`) samples a smaller
+square about the lip finer still, every metre for Brento, from the same survey:
+the eye sees the slab and the lip from a metre or two, and the sim works out
+from it where the rock is bare and where grass grows. `base.pad` gives the size
+of a steel step built on the lip (`length_m` along the run, `width_m`).
 
 `bridges` lists decks to draw and make solid: the ends of the OSM way, the
 road's height (absolute, m), the width, the published spans and where the

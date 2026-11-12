@@ -20,7 +20,8 @@
   "centre": [45.994, 10.9158],
   "size_m": 3000,
   "spacing_m": 6,
-  "why": "The terrain tiles turn the wall under the Becco into a slope: the Province of Trento's LiDAR, open, has it as a 400 m step within a few metres; sampled every 6 m, from the exit to the field."
+  "why": "The terrain tiles turn the wall under the Becco into a slope: the Province of Trento's LiDAR, open, has it as a 400 m step within a few metres; sampled every 6 m, from the exit to the field.",
+  "exit": {"size_m": 204, "spacing_m": 1, "why": "The slab, the lip and the rocks round them as the LiDAR knows them, every metre: the 6 m grid rounds the lip off over a cell and smooths the slab away."}
  },
  "origin": {
   "lat": 45.992674,
@@ -70,20 +71,21 @@
  "people": [[45.99298, 10.92575], [45.992995, 10.9258], [45.99296, 10.92571]],
  "base": {
   "name": "Becco dell'Aquila",
-  "lat": 45.995378,
-  "lon": 10.904624,
-  "heading_deg": 90,
+  "lat": 45.9958311,
+  "lon": 10.9048693,
+  "heading_deg": 120.5,
   "runUp_m": 9,
-  "width_m": 5,
-  "altitudeToLanding_m": 1185,
-  "evidence": "The Italian BASE Association: the Becco dell'Aquila, a natural platform 15 m by 5 m lightly inclined toward the Sarca valley, 1200 m of elevation, the landing field's windsock in sight. OSM puts a node named Becco dell'Aquila in the woods at 45.99385, 10.90442, 1320 m in the LiDAR, with no drop in front of it; Google Maps has a 'Brento BASE Exit' about 45.99527, 10.90547, at the foot of the wall in the LiDAR, 70 m east of its rim, as a pin set on a satellite picture of a cliff would be. On the rim at that latitude the 1 m LiDAR has a buttress 300 m down, a few metres out, and a slope of 27 degrees behind; 15 m north of it the rim makes a small spur, flat for 10 m behind its lip at 1400 m, falling 380 m within 8 m and 430 m within 20 m, clear of the buttress, 1185 m above the field. The run starts 9 m back from that lip, heading 90 (east), square to the wall; the field is 1.7 km out at 100."
+  "width_m": 4,
+  "altitudeToLanding_m": 1232,
+  "pad": {"length_m": 1.1, "width_m": 1.0, "evidence": "A photo of the exit: a level steel frame on the lip, about a metre square, galvanised, with two black rubber mats side by side, the wall sheer under its front edge, tufts of grass on the rock round it."},
+  "evidence": "The Italian BASE Association: the Becco dell'Aquila, a natural platform 15 m by 5 m lightly inclined toward the Sarca valley, 1200 m of elevation, the landing field's windsock in sight. OSM puts a node named Becco dell'Aquila in the woods at 45.99385, 10.90442, 1320 m in the LiDAR, with no drop in front of it; Google Maps has a 'Brento BASE Exit' about 45.99527, 10.90547, at the foot of the wall in the LiDAR, as a pin set on a satellite picture of a cliff would be. In the 1 m LiDAR, 70 m north-west of that pin, the rim makes a beak where the upper cliff band meets the main wall: a slab some 15 m long and 5 m wide sloping down at about 20 degrees toward the valley, its lip at 1446 m falling 424 m within 3 m. (The spur 50 m south-west of it, used before, rises 5 m to its lip.) The run starts at the top of the slab, 9 m back from the lip, 1232 m above the field, heading 120.5, square to the rim; the field is 1.7 km out at about 100."
  },
  "wind": {
   "usual": {"fromDeg": 190, "kmh": 10},
   "description": "The Ora del Garda blows up the valley from the lake, from the south, from late morning, and grows strong by midday: jumps are made early in the morning and late in the afternoon. The Pelèr, from the north, can blow in the morning."
  },
  "invented": [
-  "Exit position: the Becco's coordinates are not published and OSM's node has no drop in front of it; the spot used here is the flat spur on the rim nearest to the 'Brento BASE Exit' of Google Maps, chosen in the 1 m LiDAR.",
+  "Exit position: the Becco's coordinates are not published and OSM's node has no drop in front of it; the spot used here is the slab on the rim, near the 'Brento BASE Exit' of Google Maps, that fits the Italian BASE Association's description, chosen in the 1 m LiDAR.",
   "Pattern: inferred from the shape of the valley and the field."
  ],
  "sources": [
