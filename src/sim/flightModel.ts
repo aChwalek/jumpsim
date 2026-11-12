@@ -25,13 +25,20 @@ import {
   type Vec3,
 } from './vec';
 
-/** Pilot inputs, each from 0 (hands up / released) to 1 (fully pulled). */
+/**
+ * Pilot inputs, each from 0 (hands up / released) to 1 (fully pulled). The
+ * toggles go on past 1, up to BRAKE_DEEP: arms fully down, the pilot takes
+ * wraps of the steering line round the hand and pulls the tail deeper still.
+ */
 export interface Controls {
   brakeL: number;
   brakeR: number;
   frontL: number;
   frontR: number;
 }
+
+/** Toggle travel with wraps taken: past 1 the tail separates and the canopy stalls. */
+export const BRAKE_DEEP = 1.3;
 
 export const neutralControls = (): Controls => ({
   brakeL: 0,
@@ -90,6 +97,13 @@ export class FlightModel {
   loadFactor = 1;
   /** Angle of attack at the centre of the canopy during the last step, rad. */
   alphaCentre = 0;
+  /**
+   * How far each half of the canopy has lost its pressure, from 0 (flying) to
+   * 1: deep in a stall the air meets the wing from below and behind, the
+   * inlets no longer face it, and the cells go soft and fold.
+   */
+  deflationL = 0;
+  deflationR = 0;
 
   private readonly air = vec3();
   private readonly vb = vec3();
@@ -149,10 +163,17 @@ export class FlightModel {
 
     const panels = rig.panels;
     const mid = panels.length >> 1;
+    const aero = rig.aero;
+    let alphaL = 0;
+    let alphaR = 0;
     for (let i = 0; i < panels.length; i++) {
       const p = panels[i]!;
       const r = p.r;
-      const brake = (p.side < 0 ? c.brakeL : c.brakeR) * p.brakeGain;
+      const toggle = p.side < 0 ? c.brakeL : c.brakeR;
+      const brake = Math.min(toggle, 1) * p.brakeGain;
+      // The first wraps mostly take up the stretch in the lines.
+      const wrapped = toggle > 1 ? (toggle - 1) / (BRAKE_DEEP - 1) : 0;
+      const deep = wrapped * wrapped;
       const front = p.side < 0 ? c.frontL : c.frontR;
 
       // Local airspeed: u = vb + omega x r.
@@ -182,8 +203,11 @@ export class FlightModel {
 
       const alpha = Math.atan2(-un, uf);
       if (i === mid) this.alphaCentre = alpha;
-      const k = sectionCoeffs(alpha, brake, rig.aero, this.coeffs);
-      const q = halfRho * v2 * p.area;
+      if (p.side < 0) alphaL += alpha;
+      else alphaR += alpha;
+      const k = sectionCoeffs(alpha, brake, aero, this.coeffs, deep);
+      // Soft cells carry less: the canopy has folded up into a smaller one.
+      const q = halfRho * v2 * p.area * (1 - aero.deflatedLoss * (p.side < 0 ? this.deflationL : this.deflationR));
       const lift = q * k.cl;
       const drag = q * k.cd;
       const sa = Math.sin(alpha);
@@ -212,6 +236,10 @@ export class FlightModel {
       this.tz += moment * p.tangent.z;
     }
 
+    const half = panels.length / 2;
+    this.deflationL = this.deflate(this.deflationL, alphaL / half, dt);
+    this.deflationR = this.deflate(this.deflationR, alphaR / half, dt);
+
     // Uneven front risers shorten one side's lines, which tips the canopy,
     // and its lift with it, towards that side.
     const tilt = rig.frontRiserRoll * (c.frontR - c.frontL);
@@ -219,11 +247,10 @@ export class FlightModel {
 
     // Yaw of the canopy as a whole, which summing sections gets wrong: see
     // AeroParams. Sideslip and airspeed are those of the canopy centre.
-    const aero = rig.aero;
     const cx = vb.x - w.z * rig.canopyPos.y;
     const cz = vb.z + w.x * rig.canopyPos.y;
     const speed = Math.hypot(cx, vb.y, cz);
-    const pull = aero.cnBrake * (c.brakeR - c.brakeL) + aero.cnFront * (c.frontR - c.frontL);
+    const pull = aero.cnBrake * (Math.min(c.brakeR, 1) - Math.min(c.brakeL, 1)) + aero.cnFront * (c.frontR - c.frontL);
     this.ty +=
       halfRho *
       speed *
@@ -297,6 +324,15 @@ export class FlightModel {
     s.pos.z += s.vel.z * dt;
     integrateQuat(s.att, w, dt);
     integrateQuat(s.pilotAtt, wp, dt);
+  }
+
+  /** Pressure lost by half a canopy flying at `alpha` on average, after a step. */
+  private deflate(deflation: number, alpha: number, dt: number): number {
+    const a = this.rig.aero;
+    const x = (alpha - a.deflateAlpha) / (a.deflateAlphaFull - a.deflateAlpha);
+    const target = x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x);
+    const time = target > deflation ? a.deflateTime : a.refillTime;
+    return deflation + (target - deflation) * Math.min(1, dt / time);
   }
 
   /** World position of a point given in the canopy's frame. */

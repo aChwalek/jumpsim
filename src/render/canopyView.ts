@@ -30,6 +30,17 @@ const SUB = 4;
 const HINGE = 0.6;
 /** Furthest the tail goes down at the tips with the toggles buried. */
 const TAIL_DOWN = 62 * DEG;
+/** Where the nose of a soft cell folds under, along the chord from the nose. */
+const NOSE_FOLD = 0.4;
+
+/**
+ * How badly a soft canopy is crumpled at `s` across the span (-1 to 1) at
+ * time `t`: 0 to 1, lumpy along the span and slowly changing.
+ */
+function crumpleNoise(s: number, t: number): number {
+  const n = 0.5 * Math.sin(s * 7.3 + t * 1.3) + 0.3 * Math.sin(s * 13.7 - t * 2.1) + 0.2 * Math.sin(s * 3.1 + t * 0.7 + 1.7);
+  return 0.5 + 0.5 * n;
+}
 /** Each line is drawn in this many pieces, to sag when slack. */
 const PIECES = 6;
 /** Slider grid, pieces each way. */
@@ -149,6 +160,8 @@ export class CanopyView {
   private front = [0, 0];
   /** Lost its shape in the air, cut away: 0 to 1. */
   private crumple = 0;
+  /** Pressure lost by the left and right halves in a stall: 0 to 1. */
+  private readonly deflation = [0, 0];
   /** Down on the ground: 0 to 1, and which way it lies. */
   private heap = 0;
   private readonly heapAlong = new THREE.Vector3(0, 0, 1);
@@ -430,6 +443,18 @@ export class CanopyView {
     this.crumple = k;
   }
 
+  /** Pressure lost by each half in a stall, from 0 (flying) to 1: the cells go soft and the tips fold in. */
+  setDeflation(left: number, right: number): void {
+    this.deflation[0] = left;
+    this.deflation[1] = right;
+  }
+
+  /** Deflation across the span, `s` from -1 (left tip) to 1, blended over the middle cells. */
+  private deflationAt(s: number): number {
+    const [left, right] = this.deflation as [number, number];
+    return left + (right - left) * ease((s + 0.15) / 0.3);
+  }
+
   /**
    * Down on the ground: from 0 (still standing) to 1 (lying in a heap),
    * falling towards `to` (level, world frame) from the riser ends at `from`.
@@ -565,9 +590,17 @@ export class CanopyView {
 
     // Round the arc, the tips curling in and down as the brakes pull them.
     const curl = Math.max(0, (a - 0.55) / 0.45);
-    const theta = (s * this.spread * rig.span) / (2 * radius) + Math.sign(s) * brake * 0.11 * curl * curl;
+    const t = this.time;
+    // Stalled and soft, the half crumples: unevenly along the span and
+    // changing all the time, the cells sag, their noses fold under.
+    const soft = this.deflationAt(s);
+    const rumple = soft > 0 ? crumpleNoise(s, t) : 0;
+    const theta =
+      ((s * this.spread * rig.span) / (2 * radius)) * (1 - 0.12 * soft) +
+      Math.sign(s) * brake * 0.11 * curl * curl +
+      soft * 0.035 * Math.sin(s * 11.3 + t * 0.9);
     const outer = Math.max(0, (a - 0.7) / 0.3);
-    const chord = rig.chord * (1 - 0.3 * outer * outer) * this.chordScale;
+    const chord = rig.chord * (1 - 0.3 * outer * outer) * this.chordScale * (1 - (0.2 + 0.15 * rumple) * soft);
 
     // The section: along the chord (towards the nose) and up from it.
     let along = (0.25 - c) * chord;
@@ -576,10 +609,21 @@ export class CanopyView {
     // Each chamber bulges between its ribs, the top skin most.
     const middle = Math.sqrt(Math.max(0, Math.sin(Math.PI * Math.min(1, c / 0.96))));
     lift += Math.sin(Math.PI * u) * this.chamberWidth * (top ? 0.13 : -0.07) * fill * middle;
+    // The nose of a soft cell folds down and under.
+    if (soft > 0 && c < NOSE_FOLD) {
+      const w = (NOSE_FOLD - c) / NOSE_FOLD;
+      const phi = -soft * (0.35 + 0.65 * rumple) * 55 * DEG * w;
+      const pivot = (0.25 - NOSE_FOLD) * chord;
+      const da = along - pivot;
+      const cos = Math.cos(phi);
+      const sin = Math.sin(phi);
+      along = pivot + da * cos - lift * sin;
+      lift = da * sin + lift * cos;
+    }
     // The tail comes down under brakes, more towards the trailing edge and the tips.
     if (c > HINGE) {
       const w = (c - HINGE) / (1 - HINGE);
-      const phi = brake * (0.3 + 0.7 * a ** 0.8) * TAIL_DOWN * w;
+      const phi = (brake * (0.3 + 0.7 * a ** 0.8) * TAIL_DOWN + soft * 25 * DEG * (1 - 0.5 * rumple)) * w;
       const da = along - (0.25 - HINGE) * chord;
       const cos = Math.cos(phi);
       const sin = Math.sin(phi);
@@ -597,14 +641,14 @@ export class CanopyView {
       lift = da * sin + lift * cos;
     }
     // The trailing edge flutters in the airflow; empty cells flap about.
-    const t = this.time;
     const tail = 0.25 + 3 * Math.max(0, c - 0.75);
     lift += this.flutter * tail * (Math.sin(t * 61 + s * 23 + c * 9) * 0.6 + Math.sin(t * 43 - s * 17) * 0.4);
 
     const incidence = rig.config.riggingAngleDeg * DEG;
     const ci = Math.cos(incidence);
     const si = Math.sin(incidence);
-    const r = radius + along * si + lift * ci;
+    // Soft cells drop towards the pilot as their lines go slack.
+    const r = radius + along * si + lift * ci - soft * (0.15 + 0.6 * rumple) * chord;
     out.set(r * Math.sin(theta), rig.linksPos.y + r * Math.cos(theta), -along * ci + lift * si);
 
     const flap = this.flap[cell]!;
@@ -680,6 +724,10 @@ export class CanopyView {
       // Cut away, it lets go of its shape.
       fill *= 1 - 0.85 * this.crumple;
       flap += 0.32 * this.crumple * (0.6 + 0.4 * a);
+      // Stalled, it goes soft and the cells ripple, the tips most.
+      const soft = this.deflationAt(((i + 0.5) / this.cells) * 2 - 1);
+      fill *= 1 - 0.6 * soft;
+      flap += 0.14 * soft * (0.4 + 0.6 * a);
       // On the ground it empties, the tips first, and soon lies still.
       if (this.heap > 0) {
         fill *= 1 - ease((this.heap * 1.6 - 0.2 * (1 - a)) / 0.8);
@@ -969,16 +1017,17 @@ export class CanopyView {
     this.flutter = Math.min(0.03, 0.0012 * airspeed) * (1 - this.heap) * (1 - this.crumple);
 
     const c = look.controls;
-    this.tailTarget[0] = c.brakeL;
-    this.tailTarget[1] = c.brakeR;
+    // Wraps past full travel bring the tail down no further: the canopy shows them by stalling.
+    this.tailTarget[0] = Math.min(c.brakeL, 1);
+    this.tailTarget[1] = Math.min(c.brakeR, 1);
     this.front = [c.frontL, c.frontR];
     this.shapeFor(this.inflation!, look.dt);
 
     // Risers, arms and toggles, then the slider and the lines that run through it.
     if (look.pilotAtt) this.relative.copy(this.inverse).multiply(look.pilotAtt);
     const pilot = look.pilotAtt && !this.released ? this.relative : null;
-    this.rigSide(this.sides[0]!, look.hands.brakeL, c.frontL, pilot);
-    this.rigSide(this.sides[1]!, look.hands.brakeR, c.frontR, pilot);
+    this.rigSide(this.sides[0]!, Math.min(look.hands.brakeL, 1), c.frontL, pilot);
+    this.rigSide(this.sides[1]!, Math.min(look.hands.brakeR, 1), c.frontR, pilot);
     const sliderUp = 1 - ease((this.inflation! - 0.15) / 0.75);
     this.placeSlider(sliderUp);
     this.reshape();

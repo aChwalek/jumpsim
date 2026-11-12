@@ -4,7 +4,7 @@ import { Sound } from './audio/sound';
 import { T, lang, num, setLanguage } from './i18n';
 import { InputDevices, type Action } from './input/devices';
 import { keyLabel, readKeyboardLayout } from './input/keyLabels';
-import { rampControls } from './input/ramp';
+import { noWraps, rampControls, wrapTravel } from './input/ramp';
 import { CANOPY_COLORS, RESERVE_PALETTE } from './render/canopyColors';
 import { CLOUD_BASE, CLOUD_DEPTH } from './render/clouds';
 import { daylight, sunPosition } from './render/daylight';
@@ -320,6 +320,10 @@ applySettings();
 
 const ramped = neutralControls();
 const applied = neutralControls();
+/** Time each toggle has been kept fully pulled, for wraps. */
+const wraps = noWraps();
+/** A trigger this far down is fully pulled. */
+const FULL_TRIGGER = 0.98;
 const telemetry = emptyTelemetry();
 let scenario: Start = 'pattern';
 let touchdown: Touchdown | null = null;
@@ -415,6 +419,7 @@ function spawn(kind: Start): void {
   planeView.object.visible = jump?.plane != null;
   impact = false;
   Object.assign(ramped, neutralControls());
+  Object.assign(wraps, noWraps());
   Object.assign(applied, ramped);
   Object.assign(hands, ramped);
   touchdown = null;
@@ -590,14 +595,19 @@ function simulate(seconds: number): void {
       // The same keys move the body in freefall: the toggles wait, and the
       // canopy comes out on its stowed brakes.
       Object.assign(ramped, neutralControls());
+      Object.assign(wraps, noWraps());
       Object.assign(applied, ramped);
       Object.assign(hands, ramped);
       jump.holdStows(applied);
       continue;
     }
     rampControls(ramped, devices.pulls, dt);
-    applied.brakeL = Math.max(ramped.brakeL, devices.analogBrakeL);
-    applied.brakeR = Math.max(ramped.brakeR, devices.analogBrakeR);
+    const pulls = devices.pulls;
+    // Kept pulled all the way, a toggle goes on into wraps and can stall the canopy.
+    const fullL = (pulls.brakeL && ramped.brakeL >= 1) || devices.analogBrakeL >= FULL_TRIGGER;
+    const fullR = (pulls.brakeR && ramped.brakeR >= 1) || devices.analogBrakeR >= FULL_TRIGGER;
+    applied.brakeL = Math.max(ramped.brakeL, devices.analogBrakeL) + wrapTravel(wraps, 'brakeL', fullL, pulls.hold, dt);
+    applied.brakeR = Math.max(ramped.brakeR, devices.analogBrakeR) + wrapTravel(wraps, 'brakeR', fullR, pulls.hold, dt);
     applied.frontL = ramped.frontL;
     applied.frontR = ramped.frontR;
     Object.assign(hands, applied);
@@ -1069,6 +1079,8 @@ function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation
   o.reserveHandle = handles && (jump === null || !(jump.canopy === 'reserve' && jump.log.reserveBy === 'hand'));
   o.landed = arrival !== null;
   o.inflation = inflation;
+  o.deflationL = model.deflationL;
+  o.deflationR = model.deflationR;
   Object.assign(o.controls, applied);
   Object.assign(o.hands, hands);
   Object.assign(o.pos, s.pos);

@@ -22,6 +22,8 @@ describe('snapshot', () => {
     Object.assign(s.pilotAtt, { x: 0.5, y: 0.5, z: 0.5, w: 0.5 });
     s.controls.brakeL = 1;
     s.hands.frontR = 0.5;
+    s.deflationL = 0.8;
+    s.deflationR = 1;
     const buffer = encodeSnapshot(s);
     expect(buffer.byteLength).toBe(SNAPSHOT_BYTES);
     const back = decodeSnapshot(buffer);
@@ -36,6 +38,8 @@ describe('snapshot', () => {
     expect(b.inflation).toBeCloseTo(0.4, 6);
     expect(b.controls.brakeL).toBe(1);
     expect(b.hands.frontR).toBeCloseTo(0.5, 2);
+    expect(b.deflationL).toBeCloseTo(0.8, 2);
+    expect(b.deflationR).toBe(1);
   });
 
   it('keeps a packed canopy packed', () => {

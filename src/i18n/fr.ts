@@ -409,6 +409,7 @@ export const fr = {
         ['Les deux commandes (frein, arrondi)', k('KeyS'), 'les deux gâchettes'],
         ['Élévateur avant gauche / droit', `${k('KeyQ')} / ${k('KeyE')}`, 'LB / RB'],
         ['Les deux élévateurs avant', k('KeyW'), 'LB + RB'],
+        ['Tours de commande (décrochage) : rester à fond', `tenir ${k('KeyA')} / ${k('KeyD')} / ${k('KeyS')}`, 'tenir la gâchette'],
         ['Garder les commandes où elles sont', 'Maj', '—'],
         ['Regarder autour', `souris · ${k('KeyC')} recentre`, 'stick droit'],
         ['Sauter de l\'avion, puis ouvrir', 'Espace', 'A'],

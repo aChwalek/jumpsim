@@ -405,6 +405,7 @@ export const en: Strings = {
         ['Both toggles (brakes, flare)', k('KeyS'), 'both triggers'],
         ['Left / right front riser', `${k('KeyQ')} / ${k('KeyE')}`, 'LB / RB'],
         ['Both front risers', k('KeyW'), 'LB + RB'],
+        ['Wraps (stall): keep a toggle fully pulled', `hold ${k('KeyA')} / ${k('KeyD')} / ${k('KeyS')}`, 'hold the trigger'],
         ['Hold the toggles where they are', 'Shift', '—'],
         ['Look around', `mouse · ${k('KeyC')} recentres`, 'right stick'],
         ['Exit the plane, then pull', 'Space', 'A'],

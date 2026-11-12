@@ -166,4 +166,5 @@ export function initTrimmed(
   set(s.pilotOmega, 0, 0, 0);
   s.twist = 0;
   model.loadFactor = 1;
+  model.deflationL = model.deflationR = 0;
 }
