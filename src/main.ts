@@ -1216,6 +1216,8 @@ const headPitch = (bodyPitch: number): number =>
  * taught, as far as the neck goes; in the door they look out and down.
  */
 const FREEFALL_GAZE = -20 * DEG;
+/** Head first on the back: how far above the horizon ahead the eyes look. */
+const BACK_GAZE = 45 * DEG;
 const DOOR_GAZE = -12 * DEG;
 const NECK_UP = 75 * DEG;
 const NECK_DOWN = -40 * DEG;
@@ -1322,11 +1324,11 @@ function aimCamera(dt: number): void {
       neck += Math.max(-most, Math.min(most, (wanted - neck) * (1 - Math.exp(-dt / NECK_LAG))));
     }
     flatView.copy(look).multiply(turn.setFromAxisAngle(AXIS_X, neck));
-    // Head first on the back, nobody flies looking where they came from: the head goes back and
-    // the eyes are on the horizon ahead of it, the right way up, so that right is right.
+    // Head first on the back, nobody flies looking where they came from: the eyes are on the sky
+    // above and ahead, where whoever is flown with is, the right way up, so that right is right.
     const going = headFirst();
     if (going > 0) {
-      aheadEuler.set(FREEFALL_GAZE, -Math.atan2(crown.x, -crown.z), 0);
+      aheadEuler.set(BACK_GAZE, -Math.atan2(crown.x, -crown.z), 0);
       flatView.slerp(aheadView.setFromEuler(aheadEuler), ease(going));
     }
     lookEuler.set(devices.lookPitch, -devices.lookYaw, 0);
