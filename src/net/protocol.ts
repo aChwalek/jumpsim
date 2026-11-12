@@ -7,6 +7,8 @@
 
 /** A room's name in the URL: lower case letters, digits and dashes. */
 export const ROOM_NAME = /^[a-z0-9-]{1,32}$/;
+/** A drop zone's public room is named this and the DZ's id: anyone can find it, and see how many are in. */
+export const PUBLIC_PREFIX = 'dz-';
 /** Every peer connects to every other: past this, the uplink of each gets heavy. */
 export const MAX_PEERS = 8;
 

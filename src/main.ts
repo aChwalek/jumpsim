@@ -50,8 +50,8 @@ import { Hud } from './ui/hud';
 import type { KeysPhase } from './ui/keys';
 import { Menu } from './ui/menu';
 import { Markers, type MarkerTarget } from './net/markers';
-import { Multiplayer, newRoomName, roomFromUrl, roomLink, setRoomInUrl } from './net/multiplayer';
-import { cleanName, sameShared, sharedPart } from './net/room';
+import { Multiplayer, newRoomName, playersIn, roomFromUrl, roomLink, setRoomInUrl } from './net/multiplayer';
+import { cleanName, publicDz, publicRoom, sameShared, sharedPart } from './net/room';
 import { buildWorld, type World } from './world/build';
 import { isWet, solidOf, spawnsFor, type DzPack } from './world/dz';
 import { dzInfo } from './world/dzs';
@@ -265,7 +265,7 @@ function showGear(): void {
   const { gear } = setup;
   const loading = `${num(rig.wingLoading, 2)} lb/ft² · ${loadingLabel(rig.wingLoading)}`;
   const kind = gear.kind === 'classic' ? '' : ` ${kindName(gear.kind)}`;
-  const together = net ? ` · ${net.room} (${net.players})` : '';
+  const together = net ? ` · ${publicDz(net.room) ? T.menu.room.hudPublic : net.room} (${net.players})` : '';
   hud.setGear(`${dz.name} · ${gear.canopyAreaFt2} ft²${kind} · ${gear.exitWeightKg} kg · ${loading}${together}`);
   playersShown = net?.players ?? 0;
   net?.setHello(setup.dz, gear);
@@ -319,6 +319,9 @@ function playerName(): string {
 /** Goes into a room: its address becomes the page's, to share. */
 function joinRoom(name: string): void {
   leaveRoom(false);
+  // A public room is at its drop zone, whoever leads it.
+  const pinned = publicDz(name);
+  if (pinned) menu.chooseDz(pinned);
   setRoomInUrl(name);
   net = new Multiplayer(name, scene, () => light, playerName(), {
     setup: (shared) => {
@@ -345,6 +348,17 @@ function leaveRoom(fromUrl = true): void {
   showGear();
 }
 
+/** Asks how many are in the public room of the drop zone on the menu, for the menu to say. */
+async function countPublic(): Promise<void> {
+  if (net || !menu.isOpen) return;
+  const { dz } = menu.current;
+  const players = await playersIn(publicRoom(dz));
+  if (menu.current.dz === dz) menu.setPublicCount(players);
+}
+setInterval(() => void countPublic(), 15_000);
+/** The drop zone last counted: another one is asked at once. */
+let countedDz = setup.dz;
+
 /** Who has just left the plane, said over the HUD's cue a moment. */
 let exits: string[] = [];
 function showExit(name: string): void {
@@ -367,14 +381,29 @@ function showRoom(): void {
     hostName: host?.name ?? '',
     ready: net.isReady,
     players: state.list.map((p) => ({ name: p.name, ready: p.ready, self: p.id === state.selfId, host: p.id === host?.id })),
+    publicDz: publicDz(net.room),
   });
 }
 
 menu.onCreateRoom = () => joinRoom(newRoomName());
-menu.onLeaveRoom = () => leaveRoom();
+menu.onJoinPublic = () => joinRoom(publicRoom(menu.current.dz));
+menu.onLeaveRoom = () => {
+  leaveRoom();
+  void countPublic();
+};
 menu.onReady = (ready) => net?.setReady(ready);
 menu.onStartNow = () => net?.startNow();
-menu.onSetupChange = (chosen) => net?.setShared(sharedPart(chosen));
+menu.onSetupChange = (chosen) => {
+  // In a public room, another drop zone is another room.
+  const pinned = net && publicDz(net.room);
+  if (pinned && chosen.dz !== pinned) return joinRoom(publicRoom(chosen.dz));
+  net?.setShared(sharedPart(chosen));
+  if (chosen.dz !== countedDz) {
+    countedDz = chosen.dz;
+    menu.setPublicCount(null);
+    void countPublic();
+  }
+};
 menu.onRename = () => {
   const name = prompt(T.menu.room.renamePrompt, playerName());
   if (name === null || !cleanName(name)) return;
@@ -684,6 +713,7 @@ const actions: Record<Action, () => void> = {
     waiting = true;
     devices.release();
     menu.open(true);
+    void countPublic();
   },
   padMenu: () => {
     if (!menu.isOpen) actions.openMenu();
@@ -1799,6 +1829,7 @@ spawn('pattern');
 menu.open(false);
 const roomInUrl = roomFromUrl();
 if (roomInUrl) joinRoom(roomInUrl);
+else void countPublic();
 requestAnimationFrame(frame);
 
 if (import.meta.env.DEV) {

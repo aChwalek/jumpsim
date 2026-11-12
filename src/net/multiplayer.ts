@@ -60,6 +60,18 @@ export function roomLink(room: string): string {
   return url.toString();
 }
 
+/** How many are in a public room now; null if the server cannot say. */
+export async function playersIn(room: string): Promise<number | null> {
+  try {
+    const response = await fetch(`/players/${room}`, { cache: 'no-store' });
+    if (!response.ok) return null;
+    const { players } = (await response.json()) as { players?: unknown };
+    return typeof players === 'number' ? players : null;
+  } catch {
+    return null;
+  }
+}
+
 /** A new room's name: hard to guess, easy to read out. */
 export function newRoomName(): string {
   const letters = 'abcdefghjkmnpqrstuvwxyz23456789';

@@ -1,5 +1,14 @@
 import { STARTS, validSetup, type Setup, type Start } from '../setup';
-import type { Member } from './protocol';
+import { DZS, type DzId } from '../world/dzs';
+import { PUBLIC_PREFIX, type Member } from './protocol';
+
+/** A drop zone's public room: the one anyone there can join. */
+export const publicRoom = (dz: DzId): string => `${PUBLIC_PREFIX}${dz}`;
+
+/** The drop zone a room is the public room of; null for a room of one's own. */
+export function publicDz(room: string): DzId | null {
+  return DZS.find((d) => publicRoom(d.id) === room)?.id ?? null;
+}
 
 /** What everyone in a room jumps with: all of the setup but each one's own gear. */
 export type SharedSetup = Omit<Setup, 'gear'>;

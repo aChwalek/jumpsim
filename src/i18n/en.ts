@@ -227,6 +227,19 @@ export const en: Strings = {
       create: 'Create a room',
       createNote: 'A link to share: whoever opens it jumps with you, with the same setup.',
       name: (room: string) => `Room ${room}`,
+      publicJoin: (dz: string) => `Public room · ${dz}`,
+      publicNote: (dz: string, players: number | null, max: number) =>
+        players === null
+          ? `Jump with whoever is at ${dz} right now.`
+          : players === 0
+            ? `Nobody at ${dz} right now: be the first.`
+            : players >= max
+              ? `Full: ${players} at ${dz}.`
+              : `${players} at ${dz} right now.`,
+      publicName: (dz: string) => `Public · ${dz}`,
+      publicHostSets: (name: string) => `Weather and jump set by ${name}. Another DZ takes you to its public room.`,
+      publicYouSet: 'You set the weather and jump for everyone. Another DZ takes you to its public room.',
+      hudPublic: 'public',
       copy: 'Copy link',
       copied: 'Link copied ✓',
       rename: 'My name',

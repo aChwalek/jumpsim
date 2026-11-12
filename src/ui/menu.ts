@@ -84,6 +84,7 @@ import {
   LOGO,
 } from './icons';
 import { Nav } from './nav';
+import { MAX_PEERS } from '../net/protocol';
 import type { SharedSetup } from '../net/room';
 
 export type { Start } from '../setup';
@@ -253,6 +254,8 @@ export interface RoomView {
   hostName: string;
   ready: boolean;
   players: { name: string; ready: boolean; self: boolean; host: boolean }[];
+  /** The drop zone whose public room this is; null for a room of one's own. */
+  publicDz: DzId | null;
 }
 
 /** What the DZ, weather and jump cards are: set by whoever leads a room. */
@@ -275,6 +278,8 @@ export class Menu {
   /** Called when anything the room shares changes (drop zone, hour, weather, jump). */
   onSetupChange: (setup: Setup) => void = () => {};
   onCreateRoom: () => void = () => {};
+  /** Into the public room of the drop zone on the menu. */
+  onJoinPublic: () => void = () => {};
   onLeaveRoom: () => void = () => {};
   onRename: () => void = () => {};
   /** In a room, the jump button: ready for the next jump, or no longer. */
@@ -301,6 +306,8 @@ export class Menu {
   private logbookBody!: HTMLElement;
   private clearArmed = 0;
   private room: RoomView | null = null;
+  /** How many are in the public room of the drop zone on the menu; null when not known. */
+  private publicCount: number | null = null;
   private startArmed = 0;
 
   constructor(
@@ -372,8 +379,15 @@ export class Menu {
   setRoom(room: RoomView | null): void {
     this.room = room;
     // Not leading: the screens for what the room shares are not ours to open.
-    if (this.locked && SHARED.has(this.screen)) this.show('home');
+    if (this.isShut(this.screen)) this.show('home');
     else this.refresh();
+  }
+
+  /** How many are in the public room of the drop zone on the menu; null when not known. */
+  setPublicCount(players: number | null): void {
+    if (players === this.publicCount) return;
+    this.publicCount = players;
+    this.refresh();
   }
 
   /** What whoever leads the room set: taken as if chosen here, the gear apart. */
@@ -397,13 +411,21 @@ export class Menu {
     return this.room !== null && !this.room.isHost;
   }
 
+  /**
+   * Set by whoever leads the room, so not ours to open. A public room's drop
+   * zone stays open: choosing another goes to that one's public room.
+   */
+  private isShut(id: ScreenId): boolean {
+    return this.locked && SHARED.has(id) && !(id === 'dz' && this.room?.publicDz);
+  }
+
   /** For the screenshots: straight to a screen. */
   debugShow(id: ScreenId): void {
     this.show(id);
   }
 
-  /** For the screenshots: picks a drop zone as the DZ screen does. */
-  debugSetDz(id: DzId): void {
+  /** Picks a drop zone as the DZ screen does. */
+  chooseDz(id: DzId): void {
     this.setDz(id);
   }
 
@@ -461,7 +483,7 @@ export class Menu {
   // ------------------------------------------------------------ moving around
 
   private show(id: ScreenId, focus?: HTMLElement | null): void {
-    if (this.locked && SHARED.has(id)) return;
+    if (this.isShut(id)) return;
     const from = this.screen;
     this.screen = id;
     for (const [key, el] of this.screens) el.hidden = key !== id;
@@ -755,7 +777,7 @@ export class Menu {
       this.updaters.push(() => {
         sum.innerHTML = this.summary(c.id);
         // In a room, whoever leads sets these.
-        const locked = this.locked && SHARED.has(c.id);
+        const locked = this.isShut(c.id);
         card.classList.toggle('locked', locked);
         more.innerHTML = locked ? `${ICON_LOCK}${T.menu.room.locked}` : `${T.menu.edit}${ICON_MORE}`;
       });
@@ -811,6 +833,15 @@ export class Menu {
     const create = button('room-create');
     create.innerHTML = `${ICON_PEOPLE}<span class="label">${r.create}</span><span class="note">${r.createNote}</span>`;
     create.addEventListener('click', () => this.onCreateRoom());
+    const pub = button('room-create room-public');
+    const pubLabel = h('span', 'label');
+    const pubNote = h('span', 'note');
+    pub.append(html(ICON_DZ), pubLabel, pubNote);
+    const full = (): boolean => (this.publicCount ?? 0) >= MAX_PEERS;
+    pub.addEventListener('click', () => {
+      if (!full()) this.onJoinPublic();
+    });
+    const choices = h('div', 'room-choices', this.nav.add(create), this.nav.add(pub, { disabled: full }));
 
     const title = h('b', 'room-name');
     const copy = button('room-btn', r.copy);
@@ -849,14 +880,19 @@ export class Menu {
       this.onStartNow();
     });
     const inRoom = h('div', 'room-in', top, link, players, note, this.nav.add(startNow, { disabled: () => !this.canStartNow() }), warn);
-    box.append(this.nav.add(create), inRoom);
+    box.append(choices, inRoom);
 
     this.updaters.push(() => {
       const room = this.room;
-      create.hidden = room !== null;
+      choices.hidden = room !== null;
       inRoom.hidden = room === null;
-      if (!room) return;
-      title.textContent = r.name(room.room);
+      if (!room) {
+        const dz = dzInfo(this.setup.dz).name;
+        pubLabel.textContent = r.publicJoin(dz);
+        pubNote.textContent = r.publicNote(dz, this.publicCount, MAX_PEERS);
+        return;
+      }
+      title.textContent = room.publicDz ? r.publicName(dzInfo(room.publicDz).name) : r.name(room.room);
       link.textContent = room.link;
       copy.textContent = performance.now() < copiedUntil ? r.copied : r.copy;
       players.replaceChildren(
@@ -868,7 +904,16 @@ export class Menu {
           return li;
         }),
       );
-      note.textContent = !room.online ? r.connecting : room.isHost ? r.youSet : r.hostSets(room.hostName || '…');
+      const host = room.hostName || '…';
+      note.textContent = !room.online
+        ? r.connecting
+        : room.publicDz
+          ? room.isHost
+            ? r.publicYouSet
+            : r.publicHostSets(host)
+          : room.isHost
+            ? r.youSet
+            : r.hostSets(host);
       startNow.hidden = !this.canStartNow();
       const waiting = room.players.filter((p) => !p.ready).map((p) => p.name || '…');
       warn.textContent = performance.now() < this.startArmed && waiting.length > 0 ? r.startNowWarn(waiting.join(', ')) : '';

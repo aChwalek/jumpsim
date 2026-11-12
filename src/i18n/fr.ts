@@ -231,6 +231,19 @@ export const fr = {
       create: 'Créer une salle',
       createNote: 'Un lien à partager : ceux qui l\'ouvrent sautent avec toi, avec les mêmes réglages.',
       name: (room: string) => `Salle ${room}`,
+      publicJoin: (dz: string) => `Salle publique · ${dz}`,
+      publicNote: (dz: string, players: number | null, max: number) =>
+        players === null
+          ? `Saute avec ceux qui sont à ${dz} en ce moment.`
+          : players === 0
+            ? `Personne à ${dz} en ce moment : sois le premier.`
+            : players >= max
+              ? `Complète : ${players} à ${dz}.`
+              : `${players} à ${dz} en ce moment.`,
+      publicName: (dz: string) => `Publique · ${dz}`,
+      publicHostSets: (name: string) => `Météo et saut réglés par ${name}. Une autre DZ t'emmène dans sa salle publique.`,
+      publicYouSet: 'Tu règles la météo et le saut pour tout le monde. Une autre DZ t\'emmène dans sa salle publique.',
+      hudPublic: 'publique',
       copy: 'Copier le lien',
       copied: 'Lien copié ✓',
       rename: 'Mon nom',
