@@ -359,6 +359,22 @@ export const fr = {
         wingsuit: (glide: string, across: string, down: string, _k: string) =>
           `Ailes entre les bras et le corps et entre les jambes : vol à plat dès qu'elles sont gonflées, sur le ventre ou le dos (← / →), jamais debout. Finesse ${glide}, ${across} km/h en avant, ${down} km/h de chute. Espace : lâcher les ailes et ouvrir.`,
       },
+      suitColor: 'COULEUR DE COMBI',
+      suitColorNote: 'Ses ailes gardent la couleur de la voile.',
+      helmet: 'CASQUE',
+      outfitColors: {
+        white: 'Blanc',
+        grey: 'Gris',
+        black: 'Noir',
+        navy: 'Marine',
+        blue: 'Bleu',
+        red: 'Rouge',
+        orange: 'Orange',
+        yellow: 'Jaune',
+        green: 'Vert',
+        purple: 'Violet',
+        pink: 'Rose',
+      },
     },
 
     dz: {

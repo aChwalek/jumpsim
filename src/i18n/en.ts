@@ -355,6 +355,22 @@ export const en: Strings = {
         wingsuit: (glide: string, across: string, down: string, _k: string) =>
           `Wings between the arms and the body and between the legs: flown flat once they fill, belly down or on the back (← / →), never upright. Glide ${glide}, ${across} km/h forward, ${down} km/h down. Space: let go of the wings and pull.`,
       },
+      suitColor: 'SUIT COLOUR',
+      suitColorNote: 'Its wings keep the canopy\'s colour.',
+      helmet: 'HELMET',
+      outfitColors: {
+        white: 'White',
+        grey: 'Grey',
+        black: 'Black',
+        navy: 'Navy',
+        blue: 'Blue',
+        red: 'Red',
+        orange: 'Orange',
+        yellow: 'Yellow',
+        green: 'Green',
+        purple: 'Purple',
+        pink: 'Pink',
+      },
     },
 
     dz: {

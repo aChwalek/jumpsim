@@ -1,4 +1,5 @@
 import { isSmoke } from '../render/smoke';
+import { DEFAULT_HELMET, DEFAULT_SUIT, isOutfitColor } from '../render/outfit';
 import * as THREE from 'three';
 import type { Lighting } from '../render/scene';
 import { isCanopyColor } from '../render/canopyColors';
@@ -395,6 +396,9 @@ export function readHello(m: unknown): Hello | null {
       // Nor a suit: a plain jumpsuit.
       suit: isSuitKind(g.suit) ? g.suit : 'jumpsuit',
       suitLevel: isSuitLevel(g.suitLevel) ? g.suitLevel : 1,
+      // Nor colours of their own: the helmet and jumpsuit of old.
+      helmetColor: isOutfitColor(g.helmetColor) ? g.helmetColor : DEFAULT_HELMET,
+      suitColor: isOutfitColor(g.suitColor) ? g.suitColor : DEFAULT_SUIT,
       canopyAreaFt2: nearestSize(kind, canopyAreaFt2),
       exitWeightKg: validWeight(exitWeightKg),
     },

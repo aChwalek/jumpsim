@@ -16,6 +16,7 @@ import type { Controls } from '../sim/flightModel';
 import type { RigParams } from '../sim/rig';
 import { RING, SHOULDER } from './body';
 import { Deployment } from './deployment';
+import { DEFAULT_SUIT, OUTFIT_COLORS } from './outfit';
 import { GEAR_LAYER, type Lighting } from './scene';
 
 const DEG = Math.PI / 180;
@@ -142,6 +143,8 @@ export class CanopyView {
   private readonly slider: THREE.BufferGeometry;
   private readonly sliderMesh: THREE.Mesh;
   private readonly sides: Side[] = [];
+  /** The sleeves of the arms up on the toggles: the jumpsuit's. */
+  private readonly sleeveMaterial = new THREE.MeshLambertMaterial({ color: OUTFIT_COLORS[DEFAULT_SUIT] });
   private readonly canopyShadow: THREE.Mesh;
   private readonly shadowMaterial: THREE.MeshBasicMaterial;
 
@@ -253,7 +256,7 @@ export class CanopyView {
     this.object.add(fabricMesh);
 
     // Risers, toggles and the arms on them: stretched between two points.
-    const suit = new THREE.MeshLambertMaterial({ color: 0x1d2a44 });
+    const suit = this.sleeveMaterial;
     // Seen from below against the sky, most of this is in its own shade: a
     // little glow keeps it from going black.
     const webbing = new THREE.MeshLambertMaterial({ color: 0x33363b, emissive: 0x0d0e10 });
@@ -510,6 +513,11 @@ export class CanopyView {
   setReleased(released: boolean): void {
     this.released = released;
     if (released) this.setArms(false);
+  }
+
+  /** The jumpsuit's colour, on the arms up on the toggles. */
+  setSuitColor(color: number): void {
+    this.sleeveMaterial.color.setHex(color);
   }
 
   /** Shows the hands and arms on the toggles, or not (in freefall, on the ground, once cut away). */

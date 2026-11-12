@@ -31,9 +31,10 @@ import {
   rigFor,
   runHeading,
   sameFlight,
+  outfitOf,
   sameSuit,
-  suitColor,
   suitOf,
+  wingColor,
   type Setup,
   type Start,
 } from './setup';
@@ -194,11 +195,14 @@ function newRigView(): void {
   fitSuit();
 }
 
-/** The suit as the gear has it, its wings of the canopy's colour. */
+/** The suit as the gear has it, its wings of the canopy's colour, in the colours worn. */
 function fitSuit(): void {
   const suit = suitOf(setup.gear);
-  rigView.body.setSuit(suit, suitColor(setup.gear.color));
+  rigView.body.setSuit(suit, wingColor(setup.gear.color));
   posture.wings = hasWings(suit);
+  const outfit = outfitOf(setup.gear);
+  rigView.setOutfit(outfit);
+  ragdollView.setOutfit(outfit);
 }
 
 /** The canister on the ankle as the gear has it, and the colour of its smoke. */
@@ -1204,6 +1208,8 @@ const NECKS: Record<BodyPosition, { gaze: number; prefer: number; lo: number; hi
 };
 /** Time for the neck to come round when the body changes position, s. */
 const NECK_LAG = 0.2;
+/** Most the neck turns, rad/s: past that it lags behind rather than whip the eyes round. */
+const NECK_RATE = 180 * DEG;
 /** The neck's angle in freefall, rad, eased from one position to the next; null to take it at once. */
 let neck: number | null = null;
 
@@ -1257,8 +1263,16 @@ function aimCamera(dt: number): void {
     const n = NECKS[position];
     const out = jump && !aboard ? Math.min(1, jump.time / 1.5) : 0;
     const gaze = position === 'belly' ? DOOR_GAZE + (FREEFALL_GAZE - DOOR_GAZE) * out : n.gaze;
-    const wanted = neckFor(face.y, crown.y, gaze, n.prefer, n.lo, n.hi);
-    neck = neck === null ? wanted : neck + (wanted - neck) * (1 - Math.exp(-dt / NECK_LAG));
+    // In a somersault or a roll the neck holds still and the eyes go round
+    // with the body: chasing the horizon round the loop, it would whip them
+    // one way then the other.
+    const spinning = jump !== null && jump.phase === 'freefall' && jump.body.maneuvering;
+    const wanted = spinning && neck !== null ? neck : neckFor(face.y, crown.y, gaze, n.prefer, n.lo, n.hi);
+    if (neck === null) neck = wanted;
+    else {
+      const most = NECK_RATE * dt;
+      neck += Math.max(-most, Math.min(most, (wanted - neck) * (1 - Math.exp(-dt / NECK_LAG))));
+    }
     flatView.copy(look).multiply(turn.setFromAxisAngle(AXIS_X, neck));
     lookEuler.set(devices.lookPitch, -devices.lookYaw, 0);
     flatView.multiply(turn.setFromEuler(lookEuler));

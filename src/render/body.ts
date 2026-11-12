@@ -13,6 +13,7 @@ import { GEAR_LAYER, OUTSIDE_LAYER } from './scene';
 import { JOINTS, type Joint } from '../sim/ragdoll';
 import { SMOKE_COLORS, type SmokeKind } from './smoke';
 import type { Suit } from '../sim/suit';
+import { DEFAULT_HELMET, DEFAULT_SUIT, OUTFIT_COLORS, type Outfit } from './outfit';
 
 const UPPER_ARM = 0.3;
 const FOREARM = 0.28;
@@ -257,6 +258,9 @@ export class Body {
   private readonly basis = new THREE.Matrix4();
   /** A point at each joint, for the ragdoll to start from (see `joints`). */
   private readonly marks: Record<Joint, THREE.Object3D>;
+  /** The jumpsuit's cloth and the helmet's shell, of the colours worn. */
+  private readonly suitMaterial = new THREE.MeshLambertMaterial({ color: OUTFIT_COLORS[DEFAULT_SUIT] });
+  private readonly shellMaterial = new THREE.MeshLambertMaterial({ color: OUTFIT_COLORS[DEFAULT_HELMET] });
   /** The wings' fabric: of the canopy's colour. */
   private readonly wingMaterial = new THREE.MeshLambertMaterial({ color: 0x2a6fd0, side: THREE.DoubleSide });
   /** Between the legs, from the crotch to the ankles. */
@@ -269,7 +273,7 @@ export class Body {
 
   constructor(rig: RigParams) {
     this.eye = new THREE.Vector3(rig.eyePos.x, rig.eyePos.y, rig.eyePos.z);
-    const suit = new THREE.MeshLambertMaterial({ color: 0x1d2a44 });
+    const suit = this.suitMaterial;
     const webbing = new THREE.MeshLambertMaterial({ color: 0x33363b, emissive: 0x0d0e10 });
     const container = new THREE.MeshLambertMaterial({ color: 0x2c3036, emissive: 0x0b0c0e });
     const glove = new THREE.MeshLambertMaterial({ color: 0x6f747c, emissive: 0x1d1f23 });
@@ -314,7 +318,7 @@ export class Body {
     };
     const eye = rig.eyePos;
     const skin = new THREE.MeshLambertMaterial({ color: 0xc89a7c });
-    const shell = new THREE.MeshLambertMaterial({ color: 0xe4e4e0 });
+    const shell = this.shellMaterial;
     const visor = new THREE.MeshLambertMaterial({ color: 0x121418, emissive: 0x050608 });
     // The eyes are high in the model (10 cm over the risers' joint): from
     // outside, where the eyes cannot be told apart, the head sits a little
@@ -426,6 +430,12 @@ export class Body {
   setHandles(cutaway: boolean, reserve: boolean): void {
     this.cutawayHandle.visible = cutaway;
     this.reserveHandle.visible = reserve;
+  }
+
+  /** The colours of the jumpsuit and of the helmet. */
+  setOutfit(outfit: Outfit): void {
+    this.suitMaterial.color.setHex(outfit.suit);
+    this.shellMaterial.color.setHex(outfit.helmet);
   }
 
   /** A smoke canister on the right ankle, of that colour, or none. */

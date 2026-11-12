@@ -146,6 +146,12 @@ test('slider and RSL are read back, old setups get a collapsible slider and an R
   expect(validSetup({ gear: { slider: 'velcro', rsl: 'yes' } }).gear).toMatchObject({ slider: 'collapsible', rsl: true });
 });
 
+test('helmet and jumpsuit colours are read back: white and navy by default or when unknown', () => {
+  expect(validSetup({}).gear).toMatchObject({ helmetColor: 'white', suitColor: 'navy' });
+  expect(validSetup({ gear: { helmetColor: 'pink', suitColor: 'black' } }).gear).toMatchObject({ helmetColor: 'pink', suitColor: 'black' });
+  expect(validSetup({ gear: { helmetColor: 'toString', suitColor: 'plaid' } }).gear).toMatchObject({ helmetColor: 'white', suitColor: 'navy' });
+});
+
 test('the smoke canister is read back: none by default or when unknown', () => {
   expect(validSetup({}).gear.smoke).toBe('none');
   expect(validSetup({ gear: { smoke: 'orange' } }).gear.smoke).toBe('orange');
