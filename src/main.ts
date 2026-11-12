@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { Altisonic } from './audio/altisonic';
 import { Sound } from './audio/sound';
+import { T, lang, num, setLanguage } from './i18n';
 import { InputDevices, type Action } from './input/devices';
+import { readKeyboardLayout } from './input/keyLabels';
 import { rampControls } from './input/ramp';
 import { CANOPY_COLORS } from './render/canopyColors';
 import { CLOUD_BASE, CLOUD_DEPTH } from './render/clouds';
@@ -9,10 +11,11 @@ import { daylight, sunPosition } from './render/daylight';
 import { PlaneView } from './render/planeView';
 import { FREEFALL_STANCES, Posture, type Stance } from './render/posture';
 import { RigView } from './render/rigView';
+import { TopView } from './render/topView';
 import { Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
 import { logJump, type Outcome } from './logbook';
 import { QUALITY_LEVELS, loadSettings, saveSettings } from './settings';
-import { KIND_NAMES, cloneSetup, loadSetup, loadingLabel, rigFor, runHeading, sameFlight, type Setup, type Start } from './setup';
+import { cloneSetup, kindName, loadSetup, loadingLabel, rigFor, runHeading, sameFlight, type Setup, type Start } from './setup';
 import { Arrival } from './sim/arrival';
 import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
@@ -30,6 +33,7 @@ import { Menu } from './ui/menu';
 import { buildWorld, type World } from './world/build';
 import { isWet, spawnsFor, type DzPack } from './world/dz';
 import { dzInfo } from './world/dzs';
+import { MAP_HALF } from './ui/dzMap';
 
 const canvas = document.getElementById('view') as HTMLCanvasElement;
 const renderer = createRenderer(canvas);
@@ -45,6 +49,9 @@ const altisonic = new Altisonic();
 let setup = loadSetup();
 /** How the sim runs here: quality, sound, mouse. Shared with the menu, which changes it. */
 const settings = loadSettings();
+setLanguage(settings.language);
+// The help names keys the way the keyboard in use prints them.
+await readKeyboardLayout();
 let dz: DzPack = await dzInfo(setup.dz).load();
 let world: World = buildWorld(dz, light);
 scene.add(world.object);
@@ -111,8 +118,8 @@ function applyGear(previous: Setup['gear']): void {
 
 function showGear(): void {
   const { gear } = setup;
-  const loading = `${rig.wingLoading.toFixed(2)} lb/ft² · ${loadingLabel(rig.wingLoading)}`;
-  const kind = gear.kind === 'classic' ? '' : ` ${KIND_NAMES[gear.kind]}`;
+  const loading = `${num(rig.wingLoading, 2)} lb/ft² · ${loadingLabel(rig.wingLoading)}`;
+  const kind = gear.kind === 'classic' ? '' : ` ${kindName(gear.kind)}`;
   hud.setGear(`${dz.name} · ${gear.canopyAreaFt2} ft²${kind} · ${gear.exitWeightKg} kg · ${loading}`);
 }
 
@@ -145,6 +152,9 @@ function applySettings(): void {
   sound.set(settings.sound, settings.volume);
   devices.sensitivity = settings.mouseSensitivity;
   devices.invertLook = settings.invertLook;
+  if (settings.language !== lang) setLanguage(settings.language);
+  hud.applyLanguage();
+  showGear();
   saveSettings(settings);
 }
 applySettings();
@@ -552,28 +562,48 @@ function keysPhase(): KeysPhase | null {
   return jump.phase === 'plane' ? 'plane' : 'freefall';
 }
 
-/** Shown while flying anything but belly to earth. */
-const POSITION_NAMES: Record<BodyPosition, string> = { belly: '', back: 'SUR LE DOS', sit: 'ASSIS', headDown: 'TÊTE EN BAS' };
-
 /** What the HUD says to do next. */
 function cue(): string {
   if (!jump || impact) return '';
+  const c = T.cue;
   if (jump.phase === 'plane') {
-    const name = POSITION_NAMES[jump.body.position].toLowerCase();
-    return `FEU VERT<small>${name ? `sortie ${name} · ` : ''}Espace pour sauter</small>`;
+    const exit = c.exitIn[jump.body.position];
+    return `${c.greenLight}<small>${exit ? `${exit} · ` : ''}${c.spaceToExit}</small>`;
   }
   if (jump.phase === 'freefall') {
-    if (jump.pullWhenFlat) return 'À PLAT<small>pour ouvrir</small>';
-    const name = POSITION_NAMES[jump.body.position];
-    if (jump.time > 1.5) return `${name}<small>Espace pour ouvrir</small>`;
+    if (jump.pullWhenFlat) return `${c.flat}<small>${c.toPull}</small>`;
+    const name = c.positions[jump.body.position];
+    if (jump.time > 1.5) return `${name}<small>${c.spaceToPull}</small>`;
     return name;
   }
   if (jump.stowed && !touchdown) {
-    const both = jump.stowedL && jump.stowedR;
-    const which = both ? 'FREINS' : jump.stowedL ? 'FREIN GAUCHE' : 'FREIN DROIT';
-    return `${which} ENCORE CALÉ${both ? 'S' : ''}<small>tire un peu la commande pour libérer</small>`;
+    const which = jump.stowedL && jump.stowedR ? c.stowedBoth : jump.stowedL ? c.stowedLeft : c.stowedRight;
+    return `${which}<small>${c.release}</small>`;
   }
   return '';
+}
+
+/** The drop zone from above for the menu's map, and what it was last drawn with. */
+const topView = new TopView(renderer, scene, light.fog);
+let mapDrawn = '';
+let mapDrawnAt = -1e9;
+
+/**
+ * Draws the map's picture again when the scenery behind it has changed: the
+ * drop zone, its photos coming in, the hour, the sky. Not more than five
+ * times a second while a slider moves. Before the frame's own render.
+ */
+function drawMap(now: number): void {
+  const size = menu.map.wantedSize();
+  if (!menu.isOpen || !size || dz !== dzInfo(setup.dz).loaded()) return;
+  const key = `${setup.dz}|${world.ready()}|${setup.hour}|${setup.weather.sky}|${size}`;
+  if (key === mapDrawn || now - mapDrawnAt < 200) return;
+  const groundY = dz.groundAt(dz.target.x, dz.target.z);
+  const hide = [sky, light.clouds.layer, rigView.object, rigView.pilot, rigView.shadow, planeView.object];
+  if (!topView.draw(menu.map.canvas, dz.target.x, dz.target.z, groundY, MAP_HALF, hide)) return;
+  mapDrawn = key;
+  mapDrawnAt = now;
+  menu.map.pictureDrawn(setup.dz);
 }
 
 let last = performance.now();
@@ -631,6 +661,7 @@ function frame(now: number): void {
   }
   if (!paused) light.clouds.drift(cloudWind.x, cloudWind.z, Math.min(elapsed, 0.1));
   world.update(camera.position, now / 1000);
+  drawMap(now);
   renderer.render(scene, camera);
   // The gear in the hands goes on top, from the same eye.
   gearCamera.position.copy(camera.position);

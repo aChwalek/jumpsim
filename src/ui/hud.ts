@@ -1,29 +1,11 @@
+import { T, num } from '../i18n';
+import { keyLabel } from '../input/keyLabels';
 import type { AltimeterKind } from '../setup';
 import type { Controls } from '../sim/flightModel';
 import type { JumpLog } from '../sim/jump';
-import type { LandingRating, Touchdown } from '../sim/landing';
+import type { Touchdown } from '../sim/landing';
 import { Altimeter } from './altimeter';
 import { keysHtml, type InputKind, type KeysPhase, type PadKind } from './keys';
-
-const TITLES: Record<LandingRating, string> = {
-  standUp: 'Posé debout',
-  firm: 'Posé debout',
-  heavy: 'Posé debout',
-  run: 'Posé couru',
-  slide: 'Posé glissé',
-  hard: 'Atterrissage dur',
-  crash: 'Crash',
-};
-
-const COMMENTS: Record<LandingRating, string> = {
-  standUp: 'Propre.',
-  firm: 'Un peu sec à l\'arrivée, mais ça tient debout.',
-  heavy: 'Arrivée sèche : ça tasse les jambes, mais ça tient debout.',
-  run: 'Quelques pas de course, rien de grave.',
-  slide: 'Trop de vitesse sol pour courir : ça finit en glissade.',
-  hard: 'Ça fait mal. Arrondi trop haut, trop bas, ou en virage ?',
-  crash: 'Blessure probable.',
-};
 
 const el = (id: string): HTMLElement => {
   const node = document.getElementById(id);
@@ -56,21 +38,21 @@ export interface HudData {
   heightAlert: 'none' | 'warn' | 'danger';
 }
 
-/** A height in metres with a thin space in the thousands, as French altimeters print. */
-const metres = (m: number): string => Math.round(m).toLocaleString('fr-FR');
+/** A height in whole metres, with the thousands as the language writes them. */
+const metres = (m: number): string => num(Math.round(m));
 
 /** What the jump itself was, for the card at the end. */
 function jumpRows(log: JumpLog): string {
   const pull = log.aad
-    ? `<tr><td>${metres(log.openHeight)} m</td><td>ouvert par le déclencheur de sécurité</td></tr>`
-    : `<tr><td>${metres(log.pullHeight ?? 0)} m</td><td>hauteur d'ouverture, voile en vol à ${metres(log.openHeight)} m</td></tr>`;
+    ? `<tr><td>${metres(log.openHeight)} m</td><td>${T.hud.aadOpen}</td></tr>`
+    : `<tr><td>${metres(log.pullHeight ?? 0)} m</td><td>${T.hud.pulled(metres(log.openHeight))}</td></tr>`;
   return `
-    <tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>de chute libre, jusqu'à ${(log.topSpeed * 3.6).toFixed(0)} km/h</td></tr>
+    <tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>${T.hud.freefall((log.topSpeed * 3.6).toFixed(0))}</td></tr>
     ${pull}
-    <tr><td>${log.openingLoad.toFixed(1)} g</td><td>à l'ouverture</td></tr>`;
+    <tr><td>${num(log.openingLoad, 1)} g</td><td>${T.hud.openingLoad}</td></tr>`;
 }
 
-const HINT = '<p class="hint">R ou Y pour recommencer · 1 circuit · 2 finale · 3 avion · V, Échap ou Start pour le menu</p>';
+const hint = (): string => `<p class="hint">${T.hud.again(keyLabel)}</p>`;
 
 export class Hud {
   private readonly root = el('hud');
@@ -91,6 +73,7 @@ export class Hud {
   private lastCue = '';
   private readonly keys = el('keys');
   private lastKeys = '';
+  private lastKeysArgs = '';
   private sinceText = 1;
   /** Frame rate and render scale in the corner. */
   showFps = true;
@@ -104,6 +87,16 @@ export class Hud {
     this.root.classList.toggle('menu', open);
   }
 
+  /** Writes the fixed labels in the language in use, and the rest on the next update. */
+  applyLanguage(): void {
+    el('varioLabel').textContent = T.hud.vario;
+    el('speedLabel').textContent = T.hud.groundSpeed;
+    this.held.textContent = T.hud.held;
+    this.lastKeys = '';
+    this.lastCue = '';
+    this.lastKeysArgs = '';
+  }
+
   /** Shows or hides the keys down the side, whatever the rest does. */
   showKeys(visible: boolean): void {
     this.keys.classList.toggle('off', !visible);
@@ -111,6 +104,10 @@ export class Hud {
 
   /** The keys for this moment and this device; null for none (behind the menu). */
   setKeys(phase: KeysPhase | null, input: InputKind, pad: PadKind): void {
+    // Built again only when what it shows changes.
+    const args = `${phase}|${input}|${pad}`;
+    if (args === this.lastKeysArgs) return;
+    this.lastKeysArgs = args;
     const html = phase ? keysHtml(phase, input, pad) : '';
     if (html === this.lastKeys) return;
     this.keys.innerHTML = this.lastKeys = html;
@@ -130,13 +127,13 @@ export class Hud {
   /** Hit the ground with no canopy over the head. `opening`: one was coming out. */
   showImpact(log: JumpLog, opening: boolean, speed: number): void {
     this.result.innerHTML = `
-      <h1>${opening ? 'Ouverture trop basse' : 'Pas d\'ouverture'}</h1>
-      <p>${opening ? 'La voile n\'a pas eu le temps de s\'ouvrir.' : 'Impact en chute libre.'}</p>
+      <h1>${opening ? T.hud.lowTitle : T.hud.noPullTitle}</h1>
+      <p>${opening ? T.hud.lowText : T.hud.noPullText}</p>
       <table>
-        <tr><td>${(speed * 3.6).toFixed(0)} km/h</td><td>à l'impact</td></tr>
-        <tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>de chute libre</td></tr>
+        <tr><td>${(speed * 3.6).toFixed(0)} km/h</td><td>${T.hud.atImpact}</td></tr>
+        <tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>${T.hud.freefallOnly}</td></tr>
       </table>
-      ${HINT}`;
+      ${hint()}`;
     this.result.style.display = 'block';
   }
 
@@ -147,15 +144,15 @@ export class Hud {
       return;
     }
     this.result.innerHTML = `
-      <h1>${TITLES[t.rating]}</h1>
-      <p>${COMMENTS[t.rating]}${wet ? ' Et plouf : dans le pond.' : ''}</p>
+      <h1>${T.hud.titles[t.rating]}</h1>
+      <p>${T.hud.comments[t.rating]}${wet ? T.hud.wet : ''}</p>
       <table>
-        <tr><td>${t.sink.toFixed(1)} m/s</td><td>vitesse verticale</td></tr>
-        <tr><td>${(t.groundSpeed * 3.6).toFixed(0)} km/h</td><td>vitesse sol</td></tr>
-        <tr><td>${distanceToTarget.toFixed(0)} m</td><td>de la cible</td></tr>
+        <tr><td>${num(t.sink, 1)} m/s</td><td>${T.hud.sink}</td></tr>
+        <tr><td>${(t.groundSpeed * 3.6).toFixed(0)} km/h</td><td>${T.hud.groundSpeedRow}</td></tr>
+        <tr><td>${metres(distanceToTarget)} m</td><td>${T.hud.fromTarget}</td></tr>
         ${log ? jumpRows(log) : ''}
       </table>
-      ${HINT}`;
+      ${hint()}`;
     this.result.style.display = 'block';
   }
 
@@ -179,11 +176,14 @@ export class Hud {
     this.sinceText = 0;
     this.vario.textContent = d.verticalSpeed.toFixed(1);
     this.speed.textContent = (d.groundSpeed * 3.6).toFixed(0);
-    const fps = this.showFps ? `${d.fps.toFixed(0)} i/s · rendu ${(d.renderScale * 100).toFixed(0)} %` : '';
-    this.perf.textContent = [fps, d.muted ? 'son coupé' : ''].filter(Boolean).join(' · ');
-    const gusts = d.gustKmh > d.windKmh ? `, rafales ${d.gustKmh}` : '';
-    this.wind.textContent = `cap ${d.headingDeg.toFixed(0).padStart(3, '0')}° · vent du ${d.windFromDeg
-      .toFixed(0)
-      .padStart(3, '0')}° ${d.windKmh.toFixed(0)} km/h${gusts}`;
+    const fps = this.showFps ? T.hud.fps(d.fps.toFixed(0), (d.renderScale * 100).toFixed(0)) : '';
+    this.perf.textContent = [fps, d.muted ? T.hud.muted : ''].filter(Boolean).join(' · ');
+    const pad3 = (deg: number): string => `${deg.toFixed(0).padStart(3, '0')}°`;
+    this.wind.textContent = T.hud.wind(
+      pad3(d.headingDeg),
+      pad3(d.windFromDeg),
+      d.windKmh.toFixed(0),
+      d.gustKmh > d.windKmh ? String(d.gustKmh) : null,
+    );
   }
 }

@@ -1,6 +1,7 @@
 // The drop zones on offer. The real ones carry megabytes of data and photos:
 // they are loaded the first time they are chosen.
 
+import { T } from '../i18n';
 import { createValbrise, type DzPack } from './dz';
 import { createPujaut } from './pujaut';
 import { createRealDz, type RealDzData, type RealDzLook } from './real';
@@ -11,8 +12,11 @@ export type DzId = 'valbrise' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadel
 export interface DzInfo {
   id: DzId;
   name: string;
-  /** One line under the name in the menu. */
-  note: string;
+  /** The club that runs it and the airfield's ICAO code, for the real ones. */
+  club?: string;
+  icao?: string;
+  /** One line about the place, in the language in use. */
+  readonly note: string;
   /** Where it is, degrees, and its clock (local time minus UTC, h): the sun depends on them. */
   lat: number;
   lon: number;
@@ -20,7 +24,7 @@ export interface DzInfo {
   /** The wind the place usually gets: from, m/s. */
   wind: { fromDeg: number; speed: number };
   /** Where its data comes from, as the licences ask to say. */
-  credit?: string;
+  readonly credit?: string;
   /** Finals along this axis rather than straight into the wind, see DzPack. */
   landingAxisDeg?: number;
   /** Heights of the three starts above the ground, m. */
@@ -31,15 +35,23 @@ export interface DzInfo {
   load(): Promise<DzPack>;
 }
 
+type Credit = keyof typeof T.dz.credits;
+
 /** A drop zone built on the spot, from code. */
-function built(id: DzId, name: string, note: string, create: () => DzPack, credit?: string): DzInfo {
+function built(id: DzId & keyof typeof T.dz.notes, name: string, create: () => DzPack, club?: { name: string; icao: string; credit: Credit }): DzInfo {
   let pack: DzPack | undefined;
   const get = (): DzPack => (pack ??= create());
   return {
     id,
     name,
-    note,
-    credit,
+    club: club?.name,
+    icao: club?.icao,
+    get note() {
+      return T.dz.notes[id];
+    },
+    get credit() {
+      return club ? T.dz.credits[club.credit] : undefined;
+    },
     get lat() {
       return get().lat;
     },
@@ -65,15 +77,27 @@ function built(id: DzId, name: string, note: string, create: () => DzPack, credi
 }
 
 /** A real drop zone: its look comes with the code, its data on demand. */
-function real(id: DzId & keyof typeof LOOKS, note: string, credit: string, data: () => Promise<{ DATA: RealDzData }>): DzInfo {
+function real(
+  id: DzId & keyof typeof LOOKS,
+  club: string,
+  icao: string,
+  credit: Credit,
+  data: () => Promise<{ DATA: RealDzData }>,
+): DzInfo {
   const look: RealDzLook & { lat: number; lon: number; utcOffsetH: number } = LOOKS[id];
   let pack: DzPack | undefined;
   let loading: Promise<DzPack> | undefined;
   return {
     id,
     name: look.name,
-    note,
-    credit,
+    club,
+    icao,
+    get note() {
+      return T.dz.notes[id];
+    },
+    get credit() {
+      return T.dz.credits[credit];
+    },
     landingAxisDeg: look.landingAxisDeg,
     starts: { pattern: look.pattern.height, final: look.final.height, plane: look.jumpRun.height },
     lat: look.lat,
@@ -89,17 +113,12 @@ function real(id: DzId & keyof typeof LOOKS, note: string, credit: string, data:
   };
 }
 
-const PUJAUT_CREDIT = 'Carte © OpenStreetMap · relief IGN · carte VAC SIA';
-const MAP = 'Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen';
-const FRANCE = `Photos IGN, ${MAP}`;
-const SPAIN = `Photos PNOA © IGN España, ${MAP}`;
-
 export const DZS: DzInfo[] = [
-  built('valbrise', 'Valbrise', 'Imaginaire, plat, avec un pond', createValbrise),
-  built('pujaut', 'Pujaut', 'Skydive Pujaut (LFNT)', createPujaut, PUJAUT_CREDIT),
-  real('chambery', 'Savoie Parachutisme (LFLB)', FRANCE, () => import('./data/chambery')),
-  real('empuriabrava', 'Skydive Empuriabrava (LEAP)', SPAIN, () => import('./data/empuriabrava')),
-  real('guadeloupe', 'Caraïbe Parachutisme (TFFC)', FRANCE, () => import('./data/guadeloupe')),
+  built('valbrise', 'Valbrise', createValbrise),
+  built('pujaut', 'Pujaut', createPujaut, { name: 'Skydive Pujaut', icao: 'LFNT', credit: 'pujaut' }),
+  real('chambery', 'Savoie Parachutisme', 'LFLB', 'france', () => import('./data/chambery')),
+  real('empuriabrava', 'Skydive Empuriabrava', 'LEAP', 'spain', () => import('./data/empuriabrava')),
+  real('guadeloupe', 'Caraïbe Parachutisme', 'TFFC', 'france', () => import('./data/guadeloupe')),
 ];
 
 export function dzInfo(id: DzId): DzInfo {
