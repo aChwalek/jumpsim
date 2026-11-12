@@ -7,9 +7,11 @@ import {
   decodeTrack,
   encodeTrack,
   makeTrackFrame,
+  type OtherJumper,
   type Track,
   type TrackFrame,
 } from '../src/replay/track';
+import { emptySnapshot } from '../src/net/snapshot';
 import { cloneSetup, defaultSetup } from '../src/setup';
 import { JOINT_COUNT } from '../src/sim/ragdoll';
 
@@ -177,4 +179,64 @@ test('the speed goes up and down the steps, and stays within them', () => {
   expect(p.speed).toBe(8);
   for (let i = 0; i < 10; i++) p.faster(-1);
   expect(p.speed).toBe(0.25);
+});
+
+test('the others on the jump are kept as they were drawn, and played back with it', () => {
+  const recorder = new TrackRecorder();
+  const setup = cloneSetup(defaultSetup());
+  recorder.begin(setup, 'plane');
+  const f = makeTrackFrame();
+  const léa: OtherJumper = { id: 'bot-0', name: 'Léa', gear: { ...setup.gear, color: 'blue' }, snap: emptySnapshot() };
+  const tom: OtherJumper = { id: 'bot-1', name: 'Tom', gear: { ...setup.gear, color: 'green' }, snap: emptySnapshot() };
+  const gone: OtherJumper = { id: 'p-9', name: 'Gone', gear: setup.gear, snap: emptySnapshot() };
+  // 30 s in the plane, then 30 s out of it.
+  for (let t = 0; t < 60; t += FRAME) {
+    f.phase = t < 30 ? 'plane' : 'freefall';
+    léa.snap.phase = f.phase;
+    léa.snap.stance = t < 30 ? 'door' : 'belly';
+    léa.snap.inflation = null;
+    léa.snap.pos.x = t;
+    léa.snap.att.y = Math.sin(t / 20);
+    léa.snap.att.w = Math.cos(t / 20);
+    tom.snap.pos.y = 1000 - t;
+    tom.snap.landed = true;
+    const drawn = [léa];
+    // Tom only shows up once out; the third one only early in the door, in what is not kept.
+    if (t >= 40) drawn.push(tom);
+    if (t < 5) drawn.push(gone);
+    if (recorder.tick(FRAME, false)) recorder.push(f, drawn);
+  }
+  recorder.logged(3, 3);
+  const track = recorder.finish()!;
+  expect(track.meta.others?.map((o) => o.name)).toEqual(['Léa', 'Tom']);
+
+  const back = decodeTrack(encodeTrack(track))!;
+  expect(back.meta.others).toEqual(track.meta.others);
+  expect(back.others.map((rows) => Array.from(rows))).toEqual(track.others.map((rows) => Array.from(rows)));
+
+  const p = new TrackPlayer(back);
+  p.seek(35.025);
+  const [l, t] = p.others;
+  expect(l!.shown).toBe(true);
+  expect(l!.snap.pos.x).toBeCloseTo(35.025, 1);
+  expect(l!.snap.stance).toBe('belly');
+  expect(l!.snap.inflation).toBeNull();
+  expect(t!.shown).toBe(false);
+  p.seek(50);
+  expect(p.others[1]!.shown).toBe(true);
+  expect(p.others[1]!.snap.pos.y).toBeCloseTo(950, 1);
+  expect(p.others[1]!.snap.landed).toBe(true);
+  expect(p.others[1]!.gear.color).toBe('green');
+});
+
+test('a track of the first version still reads, with no one else on it', () => {
+  const { track } = recordJump(10, 10);
+  const bytes = encodeTrack(track);
+  // Version 1 ends with the cut-away main's rows: no others after.
+  const v1 = bytes.slice(0, bytes.length - 1 - 4);
+  v1[4] = 1;
+  const back = decodeTrack(v1);
+  expect(back).not.toBeNull();
+  expect(back!.others).toEqual([]);
+  expect(new TrackPlayer(back!).others).toEqual([]);
 });

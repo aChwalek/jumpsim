@@ -139,6 +139,25 @@ export class RemoteJumper {
     this.drawSmoke(f, view);
   }
 
+  /** What they were drawn from at the last frame, if drawn. */
+  get drawn(): Snapshot | null {
+    return this.view?.object.visible ? this.now : null;
+  }
+
+  /** What they fly, once known. */
+  get gearOf(): Gear | null {
+    return this.gear;
+  }
+
+  /** Gone to another moment of a replay: no smoke lit, the body straight into its stance. */
+  restart(): void {
+    this.smokeLitAt = null;
+    this.wasLanded = false;
+    this.phase = null;
+    this.posture.reset();
+    this.smoke?.clear();
+  }
+
   dispose(): void {
     this.dropSmoke();
     this.disposeView();

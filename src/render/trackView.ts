@@ -1,11 +1,14 @@
 // A jump played back from its track (see replay/track.ts): the jumper, their
 // canopy, the main once cut away, the reserve, the plane, the body thrown
-// about by a crash and the smoke, drawn as they were. Nothing is simulated:
+// about by a crash and the smoke, drawn as they were; and the others on the
+// jump, bots or players, as they were drawn then. Nothing is simulated:
 // the recorded state is put into flight models only because that is what
 // the views read. Its own views, so that the jump under way is left as it is.
 
 import * as THREE from 'three';
-import type { TrackFrame, TrackMeta } from '../replay/track';
+import { Markers, type MarkerTarget } from '../net/markers';
+import { RemoteJumper } from '../net/remote';
+import type { OtherShown, TrackFrame, TrackMeta } from '../replay/track';
 import { outfitOf, reserveRigFor, rigFor, suitOf, validSetup, wingColor, type Setup } from '../setup';
 import { FlightModel, neutralControls } from '../sim/flightModel';
 import { feetHeight } from '../sim/landing';
@@ -72,6 +75,11 @@ export class TrackView {
   private readonly fall = new THREE.Vector3();
   private readonly risers = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
   private readonly noHands = neutralControls();
+  /** The others on the jump, as `meta.others`, drawn as another player is; their names over them. */
+  private readonly others: RemoteJumper[] = [];
+  private readonly names: string[] = [];
+  private readonly markers: Markers | null = null;
+  private readonly targets: MarkerTarget[] = [];
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -103,6 +111,14 @@ export class TrackView {
       this.heapFrom.fromArray(meta.landing.from);
       this.fallTo.fromArray(meta.landing.fallTo).setY(0);
     }
+    for (const m of meta.others ?? []) {
+      const jumper = new RemoteJumper(scene);
+      // Their gear made safe as ours is.
+      jumper.setGear(validSetup({ gear: m.gear }).gear, light);
+      this.others.push(jumper);
+      this.names.push(typeof m.name === 'string' && m.name ? m.name : '…');
+    }
+    if (this.others.length) this.markers = new Markers(document.getElementById('hud') ?? document.body);
   }
 
   /** The plane as it was at the moment shown, if there was one. */
@@ -154,11 +170,12 @@ export class TrackView {
     }
   }
 
-  update(f: TrackFrame, s: TrackScene): void {
+  update(f: TrackFrame, s: TrackScene, others: readonly OtherShown[] = []): void {
     if (s.jumped) {
       this.smoke?.clear();
       this.smokeWasOut = false;
     }
+    this.drawOthers(f, s, others);
     this.fitCanopies(f, s.light, s.jumped);
     const view = this.view;
     const st = this.model.state;
@@ -194,6 +211,34 @@ export class TrackView {
     this.drawReleased(f, s);
     this.drawPlane(f.t);
     this.drawSmoke(f, s);
+  }
+
+  /** The others where they were, on the replay's clock. */
+  private drawOthers(f: TrackFrame, s: TrackScene, others: readonly OtherShown[]): void {
+    const frame = { now: f.t * 1000, dt: s.dt, time: f.t, wind: s.wind, airDensity: s.airDensity, groundAt: s.groundAt, light: s.light };
+    this.others.forEach((jumper, i) => {
+      const o = others[i];
+      if (s.jumped) jumper.restart();
+      jumper.live = o?.snap ?? null;
+      jumper.update(frame, !!o?.shown);
+    });
+  }
+
+  /** Their names over the others in sight, arrows at the edge for the rest. After the camera has moved. */
+  drawMarkers(camera: THREE.PerspectiveCamera): void {
+    if (!this.markers) return;
+    const targets = this.targets;
+    let n = 0;
+    this.others.forEach((jumper, i) => {
+      const target = (targets[n] ??= { id: '', name: '', pos: new THREE.Vector3(), color: '' });
+      if (!jumper.where(target.pos)) return;
+      target.id = `other-${i}`;
+      target.name = this.names[i]!;
+      target.color = jumper.color;
+      n++;
+    });
+    targets.length = n;
+    this.markers.update(camera, targets, null);
   }
 
   /** The main once cut away, where it drifts, then in a heap where it lands. */
@@ -265,6 +310,8 @@ export class TrackView {
   }
 
   dispose(): void {
+    for (const jumper of this.others) jumper.dispose();
+    this.markers?.dispose();
     this.scene.remove(this.view.object);
     this.view.dispose();
     this.dropReleased();
