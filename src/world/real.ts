@@ -8,6 +8,7 @@ import { bridgeSolid, nearPier, underBridge, undersideAt } from './bridge';
 import type { Area, Bridge, Building, DzPack, Flag, Placed, Rect, Tree } from './dz';
 import { inArea, seeded } from './dz';
 import { gridOf, reliefFrom } from './terrain';
+import { VINE_LENGTH, onVineRow, vineRows, vineyardOf, type Vineyard } from './vines';
 
 const DEG = Math.PI / 180;
 
@@ -75,7 +76,7 @@ export interface RealDzLook {
   walls: number[];
   /** Roofs, where the photo does not cover them. */
   roofs: number[];
-  /** How tall the trees of each kind grow, m, and how many a hectare near the field; none if left out. */
+  /** How tall the trees of each kind grow, m, and how many a hectare near the field; none if left out. Vineyards are rows of vines whatever this says. */
   woods: Partial<Record<WoodKind, { height: [number, number]; perHectare: number; slim?: boolean }>>;
   /** Trees along the mapped rows, m. */
   rowHeight: [number, number];
@@ -140,6 +141,9 @@ function ringArea(points: number[]): number {
   }
   return Math.abs(s) / 2;
 }
+
+/** Vineyards are planted out to here, m: beyond, the photo shows them. */
+const VINES_REACH = 1500;
 
 /** The most trees a drop zone gets, to keep the frame rate. */
 const TREE_BUDGET = 40000;
@@ -220,8 +224,30 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
       return { kind, area: { points: ring, holes, color: 0, layer: 0 }, box: [x0, z0, x1, z1], far: Math.hypot((x0 + x1) / 2, (z0 + z1) / 2) };
     })
     .sort((a, b) => a.far - b.far);
+  // Vineyards are rows of vines, off the airfield.
+  const vineyards: Vineyard[] = [];
+  const rows: number[] = [];
+  const planted = (x: number, z: number): boolean => Math.hypot(x, z) < VINES_REACH && clear(x, z);
   for (const w of woods) {
-    const spec = look.woods[w.kind];
+    if (w.kind !== 'v') continue;
+    const [x0, z0, x1, z1] = w.box as [number, number, number, number];
+    // The plot's nearest point is too far.
+    if (Math.hypot(Math.max(x0, Math.min(0, x1)), Math.max(z0, Math.min(0, z1))) > VINES_REACH) continue;
+    const vineyard = vineyardOf(w.area);
+    vineyards.push(vineyard);
+    for (const [ax, az, bx, bz] of vineRows(vineyard)) {
+      const n = Math.ceil(Math.hypot(bx - ax, bz - az) / VINE_LENGTH);
+      for (let k = 0; k < n; k++) {
+        const px = ax + ((bx - ax) * k) / n;
+        const pz = az + ((bz - az) * k) / n;
+        const qx = ax + ((bx - ax) * (k + 1)) / n;
+        const qz = az + ((bz - az) * (k + 1)) / n;
+        if (planted((px + qx) / 2, (pz + qz) / 2)) rows.push(px, pz, qx, qz);
+      }
+    }
+  }
+  for (const w of woods) {
+    const spec = w.kind === 'v' ? undefined : look.woods[w.kind];
     if (!spec) continue;
     const [x0, z0, x1, z1] = w.box as [number, number, number, number];
     const want = (ringArea(w.area.points) / 10000) * spec.perHectare * thin(w.far);
@@ -341,6 +367,8 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     flags,
     buildings,
     trees,
+    vineRows: rows,
+    onVines: (x, z) => planted(x, z) && onVineRow(vineyards, x, z),
     cars,
     people,
     windsock: { x: wx, z: wz, height: 6 },

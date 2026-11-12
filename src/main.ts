@@ -51,7 +51,7 @@ import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
 import { noBodyInputs, stepPosition, type BodyPosition } from './sim/freefall';
 import { Jump, type JumpOptions } from './sim/jump';
-import { detectTouchdown, feetHeight, type Touchdown } from './sim/landing';
+import { detectTouchdown, feetHeight, worst, type Touchdown } from './sim/landing';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
 import { DEG, quat, rotateInv, vec3 } from './sim/vec';
@@ -952,13 +952,16 @@ function simulate(seconds: number): void {
       const landed = touchdown;
       const feet = model.pilotPoint(vec3(), rig.feetPos);
       const wet = isWet(dz, feet.x, feet.z);
+      // A row of vines is posts and wires: nobody stands that up.
+      const vines = !!dz.onVines?.(feet.x, feet.z);
+      if (vines) landed.rating = worst(landed.rating, 'hard');
       const distance = Math.hypot(feet.x - dz.target.x, feet.z - dz.target.z);
       const log = jump?.log ?? null;
       // On the ground the canopy is blown by the wind at its own height.
       windAt(env.wind, setup.weather, canopyAboveFeet(), airTime);
       arrival = new Arrival(model, landed, { groundAt: solid, wet, wind: vec3(env.wind.x, env.wind.y, env.wind.z) });
       verdict = () => {
-        hud.showResult(landed, distance, wet, log);
+        hud.showResult(landed, distance, wet, log, vines);
         // The mouse, for the card's buttons.
         devices.release();
       };

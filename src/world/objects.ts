@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { BaseExit, Building, Flag, Placed, Tree } from './dz';
+import { noiseTexture } from './ground';
 
 const DEG = Math.PI / 180;
 
@@ -364,4 +365,97 @@ export function buildFlags(flags: Flag[], fabric: THREE.Color, groundAt = flat):
     },
     update,
   };
+}
+
+/**
+ * Rows of vines: a hedge of leaves on its wire, shoulder high, narrow at the
+ * foot and at the top. `rows` holds lengths of row, ax, az, bx, bz, each
+ * straight from the ground at one end to the ground at the other.
+ */
+export function buildVines(rows: number[], groundAt = flat): THREE.Group {
+  /** Across the row and up, from one foot over the top to the other. */
+  const SECTION: [number, number][] = [[-0.25, 0.25], [-0.42, 1.15], [0, 1.75], [0.42, 1.15], [0.25, 0.25]];
+  /** The rows are gathered in squares of this side, m, so that those out of sight are not drawn. */
+  const SQUARE = 400;
+  const squares = new Map<string, number[]>();
+  for (let i = 0; i < rows.length; i += 4) {
+    const key = `${Math.floor(rows[i]! / SQUARE)},${Math.floor(rows[i + 1]! / SQUARE)}`;
+    const list = squares.get(key);
+    if (list) list.push(i);
+    else squares.set(key, [i]);
+  }
+  /** The same at the end of one length and the start of the next: 0 to 1. */
+  const chance = (x: number, z: number, k: number): number => Math.abs(Math.sin(x * 12.9898 + z * 78.233 + k * 37.719) * 43758.5453) % 1;
+  // Leaves, not a clipped hedge: mottled light and dark, with gaps one sees
+  // through where a vine is thin or missing.
+  const material = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide });
+  const leaves = noiseTexture();
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.leafMap = { value: leaves };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vLeafWorld;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLeafWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D leafMap;\nvarying vec3 vLeafWorld;')
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        // Height leans both ways into the plan, so that a wall running either way gets the pattern unstretched.
+        vec2 leafAt = vLeafWorld.xz + vLeafWorld.y * vec2(0.7, 1.1);
+        float thin = texture2D(leafMap, leafAt / 9.0).r;
+        float leaf = texture2D(leafMap, leafAt / 1.1).r;
+        if (thin + 0.5 * leaf < 0.62) discard;
+        diffuseColor.rgb *= (0.45 + 1.1 * leaf) * (0.7 + 0.6 * thin);`,
+      );
+  };
+  material.customProgramCacheKey = () => 'vines';
+  const group = new THREE.Group();
+  const color = new THREE.Color();
+  for (const list of squares.values()) {
+    const faces = SECTION.length - 1;
+    const position = new Float32Array(list.length * faces * 18);
+    const colors = new Float32Array(list.length * faces * 18);
+    let o = 0;
+    for (const i of list) {
+      const ends = [[rows[i]!, rows[i + 1]!], [rows[i + 2]!, rows[i + 3]!]] as const;
+      const dx = ends[1][0] - ends[0][0];
+      const dz = ends[1][1] - ends[0][1];
+      const length = Math.hypot(dx, dz);
+      // To the right of the way the row runs.
+      const rx = -dz / length;
+      const rz = dx / length;
+      /** Corner `k` of the section at one end: vines grow unevenly, and no two rows alike. */
+      const corner = (end: 0 | 1, k: number): [number, number, number, number] => {
+        const [x, z] = ends[end];
+        const [across, up] = SECTION[k]!;
+        const grown = 0.8 + 0.4 * chance(x, z, 1);
+        const wide = 0.8 + 0.5 * chance(x, z, 2);
+        // Dark at the foot, in the shade of the leaves; lighter on top.
+        const shade = (0.45 + 0.55 * (up / 1.75)) * (0.85 + 0.3 * chance(x, z, 3));
+        return [x + rx * across * wide, groundAt(x, z) + up * grown, z + rz * across * wide, shade];
+      };
+      for (let k = 0; k < faces; k++) {
+        const a = corner(0, k);
+        const b = corner(0, k + 1);
+        const c = corner(1, k + 1);
+        const d = corner(1, k);
+        for (const p of [a, b, c, a, c, d]) {
+          color.setHSL(0.25, 0.42, 0.17 * p[3]);
+          position[o] = p[0];
+          position[o + 1] = p[1];
+          position[o + 2] = p[2];
+          colors[o] = color.r;
+          colors[o + 1] = color.g;
+          colors[o + 2] = color.b;
+          o += 3;
+        }
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.computeVertexNormals();
+    group.add(new THREE.Mesh(geometry, material));
+  }
+  return group;
 }

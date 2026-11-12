@@ -5,7 +5,7 @@ import { facetedHeight, surfaceColorAt } from './cover';
 import { isWet, type DzPack } from './dz';
 import { buildGrass } from './grass';
 import { TERRAIN_SPACING, buildDisc, buildSurfaces, buildTerrain, buildWater, loadPhotos } from './ground';
-import { buildBuildings, buildCars, buildFlags, buildLedgeMarks, buildPeople, buildTrees, buildWindsock } from './objects';
+import { buildBuildings, buildCars, buildFlags, buildLedgeMarks, buildPeople, buildTrees, buildVines, buildWindsock } from './objects';
 
 export interface World {
   object: THREE.Group;
@@ -57,6 +57,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     water.object,
     flags.object,
   );
+  if (dz.vineRows?.length) object.add(buildVines(dz.vineRows, groundAt));
   if (dz.bridges) object.add(buildBridges(dz.bridges, groundAt));
   // The run is painted on a tower's roof; a cliff has nothing on it, and off a bridge there is no run.
   if (dz.base && dz.topAt && dz.base.runUp > 0) object.add(buildLedgeMarks(dz.base, dz.topAt(dz.base.x, dz.base.z)));

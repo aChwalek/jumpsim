@@ -295,14 +295,14 @@ export class Hud {
   }
 
   /** `wet`: the feet came down in a pond. `log`: the jump, if it started from the plane. */
-  showResult(t: Touchdown | null, distanceToTarget = 0, wet = false, log: JumpLog | null = null): void {
+  showResult(t: Touchdown | null, distanceToTarget = 0, wet = false, log: JumpLog | null = null, vines = false): void {
     if (!t) {
       this.result.style.display = 'none';
       return;
     }
     this.result.innerHTML = `
       <h1>${T.hud.titles[t.rating]}</h1>
-      <p>${T.hud.comments[t.rating]}${wet ? T.hud.wet : ''}</p>
+      <p>${T.hud.comments[t.rating]}${wet ? T.hud.wet : ''}${vines ? T.hud.vines : ''}</p>
       <table>
         <tr><td>${num(t.sink, 1)} m/s</td><td>${T.hud.sink}</td></tr>
         <tr><td>${(t.groundSpeed * 3.6).toFixed(0)} km/h</td><td>${T.hud.groundSpeedRow}</td></tr>

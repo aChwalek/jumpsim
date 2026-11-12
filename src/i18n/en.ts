@@ -89,6 +89,7 @@ export const en: Strings = {
       crash: 'Likely injured.',
     },
     wet: ' And splash: into the pond.',
+    vines: ' Onto a row of vines, posts and wires: that hurts.',
     sink: 'vertical speed',
     groundSpeedRow: 'ground speed',
     fromTarget: 'from the target',

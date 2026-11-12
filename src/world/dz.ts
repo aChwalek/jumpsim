@@ -207,6 +207,10 @@ export interface DzPack {
   flags: Flag[];
   buildings: Building[];
   trees: Tree[];
+  /** Rows of vines, in lengths short enough to follow the ground: ax, az, bx, bz, and so on. */
+  vineRows?: number[];
+  /** Whether who comes down at the point lands on a row of vines. */
+  onVines?(x: number, z: number): boolean;
   cars: Placed[];
   people: Placed[];
   windsock: { x: number; z: number; height: number };

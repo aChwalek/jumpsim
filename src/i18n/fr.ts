@@ -93,6 +93,7 @@ export const fr = {
       crash: 'Blessure probable.',
     },
     wet: ' Et plouf : dans le pond.',
+    vines: ' Sur un rang de vigne, piquets et fils de fer : ça fait mal.',
     sink: 'vitesse verticale',
     groundSpeedRow: 'vitesse sol',
     fromTarget: 'de la cible',

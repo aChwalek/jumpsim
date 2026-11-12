@@ -29,7 +29,6 @@ export const LOOKS = {
       w: { height: [8, 15], perHectare: 24 },
       s: { height: [2.5, 5.5], perHectare: 10 },
       o: { height: [3, 5], perHectare: 50 },
-      v: { height: [1.5, 2], perHectare: 60 },
     },
     // The windbreaks are cypresses.
     rowHeight: [8, 13],
@@ -174,7 +173,6 @@ export const LOOKS = {
       w: { height: [8, 15], perHectare: 35 },
       s: { height: [2, 5], perHectare: 12 },
       o: { height: [4, 6], perHectare: 40 },
-      v: { height: [1.5, 2], perHectare: 60 },
     },
     rowHeight: [6, 12],
     // The valley floor is narrow and slopes: only the field itself is laid flat.
@@ -205,7 +203,6 @@ export const LOOKS = {
       w: { height: [10, 18], perHectare: 30 },
       s: { height: [2, 5], perHectare: 12 },
       o: { height: [4, 6], perHectare: 40 },
-      v: { height: [1.5, 2], perHectare: 60 },
     },
     rowHeight: [10, 18],
     // The meadow slopes gently up from the river: only it is laid flat.
@@ -237,7 +234,6 @@ export const LOOKS = {
       w: { height: [10, 20], perHectare: 30 },
       s: { height: [2, 5], perHectare: 12 },
       o: { height: [3, 5], perHectare: 50 },
-      v: { height: [1.5, 2.2], perHectare: 60 },
     },
     rowHeight: [6, 14],
     // The valley floor slopes: only the field itself is laid flat.

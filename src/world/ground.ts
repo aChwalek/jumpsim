@@ -126,6 +126,9 @@ function makeGrainTexture(): THREE.Texture {
 }
 
 let noise: THREE.Texture | undefined;
+
+/** Soft noise with a speckle on it, tiling: what breaks up every plain surface. */
+export const noiseTexture = (): THREE.Texture => (noise ??= makeNoiseTexture());
 let grain: THREE.Texture | undefined;
 
 /** Aerial photos of a drop zone on the graphics card, finest first, and how to read them. */
