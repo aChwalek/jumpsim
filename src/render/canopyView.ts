@@ -149,6 +149,8 @@ export class CanopyView {
   private front = [0, 0];
   /** Lost its shape in the air, cut away: 0 to 1. */
   private crumple = 0;
+  /** Pressure lost by the left and right halves in a stall: 0 to 1. */
+  private readonly deflation = [0, 0];
   /** Down on the ground: 0 to 1, and which way it lies. */
   private heap = 0;
   private readonly heapAlong = new THREE.Vector3(0, 0, 1);
@@ -430,6 +432,18 @@ export class CanopyView {
     this.crumple = k;
   }
 
+  /** Pressure lost by each half in a stall, from 0 (flying) to 1: the cells go soft and the tips fold in. */
+  setDeflation(left: number, right: number): void {
+    this.deflation[0] = left;
+    this.deflation[1] = right;
+  }
+
+  /** Deflation across the span, `s` from -1 (left tip) to 1, blended over the middle cells. */
+  private deflationAt(s: number): number {
+    const [left, right] = this.deflation as [number, number];
+    return left + (right - left) * ease((s + 0.15) / 0.3);
+  }
+
   /**
    * Down on the ground: from 0 (still standing) to 1 (lying in a heap),
    * falling towards `to` (level, world frame) from the riser ends at `from`.
@@ -564,10 +578,14 @@ export class CanopyView {
     const radius = rig.lineLength;
 
     // Round the arc, the tips curling in and down as the brakes pull them.
+    // Stalled and soft, the half closes up and its tip folds under and forward.
+    const soft = this.deflationAt(s);
     const curl = Math.max(0, (a - 0.55) / 0.45);
-    const theta = (s * this.spread * rig.span) / (2 * radius) + Math.sign(s) * brake * 0.11 * curl * curl;
+    const theta =
+      ((s * this.spread * rig.span) / (2 * radius)) * (1 - 0.22 * soft) +
+      Math.sign(s) * (brake * 0.11 + soft * 0.55) * curl * curl;
     const outer = Math.max(0, (a - 0.7) / 0.3);
-    const chord = rig.chord * (1 - 0.3 * outer * outer) * this.chordScale;
+    const chord = rig.chord * (1 - 0.3 * outer * outer) * this.chordScale * (1 - 0.3 * soft);
 
     // The section: along the chord (towards the nose) and up from it.
     let along = (0.25 - c) * chord;
@@ -606,6 +624,7 @@ export class CanopyView {
     const si = Math.sin(incidence);
     const r = radius + along * si + lift * ci;
     out.set(r * Math.sin(theta), rig.linksPos.y + r * Math.cos(theta), -along * ci + lift * si);
+    if (soft > 0) out.z -= soft * 0.9 * curl * curl * rig.chord;
 
     const flap = this.flap[cell]!;
     if (flap > 0) {
@@ -680,6 +699,10 @@ export class CanopyView {
       // Cut away, it lets go of its shape.
       fill *= 1 - 0.85 * this.crumple;
       flap += 0.32 * this.crumple * (0.6 + 0.4 * a);
+      // Stalled, it goes soft and the cells ripple, the tips most.
+      const soft = this.deflationAt(((i + 0.5) / this.cells) * 2 - 1);
+      fill *= 1 - 0.6 * soft;
+      flap += 0.09 * soft * (0.4 + 0.6 * a);
       // On the ground it empties, the tips first, and soon lies still.
       if (this.heap > 0) {
         fill *= 1 - ease((this.heap * 1.6 - 0.2 * (1 - a)) / 0.8);

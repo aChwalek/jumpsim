@@ -82,6 +82,8 @@ export class RemoteJumper {
     Object.assign(st.vel, s.vel);
     Object.assign(st.att, s.att);
     Object.assign(st.pilotAtt, s.pilotAtt);
+    model.deflationL = s.deflationL;
+    model.deflationR = s.deflationR;
 
     view.setInflation(s.inflation);
     view.setArms(s.onRisers);

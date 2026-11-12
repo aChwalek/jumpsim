@@ -162,6 +162,16 @@ export interface AeroParams {
   clPlateau: number;
   /** Drag coefficient of the wing broadside to the flow. */
   cdPlate: number;
+  /** Mean angle of attack of half the canopy where it starts to lose pressure, radians. */
+  deflateAlpha: number;
+  /** Mean angle of attack where it has lost all it will, radians. */
+  deflateAlphaFull: number;
+  /** Share of the lift and drag lost by a fully deflated half canopy. */
+  deflatedLoss: number;
+  /** Time constant of the pressure going, s. */
+  deflateTime: number;
+  /** Time constant of the cells filling again once the air meets the nose, s. */
+  refillTime: number;
   /** Pitch damping of the section about its own quarter chord. */
   cmq: number;
   /**
@@ -392,6 +402,14 @@ export function deriveRig(config: RigConfig): RigParams {
     stallWidth: 2 * DEG,
     clPlateau: 0.95,
     cdPlate: 1.4,
+    // Set by the sink of a full stall: about 11 m/s for a 170 under 90 kg and
+    // 17 m/s for a 67, the square root of the wing loading from the 8 to 10
+    // m/s of a paraglider at a third of it.
+    deflateAlpha: 25 * DEG,
+    deflateAlphaFull: 50 * DEG,
+    deflatedLoss: 0.65,
+    deflateTime: 0.8,
+    refillTime: 0.4,
     // Thin airfoil value (pi/8) reduced for a low aspect ratio wing.
     cmq: (Math.PI / 8) * 0.6,
     cmBrake: 0.25,

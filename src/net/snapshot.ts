@@ -33,6 +33,9 @@ export interface Snapshot {
   inflation: number | null;
   deployTime: number;
   bagOut: number;
+  /** Pressure lost by each half of the canopy in a stall, 0 to 1. */
+  deflationL: number;
+  deflationR: number;
   controls: Controls;
   hands: Controls;
   pos: Vec3;
@@ -55,6 +58,8 @@ export const emptySnapshot = (): Snapshot => ({
   inflation: 1,
   deployTime: 0,
   bagOut: 1,
+  deflationL: 0,
+  deflationR: 0,
   controls: { brakeL: 0, brakeR: 0, frontL: 0, frontR: 0 },
   hands: { brakeL: 0, brakeR: 0, frontL: 0, frontR: 0 },
   pos: vec3(),
@@ -115,7 +120,8 @@ export function encodeSnapshot(s: Snapshot, buffer = new ArrayBuffer(SNAPSHOT_BY
   f(s.att.x), f(s.att.y), f(s.att.z), f(s.att.w);
   f(s.pilotAtt.x), f(s.pilotAtt.y), f(s.pilotAtt.z), f(s.pilotAtt.w);
   f(s.inflation ?? 0), f(s.deployTime), f(s.bagOut);
-  f(0);
+  // Both halves in the last float, a byte each: whole numbers that small are exact.
+  f(byte(s.deflationL) + 256 * byte(s.deflationR));
   return buffer;
 }
 
@@ -157,6 +163,9 @@ export function decodeSnapshot(buffer: ArrayBuffer, out = emptySnapshot()): Snap
   out.inflation = flags & Flag.Packed ? null : inflation;
   out.deployTime = f();
   out.bagOut = f();
+  const deflation = Math.max(0, Math.round(f()));
+  out.deflationL = (deflation % 256) / 255;
+  out.deflationR = Math.min(255, Math.floor(deflation / 256)) / 255;
   return out;
 }
 

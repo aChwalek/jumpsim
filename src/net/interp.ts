@@ -98,6 +98,8 @@ export function lerpSnapshot(out: Snapshot, a: Snapshot, b: Snapshot, k: number)
   if (a.inflation !== null && b.inflation !== null) out.inflation = mix(a.inflation, b.inflation);
   if (a.deploy === b.deploy) out.deployTime = mix(a.deployTime, b.deployTime);
   out.bagOut = mix(a.bagOut, b.bagOut);
+  out.deflationL = mix(a.deflationL, b.deflationL);
+  out.deflationR = mix(a.deflationR, b.deflationR);
   return out;
 }
 

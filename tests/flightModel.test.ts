@@ -145,10 +145,33 @@ describe('steady flight', () => {
     const deep = steady({ brakeL: BRAKE_DEEP, brakeR: BRAKE_DEEP });
     // The first wraps take up stretch: still flying.
     expect(first.alphaDeg).toBeLessThan(17);
-    // All the way: the wing is well past the stall, barely going forward and sinking fast.
+    // All the way: the wing is well past the stall, going down far more than forward.
     expect(deep.alphaDeg).toBeGreaterThan(40);
-    expect(deep.forward).toBeLessThan(full.forward / 2);
+    expect(deep.forward).toBeLessThan(full.forward * 0.7);
     expect(deep.sink).toBeGreaterThan(full.sink + 2.5);
+  });
+
+  test('a full stall folds the canopy and sinks with the wing loading', () => {
+    const sink = (area: number) => {
+      const model = trimmed({ canopyAreaFt2: area });
+      simulate(model, 10, controls({ brakeL: BRAKE_DEEP, brakeR: BRAKE_DEEP }), env);
+      expect(model.deflationL).toBeGreaterThan(0.9);
+      expect(model.deflationR).toBeCloseTo(model.deflationL, 5);
+      return -model.state.vel.y;
+    };
+    // About 11 m/s under a 170 at 90 kg, 17 m/s under a 67.
+    expect(sink(170)).toBeGreaterThan(10);
+    expect(sink(170)).toBeLessThan(13);
+    expect(sink(67)).toBeGreaterThan(15);
+    expect(sink(67)).toBeLessThan(20);
+  });
+
+  test('flying, even on full brakes or front risers, the cells stay full', () => {
+    for (const c of [{}, { brakeL: 1, brakeR: 1 }, { brakeL: 1 }, { frontL: 1, frontR: 1 }]) {
+      const model = trimmed();
+      simulate(model, 10, controls(c), env);
+      expect(model.deflationL + model.deflationR).toBe(0);
+    }
   });
 
   test('letting the toggles up recovers a stall, with a dive', () => {
@@ -162,6 +185,7 @@ describe('steady flight', () => {
     }
     expect(lowest).toBeLessThan(-30);
     expect(model.alphaCentre / DEG).toBeLessThan(12);
+    expect(model.deflationL).toBeLessThan(0.01);
     expect(Math.hypot(model.state.vel.x, model.state.vel.z)).toBeGreaterThan(12);
   });
 

@@ -989,6 +989,8 @@ function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation
   o.reserveHandle = jump === null || !(jump.canopy === 'reserve' && jump.log.reserveBy === 'hand');
   o.landed = arrival !== null;
   o.inflation = inflation;
+  o.deflationL = model.deflationL;
+  o.deflationR = model.deflationR;
   Object.assign(o.controls, applied);
   Object.assign(o.hands, hands);
   Object.assign(o.pos, s.pos);
