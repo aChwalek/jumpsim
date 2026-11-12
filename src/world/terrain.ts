@@ -24,7 +24,16 @@ export interface ReliefOptions {
    * grid's once `plain` is taken off. Beyond the main grid it takes over.
    */
   far?: HeightGrid;
+  /**
+   * A small square of fine relief about a cliff, heights above the plain like
+   * the far grid's, centred on (x, z). It takes over from the others inside
+   * its edge, over its outer `FINE_BLEND` metres.
+   */
+  fine?: HeightGrid & { x: number; z: number };
 }
+
+/** Over how much of its edge the fine grid gives way to the near one, m. */
+export const FINE_BLEND = 150;
 
 const smoothstep = (a: number, b: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -43,7 +52,7 @@ export function reliefFrom(grid: HeightGrid, o: ReliefOptions): (x: number, z: n
   /** Over how much of its edge the main grid gives way to the far one, m. */
   const handover = 1000;
   const shape = (rise: number): number => rise * smoothstep(o.flatBelow, o.flatBelow + o.blend, rise);
-  return (x, z) => {
+  const coarse = (x: number, z: number): number => {
     const a = near(x, z);
     if (!far) return shape(a.height - o.plain) * (1 - smoothstep(0, 6000, a.beyond));
     const out = Math.max(Math.abs(x), Math.abs(z));
@@ -52,6 +61,18 @@ export function reliefFrom(grid: HeightGrid, o: ReliefOptions): (x: number, z: n
     const t = smoothstep(nearHalf - handover, nearHalf, out);
     const rise = (a.height - o.plain) * (1 - t) + b.height * t;
     return shape(rise) * (1 - smoothstep(0, 6000, b.beyond));
+  };
+  if (!o.fine) return coarse;
+  const f = o.fine;
+  const fine = sampler(f);
+  const fineHalf = ((f.size - 1) * f.spacing) / 2;
+  return (x, z) => {
+    const inside = fineHalf - Math.max(Math.abs(x - f.x), Math.abs(z - f.z));
+    if (inside <= 0) return coarse(x, z);
+    const own = shape(fine(x - f.x, z - f.z).height);
+    if (inside >= FINE_BLEND) return own;
+    const t = smoothstep(0, FINE_BLEND, inside);
+    return coarse(x, z) * (1 - t) + own * t;
   };
 }
 

@@ -7,7 +7,8 @@ python3 tools/dz/build.py <id>            # everything
 python3 tools/dz/build.py <id> --only osm # one step: relief, imagery, osm (or none: rewrite the module only)
 ```
 
-It needs Python 3 and ffmpeg, nothing else. Downloads are cached in
+It needs Python 3 and ffmpeg, nothing else, except for a fine relief from
+swissALTI3D (below), which reads GeoTIFFs with numpy and Pillow. Downloads are cached in
 `~/.cache/jumpsim-dz` (about 30 MB a drop zone), so a second run is quick.
 
 ## Inputs
@@ -18,6 +19,14 @@ the local frame), the aerodrome outline, runways, paved areas, landing areas,
 target, the DZ's own buildings, windsocks, and notes on where each fact came
 from. These were read off the aerodrome charts, the DZ's own pages and the
 aerial photos; what is guessed is listed in the file under `invented`.
+
+A BASE site has no aerodrome: `runways` is empty, the landing field is its
+only landing area, and `base` gives the exit (where the run starts, its
+heading, its length and the height down to the landing field). The cliff needs
+finer relief than the terrain tiles give: `fineRelief` lays a square of it,
+sampled from a national survey, over the near grid (only swissALTI3D for now).
+`imagery` names the orthophotos (`ign`, `pnoa` or `swissimage`), and
+`overpass` may name servers to ask first, such as a national mirror.
 
 `src/world/realDzs.ts` holds what the data cannot say: wall colours, tree
 heights, where people stand, the usual wind, the pattern and the jump run.
@@ -39,6 +48,8 @@ z south, metres. The photos map onto it with no resampling distortion.
   Licence Ouverte / Etalab 2.0.
 - Orthophotos, Spain: PNOA, © Instituto Geográfico Nacional de España,
   CC BY 4.0 (scne.es).
+- Orthophotos and fine relief, Switzerland: SWISSIMAGE and swissALTI3D,
+  © swisstopo, free geodata (OGD), attribution required.
 - Satellite, everywhere: Sentinel-2 cloudless 2023 by EOX IT Services GmbH
   (contains modified Copernicus Sentinel data 2023), CC BY-NC-SA 4.0: fine for
   this non-commercial project, the attribution must stay.

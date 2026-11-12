@@ -33,7 +33,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
   const flags = buildFlags(dz.flags, light.fabric, groundAt);
   const trees = buildTrees(dz.trees, groundAt);
   object.add(
-    buildTerrain(dz.grass.area.color, groundAt, dz.landColor, photos),
+    buildTerrain(dz.grass.area.color, groundAt, dz.landColor, photos, dz.terrainDetail),
     buildSurfaces(dz.surfaces, dz.areas),
     buildBuildings(dz.buildings, groundAt),
     trees.object,
@@ -44,7 +44,8 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     water.object,
     flags.object,
   );
-  if (dz.base) object.add(buildLedgeMarks(dz.base, (dz.topAt ?? groundAt)(dz.base.x, dz.base.z)));
+  // The run is painted on a tower's roof; a cliff has nothing on it.
+  if (dz.base && dz.topAt) object.add(buildLedgeMarks(dz.base, dz.topAt(dz.base.x, dz.base.z)));
   if (dz.targetShown !== false) {
     object.add(buildDisc(dz.target.x, dz.target.z, dz.target.radius, dz.targetColor ?? 0xcdbf9a, dz.targetLayer ?? 4));
     if (dz.targetCentre !== false) object.add(buildDisc(dz.target.x, dz.target.z, 0.6, 0xe0452a, (dz.targetLayer ?? 4) + 1));

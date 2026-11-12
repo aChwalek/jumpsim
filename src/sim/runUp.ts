@@ -25,6 +25,12 @@ export const LEAP_UP = 2.8;
 const LEAP_AHEAD = 0.8;
 /** The top falls away this much under the feet: over the edge, m. */
 const EDGE = 0.5;
+/**
+ * Or falls away steeper than this, drop over distance: nobody runs down a
+ * slope of more than 60°. The edge of a cliff known every few metres is
+ * never sheer.
+ */
+const TOO_STEEP = Math.tan(60 * DEG);
 /** Stepping up more than this is a wall, m. */
 const STEP_UP = 0.4;
 
@@ -96,9 +102,11 @@ export class RunUp {
       this.forward = this.side = 0;
       set(this.vel, 0, 0, 0);
     } else {
+      const drop = this.y - top;
+      const step = Math.hypot(x - this.x, z - this.z);
       this.x = x;
       this.z = z;
-      if (top < this.y - EDGE) return true;
+      if (drop > EDGE || (step > 0 && drop > step * TOO_STEEP)) return true;
       this.y = top;
     }
 

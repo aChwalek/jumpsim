@@ -270,17 +270,31 @@ function terrainLines(): number[] {
   return lines;
 }
 
+/** A square of terrain drawn finer, centred on (x, z): its sides on the 100 m lines. */
+export interface TerrainDetail {
+  x: number;
+  z: number;
+  size: number;
+  spacing: number;
+}
+
 /**
  * The base terrain reaching the horizon: flat, or shaped by `groundAt`, in
- * one colour or coloured point by point by `colorAt`.
+ * one colour or coloured point by point by `colorAt`. Inside `detail` it is
+ * drawn finer, for a cliff.
  */
 export function buildTerrain(
   color: number,
   groundAt: (x: number, z: number) => number = () => 0,
   colorAt?: (x: number, z: number) => number,
   photos?: Photos,
+  detail?: TerrainDetail,
 ): THREE.Mesh {
   const lines = terrainLines();
+  const half = detail ? detail.size / 2 : 0;
+  // Cells of the coarse mesh the fine square covers are left out.
+  const covered = (x0: number, z0: number, x1: number, z1: number): boolean =>
+    !!detail && x0 >= detail.x - half && x1 <= detail.x + half && z0 >= detail.z - half && z1 <= detail.z + half;
   const n = lines.length;
   const positions = new Float32Array(n * n * 3);
   const colors = colorAt && !photos ? new Float32Array(n * n * 3) : null;
@@ -302,18 +316,88 @@ export function buildTerrain(
   const index: number[] = [];
   for (let j = 0; j < n - 1; j++) {
     for (let i = 0; i < n - 1; i++) {
+      if (covered(lines[i]!, lines[j]!, lines[i + 1]!, lines[j + 1]!)) continue;
       const a = j * n + i;
       index.push(a, a + n, a + 1, a + 1, a + n, a + n + 1);
+    }
+  }
+  let geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  if (colors) geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setIndex(index);
+  if (detail) geometry = mergeGeometries([geometry, fineTerrain(detail, lines, groundAt, colorAt, !!colors)]);
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, groundMaterial(colors ? { vertexColors: true } : { color }, 0, photos));
+  mesh.renderOrder = 0;
+  return mesh;
+}
+
+/**
+ * The fine square of terrain. Along its sides the points follow the straight
+ * edges of the coarse cells next to it, so that no crack opens between them.
+ */
+function fineTerrain(
+  d: TerrainDetail,
+  lines: number[],
+  groundAt: (x: number, z: number) => number,
+  colorAt: ((x: number, z: number) => number) | undefined,
+  colored: boolean,
+): THREE.BufferGeometry {
+  const n = Math.round(d.size / d.spacing) + 1;
+  const x0 = d.x - d.size / 2;
+  const z0 = d.z - d.size / 2;
+  /** Height along a coarse edge: straight between the coarse points either side. */
+  const along = (fixed: number, t: number, horizontal: boolean): number => {
+    let k = 0;
+    while (k < lines.length - 2 && lines[k + 1]! <= t) k++;
+    const a = lines[k]!;
+    const b = lines[k + 1]!;
+    const f = (t - a) / (b - a);
+    const ha = horizontal ? groundAt(a, fixed) : groundAt(fixed, a);
+    const hb = horizontal ? groundAt(b, fixed) : groundAt(fixed, b);
+    return ha + (hb - ha) * f;
+  };
+  const positions = new Float32Array(n * n * 3);
+  const colors = colored ? new Float32Array(n * n * 3) : null;
+  const tint = new THREE.Color();
+  let o = 0;
+  for (let j = 0; j < n; j++) {
+    const z = z0 + j * d.spacing;
+    for (let i = 0; i < n; i++) {
+      const x = x0 + i * d.spacing;
+      let y: number;
+      if (j === 0 || j === n - 1) y = along(z, x, true);
+      else if (i === 0 || i === n - 1) y = along(x, z, false);
+      else y = groundAt(x, z);
+      if (colors) {
+        tint.setHex(colorAt!(x, z));
+        colors[o] = tint.r;
+        colors[o + 1] = tint.g;
+        colors[o + 2] = tint.b;
+      }
+      positions[o++] = x;
+      positions[o++] = y;
+      positions[o++] = z;
+    }
+  }
+  const index = new Uint32Array((n - 1) * (n - 1) * 6);
+  let k = 0;
+  for (let j = 0; j < n - 1; j++) {
+    for (let i = 0; i < n - 1; i++) {
+      const a = j * n + i;
+      index[k++] = a;
+      index[k++] = a + n;
+      index[k++] = a + 1;
+      index[k++] = a + 1;
+      index[k++] = a + n;
+      index[k++] = a + n + 1;
     }
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   if (colors) geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geometry.setIndex(index);
-  geometry.computeVertexNormals();
-  const mesh = new THREE.Mesh(geometry, groundMaterial(colors ? { vertexColors: true } : { color }, 0, photos));
-  mesh.renderOrder = 0;
-  return mesh;
+  geometry.setIndex(new THREE.BufferAttribute(index, 1));
+  return geometry;
 }
 
 /** The rectangles as triangles lying on the ground, each in its own colour. */

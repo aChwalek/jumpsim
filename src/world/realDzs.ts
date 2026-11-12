@@ -97,4 +97,33 @@ export const LOOKS = {
     // Cessna 206, 3200 m for the licensed jumpers.
     jumpRun: { downwind: 500, offset: 60, height: 3200, indicatedAirspeed: 40 },
   },
+  // Lauterbrunnen: no drop zone, a BASE site. High Nose on the Mürrenfluh,
+  // and a meadow on the valley floor 470 m out from it.
+  lauterbrunnen: {
+    name: 'Lauterbrunnen',
+    lat: 46.577912,
+    lon: 7.910929,
+    utcOffsetH: 2,
+    // The valley wind, up the valley from the north in the afternoon; mornings are calm.
+    wind: { fromDeg: 0, speed: kmh(9) },
+    grass: { rough: 0x5f7f34, mown: 0x6a8c3a },
+    // Chalets: dark larch, light stone, white render.
+    walls: [0x7a4e2e, 0x8a5a36, 0x6b4428, 0xe9e4d8, 0xd9d2c2],
+    roofs: [0x55504c, 0x6a625c, 0x8a3e2a, 0x4a4643],
+    woods: {
+      w: { height: [18, 32], perHectare: 30, slim: true },
+      s: { height: [2, 5], perHectare: 10 },
+    },
+    rowHeight: [10, 20],
+    // The valley floor slopes: only the meadow itself is laid flat.
+    relief: { flatBelow: 2, blend: 8 },
+    // Along the valley, the pattern on the east side, over the floor between
+    // the meadow and the river, away from the wall.
+    landingAxisDeg: 0,
+    patternSideDeg: 90,
+    pattern: { upwind: 120, side: 110, height: 150 },
+    final: { downwind: 150, height: 50 },
+    // From the air too: the helicopter jumps over the valley go from about 4000 m.
+    jumpRun: { downwind: 500, offset: 60, height: 3200, indicatedAirspeed: 39 },
+  },
 } satisfies Record<string, Look>;

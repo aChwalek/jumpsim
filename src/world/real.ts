@@ -21,6 +21,11 @@ export interface RealDzData {
   /** Ground above the plain, m, rows north to south, centred on the origin. */
   near: { size: number; spacing: number; heights: number[] };
   far: { size: number; spacing: number; heights: number[] };
+  /**
+   * Fine relief about a cliff, centred on (x, z): decimetres above the plain,
+   * little-endian 16-bit integers in base64, rows north to south.
+   */
+  fine?: { x: number; z: number; size: number; spacing: number; heights: string };
   imagery: { url: string; size: number }[];
   /** x, z, length, width, heading, height, roof colour (-1: none), wall colour (-1), flat roof, hangar door, greenhouse. */
   buildings: number[][];
@@ -44,6 +49,8 @@ export interface RealDzData {
     pond: number[] | null;
     windsocks: [number, number][];
     flags: [number, number, number][];
+    /** A cliff to BASE jump from: where the run starts, its heading, and the height down to the landing area, m. */
+    base?: { x: number; z: number; headingDeg: number; runUp: number; width: number; height: number; name: string };
   };
 }
 
@@ -68,6 +75,11 @@ export interface RealDzLook {
   slimRows?: boolean;
   /** Brightness the photos are drawn at. */
   imageryGain?: number;
+  /**
+   * Ground less than `flatBelow` above the landing area is laid flat, the
+   * hills growing out of it over `blend` metres: 12 and 20 if not given.
+   */
+  relief?: { flatBelow: number; blend: number };
   /** Where the sport jumpers aim, if not the data's target. */
   target?: { x: number; z: number; radius: number };
   targetColor?: number;
@@ -129,11 +141,13 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
   const random = seeded(20261112);
   const pick = <T>(list: T[]): T => list[Math.floor(random() * list.length)]!;
 
+  const fine = data.fine ? { ...gridOf(data.fine.size, data.fine.spacing, decimetres(data.fine.heights)), x: data.fine.x, z: data.fine.z } : undefined;
   const groundAt = reliefFrom(gridOf(data.near.size, data.near.spacing, data.near.heights), {
     plain: 0,
-    flatBelow: 12,
-    blend: 20,
+    flatBelow: look.relief?.flatBelow ?? 12,
+    blend: look.relief?.blend ?? 20,
     far: gridOf(data.far.size, data.far.spacing, data.far.heights),
+    fine,
   });
   const onPlain = (x: number, z: number): boolean => groundAt(x, z) < 0.5;
 
@@ -239,6 +253,19 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     trees.push({ x: data.trees[i]!, z: data.trees[i + 1]!, height: h0 + random() * (h1 - h0) });
   }
 
+  // Nothing grows on the run up to a BASE exit, nor just either side of it.
+  const base = data.dz.base;
+  if (base) {
+    const h = base.headingDeg * DEG;
+    let kept = 0;
+    for (const t of trees) {
+      const along = (t.x - base.x) * Math.sin(h) - (t.z - base.z) * Math.cos(h);
+      const across = (t.x - base.x) * Math.cos(h) + (t.z - base.z) * Math.sin(h);
+      if (along < -8 || along > base.runUp + 2 || Math.abs(across) > base.width / 2 + 5) trees[kept++] = t;
+    }
+    trees.length = kept;
+  }
+
   // --- Life on the DZ -------------------------------------------------------------------
   const people: Placed[] = data.dz.people.map(([x, z]) => ({ x, z, headingDeg: random() * 360, color: pick(SHIRT_COLORS) }));
   // Car parks partly full, in rows along their length.
@@ -299,5 +326,17 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     patternSideDeg: look.patternSideDeg,
     final: look.final,
     jumpRun: look.jumpRun,
+    base: base && { x: base.x, z: base.z, headingDeg: base.headingDeg, runUp: base.runUp, width: base.width, height: base.height },
+    // The cliff drawn as finely as it is known, short of the edge where it blends away.
+    terrainDetail: fine && { x: fine.x, z: fine.z, size: (fine.size - 1) * fine.spacing, spacing: fine.spacing },
   };
+}
+
+/** Heights packed by tools/dz/build.py: decimetres, int16 little-endian, base64. */
+function decimetres(packed: string): number[] {
+  const bytes = Uint8Array.from(atob(packed), (c) => c.charCodeAt(0));
+  const view = new DataView(bytes.buffer);
+  const out = new Array<number>(bytes.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = view.getInt16(i * 2, true) / 10;
+  return out;
 }

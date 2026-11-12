@@ -9,7 +9,7 @@ import { createRealDz, type RealDzData, type RealDzLook } from './real';
 import { LOOKS } from './realDzs';
 import { TOWER_HEIGHT, createTowerZone } from './tower';
 
-export type DzId = 'valbrise' | 'tower' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadeloupe';
+export type DzId = 'valbrise' | 'tower' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadeloupe' | 'lauterbrunnen';
 
 export interface DzInfo {
   id: DzId;
@@ -92,13 +92,14 @@ function built(
   };
 }
 
-/** A real drop zone: its look comes with the code, its data on demand. */
+/** A real drop zone, or a real BASE site: its look comes with the code, its data on demand. */
 function real(
   id: DzId & keyof typeof LOOKS,
   club: string,
-  icao: string,
+  icao: string | undefined,
   credit: Credit,
   data: () => Promise<{ DATA: RealDzData }>,
+  base?: { height: number },
 ): DzInfo {
   const look: RealDzLook & { lat: number; lon: number; utcOffsetH: number } = LOOKS[id];
   let pack: DzPack | undefined;
@@ -108,6 +109,7 @@ function real(
     name: look.name,
     club,
     icao,
+    base,
     get note() {
       return T.dz.notes[id];
     },
@@ -137,6 +139,8 @@ export const DZS: DzInfo[] = [
   real('chambery', 'Savoie Parachutisme', 'LFLB', 'france', () => import('./data/chambery')),
   real('empuriabrava', 'Skydive Empuriabrava', 'LEAP', 'spain', () => import('./data/empuriabrava')),
   real('guadeloupe', 'Caraïbe Parachutisme', 'TFFC', 'france', () => import('./data/guadeloupe')),
+  // High Nose: the height down to the landing field, as in tools/dz/lauterbrunnen.json.
+  real('lauterbrunnen', 'High Nose', undefined, 'swiss', () => import('./data/lauterbrunnen'), { height: 545 }),
 ];
 
 export function dzInfo(id: DzId): DzInfo {

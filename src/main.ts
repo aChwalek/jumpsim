@@ -423,7 +423,7 @@ function spawn(kind: Start): void {
   } else if (kind === 'base') {
     const b = dz.base!;
     windAt(env.wind, setup.weather, b.height, airTime);
-    const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg: b.headingDeg } as const;
+    const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg: b.headingDeg, height: b.height } as const;
     jump = new Jump(model, ledge, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction: unlucky ? 'offHeading' : null });
   } else {
     jump = null;

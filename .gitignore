@@ -5,3 +5,4 @@ dist
 .wrangler
 worker/worker-configuration.d.ts
 .dev.vars
+__pycache__/
