@@ -332,15 +332,15 @@ describe('pulling out of freefly', () => {
 });
 
 describe('stepPosition', () => {
-  test('walks the head up and down from where the body is', () => {
-    expect(stepPosition('sit', 'down')).toBe('back');
-    expect(stepPosition('back', 'down')).toBe('headDown');
-    expect(stepPosition('headDown', 'down')).toBe('headDown');
+  test('goes round belly, head down, back, sit and back to belly', () => {
+    expect(stepPosition('belly', 'up')).toBe('headDown');
     expect(stepPosition('headDown', 'up')).toBe('back');
     expect(stepPosition('back', 'up')).toBe('sit');
-    expect(stepPosition('sit', 'up')).toBe('sit');
-    expect(stepPosition('belly', 'up')).toBe('sit');
-    expect(stepPosition('belly', 'down')).toBe('headDown');
+    expect(stepPosition('sit', 'up')).toBe('belly');
+    expect(stepPosition('belly', 'down')).toBe('sit');
+    expect(stepPosition('sit', 'down')).toBe('back');
+    expect(stepPosition('back', 'down')).toBe('headDown');
+    expect(stepPosition('headDown', 'down')).toBe('belly');
   });
 });
 

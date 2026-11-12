@@ -98,6 +98,11 @@ export class InputDevices {
    */
   readonly body: BodyInputs = noBodyInputs();
   /**
+   * On foot, on top of a BASE object: Z / S forward and back, Q / D step
+   * left and right, A / E turn (AZERTY letters).
+   */
+  readonly feet: BodyInputs = noBodyInputs();
+  /**
    * Into a track (an angle upright): Shift held on the keyboard, the way
    * the body is held stretched; on the gamepad the thumb is on the stick
    * that drives, so pressing it turns the track on and again off.
@@ -226,6 +231,9 @@ export class InputDevices {
     b.slide = key('KeyE') - key('KeyQ');
     // R up (spread out, slower), F down (tucked in, faster).
     b.fall = key('KeyF') - key('KeyR');
+    const f = this.feet;
+    f.turn = key('KeyE') - key('KeyQ');
+    f.slide = key('KeyD') - key('KeyA');
 
     let stickYaw = 0;
     let stickPitch = 0;
@@ -247,6 +255,8 @@ export class InputDevices {
       b.turn = clamp(b.turn + this.analogBrakeR - this.analogBrakeL, -1, 1);
       b.forward = clamp(b.forward - deadzone(pad.axes[1] ?? 0), -1, 1);
       b.slide = clamp(b.slide + deadzone(pad.axes[0] ?? 0), -1, 1);
+      f.turn = clamp(f.turn + this.analogBrakeR - this.analogBrakeL, -1, 1);
+      f.slide = clamp(f.slide + deadzone(pad.axes[0] ?? 0), -1, 1);
       // The bumpers go up and down, the cross picks the position.
       b.fall = clamp(b.fall + (pad.buttons[5]?.pressed ? 1 : 0) - (pad.buttons[4]?.pressed ? 1 : 0), -1, 1);
       const jump = pad.buttons[0]?.pressed ?? false;
@@ -274,6 +284,7 @@ export class InputDevices {
         this.onAction('cutaway');
       }
     }
+    f.forward = b.forward;
     this.lookYaw = clamp(this.mouseYaw + stickYaw, -MAX_YAW, MAX_YAW);
     this.lookPitch = clamp(this.mousePitch + stickPitch, -MAX_PITCH_DOWN, MAX_PITCH_UP);
   }
