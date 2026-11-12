@@ -1,11 +1,18 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  // Static site only: no Worker script, Cloudflare serves dist/ as is.
+  // The static site, and a small Worker for the multiplayer's signalling:
+  // assets are served first, the Worker only sees /signal/<room>.
   "name": "jumpsim",
   "compatibility_date": "2026-11-01",
+  "main": "./worker/index.ts",
   "assets": {
     "directory": "./dist"
   },
+  // One Durable Object per room. SQLite-backed: the only kind on the Free plan.
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
   // Branches other than main get their own Preview URL (`wrangler preview`).
   "previews": {}
 }

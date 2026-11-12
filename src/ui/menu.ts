@@ -79,6 +79,7 @@ import {
   LOGO,
 } from './icons';
 import { Nav } from './nav';
+import { roomFromUrl } from '../net/multiplayer';
 
 export type { Start } from '../setup';
 
@@ -1020,6 +1021,10 @@ export class Menu {
       ),
       this.choice<boolean>(t.invertLook, yesNo(), () => s.invertLook, (invertLook) => this.setSettings({ invertLook }), {
         hint: t.invertLookHint,
+      }),
+      h('h3', 'section', t.together),
+      this.choice<boolean>(t.multiplayer, yesNo(), () => s.multiplayer, (multiplayer) => this.setSettings({ multiplayer }), {
+        note: () => t.multiplayerNote(roomFromUrl(), s.multiplayer),
       }),
       h('h3', 'section', t.keys),
       this.nav.add(this.controlsTable()),
