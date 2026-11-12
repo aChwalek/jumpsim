@@ -591,7 +591,7 @@ function simulate(seconds: number): void {
       jump.trackIt(devices.tracking);
       // A track the gamepad turned on ends with the freefall, or at the pull.
       if (!jump.body.tracking) devices.padTrack = false;
-      jump.step(dt, devices.body, env);
+      jump.step(dt, jump.phase === 'standing' ? devices.feet : devices.body, env);
       if (jump.impact) {
         hitWithoutCanopy(jump);
         return;

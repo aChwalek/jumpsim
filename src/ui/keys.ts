@@ -28,8 +28,8 @@ function keyboardRows(phase: KeysPhase): Row[] {
     case 'ledge':
       return [
         [[k('KeyW'), k('KeyS')], t.run],
-        [[k('KeyA'), k('KeyD')], t.turn],
-        [[k('KeyQ'), k('KeyE')], t.sidestep],
+        [[k('KeyA'), k('KeyD')], t.sidestep],
+        [[k('KeyQ'), k('KeyE')], t.turn],
         [[t.space], t.leap],
         [['↑', '↓', '←', '→'], t.exitPosition],
         [[t.mouse], t.look],
