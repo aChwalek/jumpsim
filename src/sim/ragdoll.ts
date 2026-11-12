@@ -143,7 +143,7 @@ export class Ragdoll {
   constructor(
     pos: Vec3[],
     vel: Vec3[],
-    private readonly groundAt: (x: number, z: number) => number,
+    private readonly groundAt: (x: number, z: number, y?: number) => number,
   ) {
     this.pos = pos.map((p) => vec3(p.x, p.y, p.z));
     this.radius = JOINTS.map((n) => RADIUS[n]);
@@ -152,7 +152,7 @@ export class Ragdoll {
     let lift = 0;
     for (let i = 0; i < JOINT_COUNT; i++) {
       const p = this.pos[i]!;
-      lift = Math.max(lift, this.groundAt(p.x, p.z) + this.radius[i]! - p.y);
+      lift = Math.max(lift, this.groundAt(p.x, p.z, p.y) + this.radius[i]! - p.y);
     }
     for (const p of this.pos) p.y += lift;
     this.prev = this.pos.map((p, i) => {
@@ -304,7 +304,7 @@ export class Ragdoll {
     for (let i = 0; i < JOINT_COUNT; i++) {
       const p = this.pos[i]!;
       const q = this.prev[i]!;
-      const floor = this.groundAt(p.x, p.z) + this.radius[i]!;
+      const floor = this.groundAt(p.x, p.z, q.y) + this.radius[i]!;
       if (p.y >= floor) continue;
       if (first) {
         // Speed into the ground, before it is taken away.

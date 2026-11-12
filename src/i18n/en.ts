@@ -36,6 +36,7 @@ export const en: Strings = {
       empuriabrava: 'Between the canal town and the sea',
       guadeloupe: 'Saint-François, on Grande-Terre',
       lauterbrunnen: 'High Nose, off the Mürrenfluh into the valley',
+      limska: 'The A9 viaduct over the Limska draga, in Istria',
     },
     made: 'Imaginary DZ',
     credits: {
@@ -43,6 +44,7 @@ export const en: Strings = {
       france: 'Photos IGN, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       spain: 'Photos PNOA © IGN España, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       swiss: 'Photos and relief © swisstopo, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
+      croatia: 'Photos DOF5 2019/20 © DGU (Otvorena dozvola), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
     },
   },
 
@@ -136,6 +138,7 @@ export const en: Strings = {
     sliderStays: 'it stays down on the links',
     onTop: 'AT THE EXIT',
     runAndJump: (fwd: string) => `${fwd} to run up · Space to jump`,
+    jumpOut: (fwd: string) => `${fwd} or Space to jump`,
     delay: (s: string) => `${s} s`,
     target: 'TARGET',
     targetPoint: 'point on the ground',
@@ -352,6 +355,7 @@ export const en: Strings = {
       },
       noPlane: 'No plane, no freefall',
       baseLine: (run: string) => `A ${run} m run-up to the edge`,
+      baseStand: 'Standing on the lip of the deck, no run-up',
       baseNote: {
         sport: 'Skydiving container: a reserve, the AAD off',
         base: 'BASE container: one canopy, no reserve',
@@ -371,6 +375,7 @@ export const en: Strings = {
         pattern: (h: string) => `Under canopy at ${h} m, at the top of downwind.`,
         final: (h: string) => `Under canopy at ${h} m, on final.`,
         base: (h: string) => `At the exit, ${h} m up: run up, jump, a few seconds of freefall, open.`,
+        bridge: (h: string) => `On the lip of the deck, ${h} m up: jump, a second or two of freefall, open.`,
       },
       exitHeight: 'EXIT ALTITUDE',
       exitHint: 'above the DZ',

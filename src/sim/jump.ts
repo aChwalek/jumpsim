@@ -35,6 +35,8 @@ export interface Ledge {
    * down to the landing area from a cliff, whose foot is a slope.
    */
   height?: number;
+  /** No run: standing on the lip of a bridge, the jumper jumps out from there. */
+  standing?: boolean;
 }
 
 const isLedge = (from: JumpRun | Ledge): from is Ledge => (from as Ledge).kind === 'ledge';
@@ -48,9 +50,10 @@ export type Container = 'sport' | 'base';
 export interface JumpOptions {
   /**
    * What the jumper can stand on or run into: the ground, and the roofs and
-   * walls of what stands on it. The ground alone if not given.
+   * walls of what stands on it, and the decks of bridges over it to whoever is
+   * at `y` or above. The ground alone if not given.
    */
-  solidAt?: (x: number, z: number) => number;
+  solidAt?: (x: number, z: number, y?: number) => number;
   /** A skydiving container if not given. */
   container?: Container;
   /** The reserve, flown once out. Without it the reserve flies as the main does. */
@@ -156,7 +159,7 @@ export class Jump {
   private readonly eye = vec3();
   /** Where the pilot was before the last step. */
   private readonly prev = vec3();
-  private readonly solidAt: (x: number, z: number) => number;
+  private readonly solidAt: (x: number, z: number, y?: number) => number;
 
   /**
    * `groundAt`: the ground, which the heights are taken from (a BASE object's
@@ -178,7 +181,7 @@ export class Jump {
     if (isLedge(from)) {
       this.phase = 'standing';
       this.plane = null;
-      this.runUp = new RunUp(this.solidAt, from.x, from.z, from.headingDeg);
+      this.runUp = new RunUp(this.solidAt, from.x, from.z, from.headingDeg, undefined, from.standing);
     } else {
       this.phase = 'plane';
       this.plane = new Plane(from, env.wind, groundAt(from.x, from.z));
@@ -271,7 +274,7 @@ export class Jump {
   clearance(): number {
     const m = this.model;
     m.pilotPoint(this.tmp, m.rig.feetPos);
-    return this.tmp.y - this.solidAt(this.tmp.x, this.tmp.z);
+    return this.tmp.y - this.solidAt(this.tmp.x, this.tmp.z, this.tmp.y);
   }
 
   /** Compass heading the jumper faces, degrees. */
@@ -359,7 +362,7 @@ export class Jump {
   private touch(): void {
     const s = this.model.state;
     const feet = this.model.pilotPoint(this.tmp, this.model.rig.feetPos);
-    const top = this.solidAt(feet.x, feet.z);
+    const top = this.solidAt(feet.x, feet.z, feet.y);
     // Where the feet were a step ago, height for height: well under this top, they came in through its side.
     if (top - (feet.y - (s.pos.y - this.prev.y)) > SIDE_HIT) {
       this.struck = true;
@@ -371,7 +374,7 @@ export class Jump {
     }
     if (this.runUp && this.phase === 'freefall' && -s.vel.y < HOP_SINK) {
       // A hop that came back down on top: on the feet again.
-      this.runUp.place(feet.x, feet.z);
+      this.runUp.place(feet.x, feet.z, feet.y);
       this.body.setPosition('belly');
       this.pullWhenFlat = false;
       this.phase = 'standing';

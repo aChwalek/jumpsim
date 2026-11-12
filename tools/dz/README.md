@@ -22,10 +22,23 @@ aerial photos; what is guessed is listed in the file under `invented`.
 
 A BASE site has no aerodrome: `runways` is empty, the landing field is its
 only landing area, and `base` gives the exit (where the run starts, its
-heading, its length and the height down to the landing field). The cliff needs
-finer relief than the terrain tiles give: `fineRelief` lays a square of it,
-sampled from a national survey, over the near grid (only swissALTI3D for now).
-`imagery` names the orthophotos (`ign`, `pnoa` or `swissimage`), and
+heading, its length and the height down to the landing field). A cliff or a
+narrow valley needs finer relief than the near grid gives: `fineRelief` lays a
+square of it over the near grid, sampled from a national survey where one is
+open (`survey`: `swissalti3d`), else from the terrain tiles at their finest
+(`terrarium`), which follow a valley floor better than the 100 m grid but know
+no more than the tiles do.
+
+`bridges` lists decks to draw and make solid: the ends of the OSM way, the
+road's height (absolute, m), the width, the published spans and where the
+first pier stands along the way, the girder's depth at the piers and
+mid-span. One the orthophotos show (`inPhotos`) is painted out of them, since
+it would otherwise lie flat on the valley floor under the one drawn. A `base`
+on a bridge names it (`bridge`, an index), the station along it and the side:
+the exit is then on the lip of the deck, outside the parapet, square to the
+road, with no run-up, and its height is the road's above the landing field.
+
+`imagery` names the orthophotos (`ign`, `pnoa`, `swissimage` or `dgu`), and
 `overpass` may name servers to ask first, such as a national mirror.
 
 `src/world/realDzs.ts` holds what the data cannot say: wall colours, tree
@@ -50,6 +63,13 @@ z south, metres. The photos map onto it with no resampling distortion.
   CC BY 4.0 (scne.es).
 - Orthophotos and fine relief, Switzerland: SWISSIMAGE and swissALTI3D,
   © swisstopo, free geodata (OGD), attribution required.
+- Orthophotos, Croatia: DOF5 2019/20 (Istria flown in 2020), © Državna
+  geodetska uprava, through its INSPIRE WMS (geoportal.dgu.hr), under the
+  Croatian open licence, Otvorena dozvola (data.gov.hr/otvorena-dozvola: use
+  of any kind, the source and its date to be named, like CC BY). The DGU's
+  later orthophotos carry a watermark for anonymous users and its relief
+  (DMR) is for registered or paying ones: Croatia's relief is the terrain
+  tiles'.
 - Satellite, everywhere: Sentinel-2 cloudless 2023 by EOX IT Services GmbH
   (contains modified Copernicus Sentinel data 2023), CC BY-NC-SA 4.0: fine for
   this non-commercial project, the attribution must stay.

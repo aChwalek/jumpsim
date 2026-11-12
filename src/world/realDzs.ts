@@ -126,4 +126,35 @@ export const LOOKS = {
     // From the air too: the helicopter jumps over the valley go from about 4000 m.
     jumpRun: { downwind: 500, offset: 60, height: 3200, indicatedAirspeed: 39 },
   },
+  // Limska draga: no drop zone, a BASE site. The A9 viaduct over the dry
+  // valley north of Kanfanar, and the field on the valley floor under it.
+  limska: {
+    name: 'Limska Draga',
+    lat: 45.120287,
+    lon: 13.800407,
+    utcOffsetH: 2,
+    // The sea breeze up the Lim channel and the valley, from the south-west, in the afternoon.
+    wind: { fromDeg: 225, speed: kmh(8) },
+    grass: { rough: 0x707a3c, mown: 0x7a8644 },
+    // Istrian stone and render, terracotta roofs.
+    walls: [0xd8d0c0, 0xc9bfa9, 0xe6e0d2, 0xb8ab90],
+    roofs: [0x9a5a40, 0x8a4a36, 0xa86a4a, 0x6f6a66],
+    woods: {
+      // Downy oak and hornbeam on the karst: low woods.
+      w: { height: [8, 15], perHectare: 35 },
+      s: { height: [2, 5], perHectare: 12 },
+      o: { height: [4, 6], perHectare: 40 },
+      v: { height: [1.5, 2], perHectare: 60 },
+    },
+    rowHeight: [6, 12],
+    // The valley floor is narrow and slopes: only the field itself is laid flat.
+    relief: { flatBelow: 2, blend: 8 },
+    // Along the field, which follows the valley; the pattern over the track on its west side.
+    landingAxisDeg: 24,
+    patternSideDeg: 294,
+    pattern: { upwind: 60, side: 45, height: 80 },
+    final: { downwind: 90, height: 35 },
+    // Nobody jumps here from a plane: a start from the air only so that one exists.
+    jumpRun: { downwind: 400, offset: 60, height: 1200, indicatedAirspeed: 39 },
+  },
 } satisfies Record<string, Look>;

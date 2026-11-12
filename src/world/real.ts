@@ -4,7 +4,8 @@
 // the photos. What the data cannot say (wall colours, how tall the trees
 // grow, where people stand, the pattern) comes with each drop zone's look.
 
-import type { Area, Building, DzPack, Flag, Placed, Rect, Tree } from './dz';
+import { bridgeSolid, nearPier, underBridge, undersideAt } from './bridge';
+import type { Area, Bridge, Building, DzPack, Flag, Placed, Rect, Tree } from './dz';
 import { inArea, seeded } from './dz';
 import { gridOf, reliefFrom } from './terrain';
 
@@ -22,8 +23,9 @@ export interface RealDzData {
   near: { size: number; spacing: number; heights: number[] };
   far: { size: number; spacing: number; heights: number[] };
   /**
-   * Fine relief about a cliff, centred on (x, z): decimetres above the plain,
-   * little-endian 16-bit integers in base64, rows north to south.
+   * Fine relief about the exit (a cliff, a valley), centred on (x, z):
+   * decimetres above the plain, little-endian 16-bit integers in base64, rows
+   * north to south.
    */
   fine?: { x: number; z: number; size: number; spacing: number; heights: string };
   imagery: { url: string; size: number }[];
@@ -49,8 +51,13 @@ export interface RealDzData {
     pond: number[] | null;
     windsocks: [number, number][];
     flags: [number, number, number][];
-    /** A cliff to BASE jump from: where the run starts, its heading, and the height down to the landing area, m. */
+    /**
+     * A cliff or a bridge to BASE jump from: where the run starts (none off a
+     * bridge), its heading, and the height down to the landing area, m.
+     */
     base?: { x: number; z: number; headingDeg: number; runUp: number; width: number; height: number; name: string };
+    /** Bridges: the deck's axis, the road's height above the plain, the piers along it. */
+    bridges?: (Bridge & { name: string })[];
   };
 }
 
@@ -175,8 +182,11 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
   }
 
   // --- Buildings ----------------------------------------------------------------------
+  const bridges: Bridge[] = (data.dz.bridges ?? []).map(({ a, b, top, width, piers, depth }) => ({ a, b, top, width, piers, depth }));
   const buildings: Building[] = [];
   for (const [x, z, length, width, heading, height, roof, wall, flatRoof, hangar, greenhouse] of data.buildings as number[][]) {
+    // Whatever OSM has under a deck (its own piers, a hut) gives way to the bridge drawn.
+    if (underBridge(bridges, x!, z!, 3)) continue;
     if (greenhouse) {
       buildings.push({ x: x!, z: z!, length: length!, width: width!, headingDeg: heading!, height: 3.5, color: 0xdfe4e4, roofColor: 0xe9ecec, flatRoof: true, hangar: false });
       continue;
@@ -255,13 +265,24 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
 
   // Nothing grows on the run up to a BASE exit, nor just either side of it.
   const base = data.dz.base;
-  if (base) {
+  if (base && base.runUp > 0) {
     const h = base.headingDeg * DEG;
     let kept = 0;
     for (const t of trees) {
       const along = (t.x - base.x) * Math.sin(h) - (t.z - base.z) * Math.cos(h);
       const across = (t.x - base.x) * Math.cos(h) + (t.z - base.z) * Math.sin(h);
       if (along < -8 || along > base.runUp + 2 || Math.abs(across) > base.width / 2 + 5) trees[kept++] = t;
+    }
+    trees.length = kept;
+  }
+  // Under a bridge, the woods go on down the slopes: only the trees that
+  // would reach the deck, or stand where a pier does, are taken out.
+  if (bridges.length) {
+    let kept = 0;
+    for (const t of trees) {
+      const clear =
+        !underBridge(bridges, t.x, t.z, 4) || (groundAt(t.x, t.z) + t.height < undersideAt(bridges, t.x, t.z) - 3 && !nearPier(bridges, t.x, t.z, 3));
+      if (clear) trees[kept++] = t;
     }
     trees.length = kept;
   }
@@ -305,6 +326,8 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     imageryGain: look.imageryGain,
     wind: look.wind,
     groundAt,
+    topAt: bridges.length ? bridgeSolid(bridges, groundAt) : undefined,
+    bridges: bridges.length ? bridges : undefined,
     target,
     targetLayer: 6,
     targetShown: data.dz.target?.shown !== false,

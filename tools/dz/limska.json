@@ -1,0 +1,118 @@
+{
+ "id": "limska",
+ "displayName": "Limska Draga",
+ "menuNote": "Le viaduc de l'A9 au-dessus de la Limska draga, près de Kanfanar",
+ "operator": "No drop zone: a BASE site, a motorway viaduct where BASE schools run their first-jump courses (static line or a pilot chute handed off). Jumping it takes the permission of the motorway's operator and of the police.",
+ "aerodrome": {
+  "name": "Limska draga, BASE landing field under the A9 viaduct",
+  "icao": "BASE",
+  "elevation_m": 85,
+  "lat": 45.120287,
+  "lon": 13.800407
+ },
+ "utcOffsetSummer_h": 2,
+ "inland": false,
+ "imagery": "dgu",
+ "fineRelief": {
+  "survey": "terrarium",
+  "source": "Mapzen terrain tiles at zoom 15",
+  "centre": [45.1205, 13.8005],
+  "size_m": 2000,
+  "spacing_m": 10,
+  "why": "No finer relief of Croatia is open: the DGU's DMR is for registered or paying users. The near grid, every 100 m, fills the narrow valley floor in; the terrain tiles sampled every 10 m follow it better, though they still put the field at 90 m where the DGU's 1:25 000 map marks 85 m on the floor beside the bridge."
+ },
+ "origin": {
+  "lat": 45.120287,
+  "lon": 13.800407,
+  "what": "middle of the field on the valley floor just south of the viaduct, between the track along the valley and the wood"
+ },
+ "boundary": [
+  [45.12083, 13.800567],
+  [45.120774, 13.800726],
+  [45.120122, 13.800551],
+  [45.119763, 13.800407],
+  [45.11983, 13.79993],
+  [45.120403, 13.800264]
+ ],
+ "runways": [],
+ "paved": [],
+ "landingAreas": [
+  {
+   "name": "Field on the valley floor under the viaduct",
+   "use": "sport",
+   "surface": "grass",
+   "polygon": [
+    [45.12083, 13.800567],
+    [45.120774, 13.800726],
+    [45.120122, 13.800551],
+    [45.119763, 13.800407],
+    [45.11983, 13.79993],
+    [45.120403, 13.800264]
+   ]
+  }
+ ],
+ "target": {
+  "lat": 45.120287,
+  "lon": 13.800407,
+  "radius_m": 8,
+  "shown": false,
+  "evidence": "No target on a BASE landing field: the middle of the field is where one aims."
+ },
+ "windsocks": [[45.11985, 13.80005]],
+ "flags": [],
+ "people": [[45.12005, 13.80021], [45.12003, 13.80025], [45.12008, 13.80019]],
+ "bridges": [
+  {
+   "name": "Limska Draga viaduct",
+   "osmWay": 146412344,
+   "ends": [[45.1218526, 13.7971599], [45.1201143, 13.8037635]],
+   "deckTop_m": 205,
+   "width_m": 12.1,
+   "spans_m": [80, 100, 160, 100, 80],
+   "firstPier_m": 90,
+   "girderDepth_m": [5, 3],
+   "inPhotos": true,
+   "evidence": "OSM way 146412344 (bridge=viaduct, name Limska Draga, A9, length 552). 1991, a continuous steel box girder of varying depth on four concrete piers, spans 80, 100, 160, 100 and 80 m, 12.1 m wide (Structurae, Wikipedia after BINA Istra). Height: 120 m above the valley floor (Structurae); Wikipedia and Novi list give 125 m, the tallest pier. The DGU's 1:25 000 map marks 85 m on the floor beside it and 199 m on the motorway west of it: the road taken at 205 m. The piers are laid out with the published spans, placed to fit the pier heads seen on the 2020 orthophoto (within 6 m)."
+  },
+  {
+   "name": "Limska Draga viaduct, second carriageway",
+   "osmWay": 1561234588,
+   "ends": [[45.1219614, 13.7972174], [45.1202231, 13.803821]],
+   "deckTop_m": 205,
+   "width_m": 12.1,
+   "spans_m": [80, 100, 160, 100, 80],
+   "firstPier_m": 90,
+   "girderDepth_m": [5, 3],
+   "inPhotos": false,
+   "evidence": "OSM way 1561234588, 13 m north of the first and parallel to it; its ends here are the first deck's, brought across onto it. Built by free cantilever and joined in December 2025, with the same spans as the first (Novi list). It is not on the 2020 orthophoto."
+  }
+ ],
+ "base": {
+  "name": "Limska Draga viaduct",
+  "bridge": 0,
+  "station_m": 293,
+  "side": "right",
+  "edgeInset_m": 0.3,
+  "evidence": "Off the south edge of the first deck, outside the parapet, square to the road (heading 200), over the middle of the 160 m main span where the valley floor and the field pass under it: the highest point over the ground. The exit's height is the road's above the landing field."
+ },
+ "wind": {
+  "usual": {"fromDeg": 225, "kmh": 8},
+  "description": "INFERRED: on summer afternoons the sea breeze comes up the Lim channel and the valley from the south-west; mornings are calm, which is when most jump."
+ },
+ "invented": [
+  "Landing field: the courses do not publish theirs; this is the field on the valley floor right under the main span, read off the orthophoto. The windsock and the people on it are made up.",
+  "Exit position: the schools' exact spot on the deck is not published; the middle of the main span, on the south edge, is where the drop is greatest.",
+  "Deck height: the road is taken level at 205 m (the published 120 m over the 85 m floor); its grade over the bridge is not known.",
+  "Drawn shape: the girder's depth (5 m at the piers, 3 m mid-span), the piers' size and the parapets are typical of such bridges, not measured. The second deck is drawn like the first.",
+  "Relief: the terrain tiles put the field at 90 m where the map marks 85 m beside it: the drop in the simulator (115 m) is some 5 m short of the real one (120 m).",
+  "Pattern and wind: inferred from the shape of the valley."
+ ],
+ "sources": [
+  "https://www.openstreetmap.org/way/146412344 and https://www.openstreetmap.org/way/1561234588: the decks' axes, length 552 m",
+  "https://structurae.net/en/structures/limska-draga-viaduct: steel box girder, spans 80-100-160-100-80 m, 120 m above the valley floor, 1986-1991",
+  "https://en.wikipedia.org/wiki/A9_(Croatia): 12.1 m wide, five spans, 125 m at most",
+  "https://www.novilist.hr/?p=1595037: the second viaduct joined in December 2025, same spans, tallest pier 125 m",
+  "https://geoportal.dgu.hr/services/inspire/orthophoto_2019_2020/wms: DOF5 2019/20 orthophoto, Otvorena dozvola (data.gov.hr/otvorena-dozvola), © Državna geodetska uprava",
+  "https://geoportal.dgu.hr/services/tk/wms: TK25 1:25 000 map, read for the heights only (85 m floor, 200 m contour at the west abutment, 199 m on the motorway)"
+ ]
+}

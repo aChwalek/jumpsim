@@ -6,8 +6,9 @@ Reads tools/dz/<id>.json (what is specific to the drop zone: aerodrome,
 landing areas, target, buildings of the DZ, pattern, wind; WGS84 lat/lon)
 and downloads, once, into the cache:
   - relief: Mapzen/AWS Terrain Tiles (Terrarium PNG; SRTM, EU-DEM, GEBCO...);
-  - imagery: orthophotos (IGN BD ORTHO in France and overseas, PNOA in Spain)
-    near the field, Sentinel-2 cloudless (EOX) out to the horizon;
+  - imagery: orthophotos (IGN BD ORTHO in France and overseas, PNOA in Spain,
+    SWISSIMAGE in Switzerland, DGU DOF5 in Croatia) near the field,
+    Sentinel-2 cloudless (EOX) out to the horizon;
   - OpenStreetMap through Overpass: buildings, trees, woods, water, coastline.
 
 Writes:
@@ -151,7 +152,20 @@ SOURCES = {
     'sentinel': 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2023_3857/default/g/{z}/{y}/{x}.jpg',
     'terrarium': 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
     'swissimage': 'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg',
+    # Croatia: the DGU's orthophoto of 2019/20 (Istria flown in 2020), a WMS asked
+    # one web mercator tile at a time. Its later years carry a watermark for
+    # anonymous users; this INSPIRE service does not.
+    'dgu': 'https://geoportal.dgu.hr/services/inspire/orthophoto_2019_2020/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap'
+           '&LAYERS=OI.OrthoimageCoverage&STYLES=&CRS=EPSG:3857&BBOX={bbox}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg',
 }
+
+
+def tile_url(source, zoom, x, y):
+    """A tile's address: its column and row, or for a WMS, its web mercator box."""
+    span = 2 * math.pi * R / 2 ** zoom
+    x0, y1 = -math.pi * R + x * span, math.pi * R - y * span
+    bbox = f'{x0:.3f},{y1 - span:.3f},{x0 + span:.3f},{y1:.3f}'
+    return SOURCES[source].format(z=zoom, x=x, y=y, bbox=bbox)
 
 
 def is_blank(path, photo):
@@ -189,7 +203,7 @@ def mosaic(source, zoom, size_m, px_out, label):
     tx0, ty0, tx1, ty1 = int(left // 256), int(top // 256), int(right // 256), int(bottom // 256)
     cols, rows = tx1 - tx0 + 1, ty1 - ty0 + 1
     print(f'  {label}: {source} z{zoom}, {cols}x{rows} tiles', flush=True)
-    jobs = [(SOURCES[source].format(z=zoom, x=x, y=y), '.jpg') for y in range(ty0, ty1 + 1) for x in range(tx0, tx1 + 1)]
+    jobs = [(tile_url(source, zoom, x, y), '.jpg') for y in range(ty0, ty1 + 1) for x in range(tx0, tx1 + 1)]
     paths = fetch_all(jobs)
     # Stitch with ffmpeg's tile filter: frames in reading order. Tiles that are
     # missing or blank (sea beyond the photo flights) become black, masked.
@@ -664,6 +678,73 @@ def sea_polygons(coast_ways, half):
     return polys
 
 
+# --- Bridges --------------------------------------------------------------------------------
+def bridge_frame(b):
+    """
+    A bridge's deck in the local frame: its ends (those of the OSM way), its
+    length, the unit vector along it and the one to its right, and its piers
+    (metres along it from the first end), the published spans laid from
+    `firstPier_m`.
+    """
+    (ax, az), (bx, bz) = local(*b['ends'][0]), local(*b['ends'][1])
+    length = math.hypot(bx - ax, bz - az)
+    ux, uz = (bx - ax) / length, (bz - az) / length
+    piers = [b['firstPier_m']]
+    for span in b['spans_m'][1:-1]:
+        piers.append(piers[-1] + span)
+    return {'a': (ax, az), 'b': (bx, bz), 'length': length, 'u': (ux, uz), 'r': (-uz, ux), 'piers': piers}
+
+
+BRIDGES = [bridge_frame(b) for b in CONF.get('bridges', [])]
+
+
+def erase_bridges(rgb, px, size_m):
+    """
+    Paints out the decks the photos show lying on the valley floor, where the
+    3D bridge now stands over it: each side of the band is mirrored in from the
+    ground beside it, and the two halves meet with a fade along the middle.
+    """
+    m_px = size_m / px
+    for conf, f in zip(CONF.get('bridges', []), BRIDGES):
+        if not conf.get('inPhotos'):
+            continue
+        half = conf['width_m'] / 2 + conf.get('photoMargin_m', 4)
+        (ax, az), (ux, uz), (rx, rz) = f['a'], f['u'], f['r']
+        ends = [(ax + ux * s + rx * u, az + uz * s + rz * u) for s in (-4, f['length'] + 4) for u in (-half, half)]
+        to_px = lambda x, z: ((x / size_m + 0.5) * px - 0.5, (z / size_m + 0.5) * px - 0.5)  # noqa: E731
+        corners = [to_px(*e) for e in ends]
+        i0, i1 = max(0, int(min(c[0] for c in corners))), min(px - 1, int(max(c[0] for c in corners)) + 1)
+        j0, j1 = max(0, int(min(c[1] for c in corners))), min(px - 1, int(max(c[1] for c in corners)) + 1)
+        src = bytes(rgb)
+
+        def at(s, u):
+            x, z = ax + ux * s + rx * u, az + uz * s + rz * u
+            i, j = to_px(x, z)
+            i, j = min(px - 1, max(0, round(i))), min(px - 1, max(0, round(j)))
+            k = (j * px + i) * 3
+            return src[k:k + 3]
+
+        fade = max(3.0, m_px * 2)
+        count = 0
+        for j in range(j0, j1 + 1):
+            for i in range(i0, i1 + 1):
+                x = ((i + 0.5) / px - 0.5) * size_m
+                z = ((j + 0.5) / px - 0.5) * size_m
+                s = (x - ax) * ux + (z - az) * uz
+                u = (x - ax) * rx + (z - az) * rz
+                if s < -4 or s > f['length'] + 4 or abs(u) > half:
+                    continue
+                # Mirrored in from either side, the ground just past the band.
+                left = at(s, -2 * half - u if u < 0 else -2 * half + u)
+                right = at(s, 2 * half - u if u > 0 else 2 * half + u)
+                t = min(1.0, max(0.0, (u + fade) / (2 * fade)))
+                k = (j * px + i) * 3
+                for c in range(3):
+                    rgb[k + c] = int(left[c] * (1 - t) + right[c] * t + 0.5)
+                count += 1
+        print(f'  painted out {conf["name"]}: {count} pixels', flush=True)
+
+
 # =================================================================================
 print('build', DZ_ID, flush=True)
 data_out = os.path.join(ROOT, 'src', 'world', 'data', f'{DZ_ID}.ts')
@@ -686,10 +767,13 @@ if ONLY is None or 'relief' in ONLY:
     state['relief'] = {'plain': plain, 'near': near, 'far': far}
     print(f'  plain at {plain:.1f} m', flush=True)
 
-# --- Fine relief, for cliffs -----------------------------------------------------------
-# The terrain tiles round off a cliff over a hundred metres. Where there is one
-# to jump from, a square of finer relief is laid over the near grid, from a
-# national survey. Its sides fall on the 100 m lines of the near grid.
+# --- Fine relief, for cliffs and valleys ------------------------------------------------
+# The terrain tiles round off a cliff over a hundred metres, and the near grid,
+# every 100 m, fills a narrow valley in. Where there is one to jump into, a
+# square of finer relief is laid over the near grid: from a national survey
+# where one is open (`survey`: swissalti3d), else from the terrain tiles at
+# their finest (terrarium), which follow a valley floor better than the grid
+# does but know no more than the tiles do. Its sides fall on the 100 m lines.
 FINE = CONF.get('fineRelief')
 
 
@@ -738,6 +822,20 @@ def swissalti3d(points):
     return out
 
 
+def terrarium(points):
+    """Heights of WGS84 points from the terrain tiles at their finest zoom."""
+    zoom = 15
+    tiles = set()
+    for lat, lon in points:
+        px, py = world_px(*merc(lat, lon), zoom)
+        for dx in (-1, 1):
+            for dy in (-1, 1):
+                tiles.add((int((px + dx) // 256), int((py + dy) // 256)))
+    print(f'  fine relief: terrain tiles z{zoom}, {len(tiles)} tiles', flush=True)
+    fetch_all([(SOURCES['terrarium'].format(z=zoom, x=x, y=y), '.png') for x, y in tiles])
+    return [elevation(lat, lon, zoom) for lat, lon in points]
+
+
 def wgs84(e, n):
     """The other way, to WGS84 latitude and longitude."""
     y = (e - 2600000) / 1e6
@@ -753,7 +851,8 @@ if FINE and (ONLY is None or 'relief' in ONLY):
     size = int(FINE['size_m'] / FINE['spacing_m']) + 1
     half = FINE['size_m'] / 2
     grid = [latlon(cx - half + c * FINE['spacing_m'], cz - half + r * FINE['spacing_m']) for r in range(size) for c in range(size)]
-    heights = swissalti3d(grid + [(LAT0, LON0)])
+    survey = {'swissalti3d': swissalti3d, 'terrarium': terrarium}[FINE.get('survey', 'swissalti3d')]
+    heights = survey(grid + [(LAT0, LON0)])
     # The landing area is the plain: this survey says best how high it is.
     state['relief']['plain'] = heights.pop()
     state['fine'] = {'x': cx, 'z': cz, 'size': size, 'spacing': FINE['spacing_m'], 'heights': heights}
@@ -821,6 +920,8 @@ if ONLY is None or 'imagery' in ONLY:
 
     mid_rgb = blend(levels['mid'], (far_rgb, far_px, far_m), 'mid', 100)
     near_rgb = blend(levels['near'], (mid_rgb, mid_px, mid_m), 'near', 100)
+    erase_bridges(mid_rgb, mid_px, mid_m)
+    erase_bridges(near_rgb, levels['near'][2], levels['near'][3])
     for name, rgb, px in (('far', far_rgb, far_px), ('mid', mid_rgb, mid_px), ('near', near_rgb, levels['near'][2])):
         encode(rgb, px, px, os.path.join(img_dir, f'{name}.jpg'), quality={'near': 5, 'mid': 6, 'far': 6}[name])
         print(f'  wrote {name}.jpg', os.path.getsize(os.path.join(img_dir, f"{name}.jpg")) // 1024, 'KB', flush=True)
@@ -1080,7 +1181,25 @@ dz = {
     'windsocks': [pt(w) for w in CONF.get('windsocks', [])],
     'flags': [pt(f) + [f.get('height_m', 4)] for f in CONF.get('flags', [])],
 }
-if CONF.get('base'):
+if CONF.get('bridges'):
+    # Decks: their axis, the road's height above the landing area, the piers.
+    dz['bridges'] = [{'name': b['name'], 'a': [round(v, 2) for v in f['a']], 'b': [round(v, 2) for v in f['b']],
+                      'top': round(b['deckTop_m'] - PLAIN, 1), 'width': b['width_m'], 'piers': [round(p, 1) for p in f['piers']],
+                      'depth': b['girderDepth_m']} for b, f in zip(CONF['bridges'], BRIDGES)]
+if CONF.get('base') and 'bridge' in CONF['base']:
+    # Off a bridge: no run, the jumper stands on the edge of the deck, outside
+    # the parapet, square to the road; as high as the road above the landing.
+    b = CONF['base']
+    conf, f = CONF['bridges'][b['bridge']], BRIDGES[b['bridge']]
+    side = 1 if b['side'] == 'right' else -1
+    out = conf['width_m'] / 2 - b['edgeInset_m']
+    (ax, az), (ux, uz), (rx, rz) = f['a'], f['u'], f['r']
+    x = ax + ux * b['station_m'] + rx * side * out
+    z = az + uz * b['station_m'] + rz * side * out
+    heading = math.degrees(math.atan2(rx * side, -rz * side)) % 360
+    dz['base'] = {'x': round(x, 2), 'z': round(z, 2), 'headingDeg': round(heading, 1), 'runUp': 0, 'width': 1,
+                  'height': round(conf['deckTop_m'] - PLAIN, 1), 'name': b['name']}
+elif CONF.get('base'):
     # The exit: where the jumper stands, the way to the edge, and how far it is.
     b = CONF['base']
     dz['base'] = {**dict(zip(('x', 'z'), pt(b))), 'headingDeg': b['heading_deg'], 'runUp': b['runUp_m'], 'width': b['width_m'],
@@ -1122,7 +1241,7 @@ with open(data_out, 'w') as f:
     f.write(f'  near: {json.dumps(out["near"], separators=(",", ":"))},\n')
     f.write(f'  far: {json.dumps(out["far"], separators=(",", ":"))},\n')
     if FINE:
-        f.write(f'  /** Fine relief about a cliff, {FINE["source"]}: decimetres above the plain, int16 little-endian in base64, rows north to south. */\n')
+        f.write(f'  /** Fine relief about the exit, {FINE["source"]}: decimetres above the plain, int16 little-endian in base64, rows north to south. */\n')
         f.write(f'  fine: {json.dumps(out["fine"], separators=(",", ":"))},\n')
     f.write(f'  imagery: {json.dumps(out["imagery"])},\n')
     f.write('  /** x, z, length, width, heading of the long side, height, roof colour (-1: none), wall colour (-1), flat roof, hangar door, greenhouse. */\n')

@@ -153,7 +153,7 @@ export class RigView {
   update(
     model: FlightModel,
     controls: Controls,
-    groundAt: (x: number, z: number) => number,
+    groundAt: (x: number, z: number, y?: number) => number,
     light: Lighting,
     hands: Controls,
     frame: RigFrame,
@@ -181,7 +181,7 @@ export class RigView {
     // up to the feet as they come down to the ground.
     const cast = (out: THREE.Vector3, x: number, y: number, z: number): THREE.Vector3 => {
       this.pilotPoint(out, { x, y, z });
-      const ground = groundAt(out.x, out.z);
+      const ground = groundAt(out.x, out.z, out.y);
       const t = (out.y - ground) / sun.y;
       return out.set(out.x - sun.x * t, ground, out.z - sun.z * t);
     };
@@ -190,17 +190,17 @@ export class RigView {
     this.pilotShadow.position.lerpVectors(feet, head, 0.5);
     this.pilotShadow.rotation.y = Math.atan2(head.x - feet.x, head.z - feet.z);
     this.pilotShadow.scale.set(0.5, 1, feet.distanceTo(head) + 0.35);
-    const height = this.pos.y - groundAt(this.pos.x, this.pos.z);
+    const height = this.pos.y - groundAt(this.pos.x, this.pos.z, this.pos.y);
     // Shadows are faint and washed out from high up, crisp near the ground.
     this.shadowMaterial.opacity = (0.12 + 0.36 * Math.max(0, 1 - height / 250)) * light.shadow;
     this.shadow.visible = light.shadow > 0.02;
   }
 
   /** The canopy over the pilot, its pilot chute and bag. */
-  private updateCanopy(rig: RigParams, groundAt: (x: number, z: number) => number, light: Lighting, frame: RigFrame): void {
+  private updateCanopy(rig: RigParams, groundAt: (x: number, z: number, y?: number) => number, light: Lighting, frame: RigFrame): void {
     const look = this.look;
     const top = this.top.set(0, rig.canopyPos.y, 0).applyQuaternion(this.att).add(this.pos);
-    look.ground = groundAt(top.x, top.z);
+    look.ground = groundAt(top.x, top.z, top.y);
     this.canopy.update(this.pos, this.att, look, light);
 
     // Pilot chute and bag: in the hand, towing, carrying the bag up the line
@@ -235,7 +235,7 @@ export class RigView {
       pilotChuteOpen: this.pilotChuteOpen,
       stageTime: frame.deployTime,
       risers: this.risers,
-      ground: groundAt(this.pos.x, this.pos.z),
+      ground: groundAt(this.pos.x, this.pos.z, this.pos.y),
     });
   }
 }

@@ -451,7 +451,8 @@ function spawn(kind: Start): void {
   } else if (kind === 'base') {
     const b = dz.base!;
     windAt(env.wind, setup.weather, b.height, airTime);
-    const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg: b.headingDeg, height: b.height } as const;
+    // Off a bridge, no run: from the lip of the deck.
+    const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg: b.headingDeg, height: b.height, standing: b.runUp === 0 } as const;
     jump = new Jump(model, ledge, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction: unlucky ? 'offHeading' : null });
   } else {
     jump = null;
@@ -792,7 +793,7 @@ const feetNow = vec3();
 function hitSide(): boolean {
   const s = model.state;
   const feet = model.pilotPoint(feetNow, rig.feetPos);
-  const top = solid(feet.x, feet.z);
+  const top = solid(feet.x, feet.z, feet.y);
   if (top - (feet.y - (s.pos.y - beforeStep.y)) <= 0.5) return false;
   impact = true;
   const speed = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
@@ -859,7 +860,7 @@ function startRagdoll(onRisers: boolean): void {
   replayed = false;
   recorder.crash();
   const s = model.state;
-  crashPoint.set(s.pos.x, solid(s.pos.x, s.pos.z), s.pos.z);
+  crashPoint.set(s.pos.x, solid(s.pos.x, s.pos.z, s.pos.y), s.pos.z);
   const over = Math.hypot(s.vel.x, s.vel.z);
   const ahead = over > 0.5 ? va.set(s.vel.x, 0, s.vel.z) : va.set(0, 0, -1).applyQuaternion(qa.set(s.pilotAtt.x, s.pilotAtt.y, s.pilotAtt.z, s.pilotAtt.w));
   crashHeading = Math.atan2(ahead.x, -ahead.z);
@@ -1274,7 +1275,7 @@ function drawReleased(dt: number): void {
     fallTo.set(free.fallTo.x, 0, free.fallTo.z);
     releasedView.setHeap(ease(free.landedFor / 1.8), releasedPos, fallTo);
   }
-  const ground = solid(free.pos.x, free.pos.z);
+  const ground = solid(free.pos.x, free.pos.z, free.pos.y);
   releasedView.update(
     releasedPos,
     releasedAtt,
@@ -1417,7 +1418,8 @@ function cue(): string {
   }
   if (jump.phase === 'standing') {
     const exit = c.exitIn[jump.body.position];
-    return `${c.onTop}<small>${exit ? `${exit} · ` : ''}${c.runAndJump(keyLabel('KeyW'))}</small>`;
+    const go = jump.runUp?.standing ? c.jumpOut(keyLabel('KeyW')) : c.runAndJump(keyLabel('KeyW'));
+    return `${c.onTop}<small>${exit ? `${exit} · ` : ''}${go}</small>`;
   }
   if (jump.phase === 'freefall' && jump.base) {
     // Off a BASE object, the count is what matters.
