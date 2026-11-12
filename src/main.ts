@@ -1541,6 +1541,25 @@ function cue(): string {
   return '';
 }
 
+/** Within this of our place behind a leader, m, there is nothing to say: up and down, and along and across. */
+const GUIDE_LEVEL = 1.5;
+const GUIDE_NEAR = 3;
+
+/** Following a bot that leads: which way our place behind it is, how far, and the key that goes there. */
+function guideCue(): string {
+  if (!bots || !jump || jump.phase !== 'freefall' || jump.pullWhenFlat || jump.cutawayAt !== null) return '';
+  const g = bots.guide(us);
+  if (!g) return '';
+  const t = T.cue.guide;
+  const say = (text: string, m: number, code: string): string => `<span>${text} ${Math.round(Math.abs(m))} m<kbd>${keyLabel(code)}</kbd></span>`;
+  const parts = [
+    Math.abs(g.up) < GUIDE_LEVEL ? `<span class="ok">${t.level}</span>` : g.up > 0 ? say(`▲ ${t.up}`, g.up, 'KeyR') : say(`▼ ${t.down}`, g.up, 'KeyF'),
+    Math.abs(g.ahead) < GUIDE_NEAR ? `<span class="ok">${t.near}</span>` : g.ahead > 0 ? say(t.faster, g.ahead, 'KeyW') : say(t.slower, g.ahead, 'KeyS'),
+  ];
+  if (Math.abs(g.right) >= GUIDE_NEAR) parts.push(`<span>${g.right > 0 ? `${t.right} →` : `← ${t.left}`} ${Math.round(Math.abs(g.right))} m</span>`);
+  return parts.join('');
+}
+
 /** The drop zone from above for the menu's map, and what it was last drawn with. */
 const topView = new TopView(renderer, scene, light.fog);
 let mapDrawn = '';
@@ -1855,6 +1874,7 @@ function frame(now: number): void {
       muted: sound.muted,
       freefall: falling,
       cue: cue(),
+      guide: guideCue(),
       heightAlert: heightAlert(height),
     },
     elapsed,

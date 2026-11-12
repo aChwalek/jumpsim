@@ -76,6 +76,9 @@ const EXIT_GAP = 0.15;
 const TRACK_OFF_RUN = 90;
 /** The leader falls flat this long before turning onto the track, s. */
 const TRACK_FROM = 3;
+/** Stretched out, the leader stays on jump run this long, s, then comes off it this fast, degrees per second. */
+const ON_RUN_FOR = 3;
+const OFF_RUN_TURNS = 6;
 /** Those behind stretch out once the lead goes forward this fast, m/s. */
 const TRACK_SPEED = 12;
 /** The leader eases off when we are this far behind, m, and all the way at this much more. */
@@ -150,6 +153,29 @@ const UNSTOW_FOR = 0.6;
  */
 export const leaderLed = (mode: BotMode, suit: Suit | undefined): boolean => mode === 'track' || hasWings(suit);
 
+/** How far we are from our place behind a leader, m: to go up, forward along its line, and to its right. */
+export interface Guide {
+  up: number;
+  ahead: number;
+  right: number;
+}
+
+/**
+ * Our place behind a leader: in the middle of the first row of the V, behind it and a little
+ * above, along where it goes.
+ */
+export function guideTo(us: Pick<Lead, 'pos'>, leader: Lead): Guide {
+  const speed = Math.hypot(leader.vel.x, leader.vel.z);
+  const t = (speed > TRACK_SPEED ? bearing(leader.vel.x, leader.vel.z) : (leader.goingDeg ?? 0)) * DEG;
+  const dx = leader.pos.x - us.pos.x;
+  const dz = leader.pos.z - us.pos.z;
+  return {
+    up: leader.pos.y + TRACK_STEP_UP - us.pos.y,
+    ahead: dx * Math.sin(t) - dz * Math.cos(t) - TRACK_ROW,
+    right: dx * Math.cos(t) + dz * Math.sin(t),
+  };
+}
+
 /** Where the lowest bot pulls and where they all break off, out of a plane this high, m above the ground. */
 export function botHeights(exitHeight: number): { pull: number; breakOff: number } {
   const pull = clamp(exitHeight - 600, PULL_FLOOR, PULL_HEIGHT);
@@ -210,7 +236,8 @@ export class Bot {
     const heights = botHeights(plan.run.height);
     this.pullAt = heights.pull + PULL_STEP * plan.index;
     this.breakOffAt = heights.breakOff;
-    this.trackDeg = this.goingDeg = plan.run.headingDeg + TRACK_OFF_RUN;
+    this.trackDeg = plan.run.headingDeg + TRACK_OFF_RUN;
+    this.goingDeg = plan.run.headingDeg;
     this.outDeg = plan.run.headingDeg + 180 + (360 * plan.index) / plan.of;
     this.wander = [random() * 6.28, random() * 6.28, 0.5 + 0.4 * random()];
   }
@@ -318,6 +345,9 @@ export class Bot {
         const out = bearing(p.x - landing.x, p.z - landing.z);
         const wanted = out + this.round * (90 + 60 * clamp((from - LEASH) / LEASH_EASE, -1, 1));
         this.goingDeg += clamp(turnTo(this.goingDeg, wanted), -LEADER_TURNS * dt, LEADER_TURNS * dt);
+      } else if (jump.time > TRACK_FROM + ON_RUN_FOR) {
+        // Along jump run a moment, for whoever follows to line up behind, then off it.
+        this.goingDeg += clamp(turnTo(this.goingDeg, this.trackDeg), -OFF_RUN_TURNS * dt, OFF_RUN_TURNS * dt);
       }
       input.turn = this.turn(heading, this.goingDeg);
       input.forward = TRACK_EASY;

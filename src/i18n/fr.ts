@@ -161,6 +161,7 @@ export const fr = {
     locked: 'CAMÉRA VERROUILLÉE SUR LA CIBLE',
     unlocked: 'CAMÉRA LIBRE',
     botLeads: 'mène',
+    guide: { up: 'MONTE', down: 'DESCENDS', faster: 'ACCÉLÈRE', slower: 'FREINE', left: 'À GAUCHE', right: 'À DROITE', level: 'NIVEAU OK', near: 'DISTANCE OK' },
   },
 
   keys: {

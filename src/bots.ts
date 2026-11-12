@@ -9,7 +9,7 @@ import { OUTFIT_COLOR_IDS } from './render/outfit';
 import type { Lighting } from './render/scene';
 import { reserveRigFor, rigFor, type Gear } from './setup';
 import { airDensityAt } from './sim/atmosphere';
-import { Bot, type BotMode, type Lead } from './sim/bot';
+import { Bot, guideTo, type BotMode, type Guide, type Lead } from './sim/bot';
 import type { Environment } from './sim/flightModel';
 import { feetHeight } from './sim/landing';
 import type { ExitSpot, JumpRun } from './sim/plane';
@@ -125,6 +125,12 @@ export class Bots implements Others {
       // Gone in without a canopy (which the AAD sees to), or packed up and off the landing area.
       jumper.update(f, !bot.jump.impact && bot.landedFor < GONE_AFTER);
     }
+  }
+
+  /** How far we are from our place behind the bot that leads, while it is there to follow; null with no leader. */
+  guide(us: Lead): Guide | null {
+    const leader = this.flown.find((f) => f.bot.leads)?.bot;
+    return leader && leader.jump.phase === 'freefall' ? guideTo(us, leader.lead) : null;
   }
 
   has(id: string): boolean {

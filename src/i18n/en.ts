@@ -157,6 +157,7 @@ export const en: Strings = {
     locked: 'CAMERA LOCKED ON TARGET',
     unlocked: 'CAMERA FREE',
     botLeads: 'leads',
+    guide: { up: 'CLIMB', down: 'SINK', faster: 'SPEED UP', slower: 'SLOW DOWN', left: 'LEFT', right: 'RIGHT', level: 'LEVEL', near: 'IN PLACE' },
   },
 
   keys: {
