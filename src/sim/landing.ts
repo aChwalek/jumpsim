@@ -57,16 +57,19 @@ const feetVel = vec3();
 const tel = emptyTelemetry();
 const still = calmAir();
 
-/** Height of the pilot's feet above the ground, m. */
-export function feetHeight(model: FlightModel, groundAt: (x: number, z: number) => number): number {
+/**
+ * Height of the pilot's feet above the ground, m, or above whatever they are
+ * over: `groundAt` is told how high they are, for a bridge's deck.
+ */
+export function feetHeight(model: FlightModel, groundAt: (x: number, z: number, y?: number) => number): number {
   model.pilotPoint(feet, model.rig.feetPos);
-  return feet.y - groundAt(feet.x, feet.z);
+  return feet.y - groundAt(feet.x, feet.z, feet.y);
 }
 
 /** Returns the touchdown if the feet have reached the ground, otherwise null. */
 export function detectTouchdown(
   model: FlightModel,
-  groundAt: (x: number, z: number) => number,
+  groundAt: (x: number, z: number, y?: number) => number,
 ): Touchdown | null {
   if (feetHeight(model, groundAt) > 0) return null;
   model.pilotPointVelocity(feetVel, model.rig.feetPos);

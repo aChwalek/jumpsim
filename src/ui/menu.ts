@@ -928,7 +928,7 @@ export class Menu {
           const dz = dzInfo(this.setup.dz).loaded();
           return `
             <span class="big">${num(info.base?.height ?? 0)}<small class="unit">m</small> <small>${j.starts.base}</small></span>
-            <span>${j.baseLine(num(dz?.base?.runUp ?? 25))}</span>
+            <span>${info.base?.standing ? j.baseStand : j.baseLine(num(dz?.base?.runUp ?? 25))}</span>
             <span class="dim">${j.baseNote[this.setup.gear.container]}</span>`;
         }
         if (jump.start !== 'plane') {
@@ -1127,7 +1127,7 @@ export class Menu {
         note: () => {
           const info = dzInfo(this.setup.dz);
           const start = plan().start;
-          if (start === 'base') return j.startNote.base(num(info.base?.height ?? 0));
+          if (start === 'base') return (info.base?.standing ? j.startNote.bridge : j.startNote.base)(num(info.base?.height ?? 0));
           if (start === 'pattern') return j.startNote.pattern(num(info.starts.pattern));
           if (start === 'final') return j.startNote.final(num(info.starts.final));
           return j.startNote.plane;

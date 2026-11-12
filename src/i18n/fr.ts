@@ -40,6 +40,7 @@ export const fr = {
       empuriabrava: 'Entre la ville des canaux et la mer',
       guadeloupe: 'Saint-François, sur Grande-Terre',
       lauterbrunnen: 'High Nose, de la Mürrenfluh dans la vallée',
+      limska: 'Le viaduc de l\'A9 au-dessus de la Limska draga, en Istrie',
     },
     made: 'DZ imaginaire',
     credits: {
@@ -47,6 +48,7 @@ export const fr = {
       france: 'Photos IGN, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       spain: 'Photos PNOA © IGN España, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       swiss: 'Photos et relief © swisstopo, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
+      croatia: 'Photos DOF5 2019/20 © DGU (Otvorena dozvola), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
     },
   },
 
@@ -140,6 +142,7 @@ export const fr = {
     sliderStays: 'il reste sur les maillons',
     onTop: "À L'EXIT",
     runAndJump: (fwd: string) => `${fwd} pour prendre de l'élan · Espace pour sauter`,
+    jumpOut: (fwd: string) => `${fwd} ou Espace pour sauter`,
     delay: (s: string) => `${s} s`,
     target: 'CIBLE',
     targetPoint: 'point au sol',
@@ -362,6 +365,7 @@ export const fr = {
       },
       noPlane: 'Pas d\'avion ni de chute',
       baseLine: (run: string) => `Course d'élan de ${run} m jusqu'au bord`,
+      baseStand: 'Debout sur le bord du tablier, sans élan',
       baseNote: {
         sport: 'Sac normal : secours, déclencheur coupé',
         base: 'Sac BASE : une seule voile, pas de secours',
@@ -381,6 +385,7 @@ export const fr = {
         pattern: (h: string) => `Sous voile à ${h} m, au début de la vent arrière.`,
         final: (h: string) => `Sous voile à ${h} m, en finale.`,
         base: (h: string) => `À l'exit, ${h} m au-dessus de l'atterrissage : élan, saut, quelques secondes de chute, ouverture.`,
+        bridge: (h: string) => `Sur le bord du tablier, ${h} m au-dessus de l'atterrissage : saut, une ou deux secondes de chute, ouverture.`,
       },
       exitHeight: 'ALTITUDE DE LARGAGE',
       exitHint: 'au-dessus de la DZ',

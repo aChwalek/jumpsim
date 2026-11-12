@@ -25,8 +25,8 @@ import {
 export type ArrivalKind = 'steps' | 'run' | 'slide' | 'tumble' | 'splash';
 
 export interface ArrivalSetting {
-  /** Height of the ground under the pilot, m. */
-  groundAt(x: number, z: number): number;
+  /** Height of the ground under the pilot, m; `y`: about where the pilot is, under a bridge or on it. */
+  groundAt(x: number, z: number, y?: number): number;
   /** The feet came down in water. */
   wet: boolean;
   /** Where the air is going, world frame, m/s: the canopy falls that way. */
@@ -116,7 +116,7 @@ export class Arrival {
     this.stand = -model.rig.feetPos.y;
     this.attitude0 = { ...s.pilotAtt };
     this.canopy0 = { ...s.att };
-    this.height0 = s.pos.y - setting.groundAt(s.pos.x, s.pos.z);
+    this.height0 = s.pos.y - setting.groundAt(s.pos.x, s.pos.z, s.pos.y);
 
     // The pilot keeps facing where they were facing, and keeps going where
     // the feet were going.
@@ -228,7 +228,7 @@ export class Arrival {
 
     // Out of the attitude of the touchdown, into that.
     const k = ease(t / SETTLE);
-    const ground = this.setting.groundAt(s.pos.x, s.pos.z);
+    const ground = this.setting.groundAt(s.pos.x, s.pos.z, s.pos.y);
     const above = Math.max(0.25, this.height0 + (height - this.height0) * k);
     s.pos.y = ground + above;
     quatFromAxisAngle(this.target, AXIS_Y, -this.heading);
@@ -244,7 +244,7 @@ export class Arrival {
   /** The canopy stays up a moment, then tips over until it lies on the ground. */
   private dropCanopy(): void {
     const s = this.model.state;
-    const above = s.pos.y - this.setting.groundAt(s.pos.x, s.pos.z);
+    const above = s.pos.y - this.setting.groundAt(s.pos.x, s.pos.z, s.pos.y);
     const canopy = this.model.rig.canopyPos.y;
     const flat = Math.PI / 2 + Math.asin(clamp((above - 0.3) / canopy, -1, 1));
     quatFromAxisAngle(this.turn, this.fall, flat * ease((this.time - 0.25) / 1.9));
@@ -257,8 +257,8 @@ export class Arrival {
     if (!this.walker) {
       const ahead = rotate(this.tmp, s.pilotAtt, set(this.tmp, 0, 0, -1));
       const heading = Math.atan2(ahead.x, -ahead.z) / (Math.PI / 180);
-      this.walker = new RunUp(this.setting.groundAt, s.pos.x, s.pos.z, heading);
-      this.walkFrom = s.pos.y - this.setting.groundAt(s.pos.x, s.pos.z);
+      this.walker = new RunUp((x, z, y) => this.setting.groundAt(x, z, y), s.pos.x, s.pos.z, heading, s.pos.y);
+      this.walkFrom = s.pos.y - this.walker.y;
       this.attitude0.x = s.pilotAtt.x;
       this.attitude0.y = s.pilotAtt.y;
       this.attitude0.z = s.pilotAtt.z;
@@ -272,13 +272,13 @@ export class Arrival {
     if (up >= 1) {
       // Down a step, a kerb, the side of a dyke: walked down, not fallen off.
       // With nothing asked (hands full), the feet come to a stop.
-      if (w.step(dt, feet ?? STAND_STILL)) w.y = this.setting.groundAt(w.x, w.z);
+      if (w.step(dt, feet ?? STAND_STILL)) w.y = this.setting.groundAt(w.x, w.z, w.y);
     }
     // Wading, the pond stops the feet short.
     const stand = this.stand - (this.kind === 'splash' ? WADING : 0);
     s.pos.x = w.x;
     s.pos.z = w.z;
-    s.pos.y = this.setting.groundAt(w.x, w.z) + this.walkFrom + (stand - this.walkFrom) * up;
+    s.pos.y = w.y + this.walkFrom + (stand - this.walkFrom) * up;
     set(s.vel, w.vel.x, 0, w.vel.z);
     this.speed = Math.hypot(w.vel.x, w.vel.z);
     const lean = -0.03 * clamp(w.forward / 3, -1, 1);

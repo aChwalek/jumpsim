@@ -20,7 +20,7 @@ export interface RemoteFrame {
   time: number;
   wind: THREE.Vector3;
   airDensity: number;
-  groundAt: (x: number, z: number) => number;
+  groundAt: (x: number, z: number, y?: number) => number;
   light: Lighting;
 }
 
