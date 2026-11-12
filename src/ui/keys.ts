@@ -8,8 +8,8 @@
 import { T } from '../i18n';
 import { keyLabel } from '../input/keyLabels';
 
-/** `ledge`: on top of a BASE object, before the exit. */
-export type KeysPhase = 'ledge' | 'plane' | 'freefall' | 'canopy' | 'ground';
+/** `ledge`: on top of a BASE object, before the exit; `baseCanopy`: under its one canopy, which cannot be cut away. */
+export type KeysPhase = 'ledge' | 'plane' | 'freefall' | 'canopy' | 'baseCanopy' | 'ground';
 export type InputKind = 'keyboard' | 'gamepad';
 export type PadKind = 'xbox' | 'playstation';
 
@@ -23,6 +23,8 @@ function keyboardRows(phase: KeysPhase): Row[] {
   const k = keyLabel;
   const t = T.keys;
   switch (phase) {
+    case 'baseCanopy':
+      return keyboardRows('canopy').filter(([, what]) => what !== t.cutaway);
     case 'ledge':
       return [
         [[k('KeyW'), k('KeyS')], t.run],
@@ -75,6 +77,8 @@ function keyboardRows(phase: KeysPhase): Row[] {
 function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
   const t = T.keys;
   switch (phase) {
+    case 'baseCanopy':
+      return gamepadRows('canopy').filter(([, what]) => what !== t.cutaway);
     case 'ledge':
       return [
         [['ls'], t.run],

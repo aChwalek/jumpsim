@@ -47,6 +47,7 @@ import {
   MALFUNCTION_ODDS,
   MALFUNCTION_RATES,
   SLIDER_KINDS,
+  CONTAINERS,
   startsAt,
   type Setup,
   type Start,
@@ -888,7 +889,9 @@ export class Menu {
         return `
           <span class="big">${gear.canopyAreaFt2}<small class="unit">ft²</small> <small>${kindName(gear.kind)}</small>${swatch(gear.color)}</span>
           <span>${gear.exitWeightKg} kg · ${num(rig.wingLoading, 2)} lb/ft² · ${loadingLabel(rig.wingLoading)}</span>
-          <span class="dim">${g.altimeterLine[gear.altimeter]} · ${gear.audible ? g.audibleOn : g.audibleOff} · ${g.sliderLine[gear.slider]}${gear.rsl ? ' · RSL' : ''}</span>`;
+          <span class="dim">${g.containerLine[gear.container]} · ${g.altimeterLine[gear.altimeter]} · ${gear.audible ? g.audibleOn : g.audibleOff} · ${g.sliderLine[gear.slider]}${
+            gear.container === 'sport' && gear.rsl ? ' · RSL' : ''
+          }</span>`;
       }
       case 'dz': {
         return `
@@ -921,7 +924,7 @@ export class Menu {
           return `
             <span class="big">${num(info.base?.height ?? 0)}<small class="unit">m</small> <small>${j.starts.base}</small></span>
             <span>${j.baseLine(num(dz?.base?.runUp ?? 25))}</span>
-            <span class="dim">${j.baseNote}</span>`;
+            <span class="dim">${j.baseNote[this.setup.gear.container]}</span>`;
         }
         if (jump.start !== 'plane') {
           const spot = jump.start === 'pattern' ? info.starts.pattern : info.starts.final;
@@ -991,9 +994,13 @@ export class Menu {
       this.choice<SliderKind>(g.slider, options(SLIDER_KINDS, (k) => g.sliders[k]), () => gear().slider, (slider) => this.setGear({ slider }), {
         note: () => g.sliderNote[gear().slider](keyLabel('KeyG')),
       }),
+      this.choice(g.container, options(CONTAINERS, (c) => g.containers[c]), () => gear().container, (container) => this.setGear({ container }), {
+        note: () => g.containerNote[gear().container](String(reserveSize(gear().exitWeightKg))),
+      }),
       this.choice<boolean>(g.rsl, yesNo(), () => gear().rsl, (rsl) => this.setGear({ rsl }), {
         hint: g.rslHint,
         note: () => g.rslNote(String(reserveSize(gear().exitWeightKg)), gear().rsl, keyLabel('KeyX')),
+        disabled: () => gear().container === 'base',
       }),
     );
     screen.append(this.detailHints());

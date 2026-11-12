@@ -119,6 +119,8 @@ export const fr = {
     stowedRight: 'FREIN DROIT ENCORE CALÉ',
     release: 'tire un peu la commande pour libérer',
     cuttingAway: 'LIBÉRATION…',
+    noCutaway: 'PAS DE LIBÉRATION',
+    oneCanopy: 'sac BASE : une seule voile, pas de secours',
     keepHolding: (k: string) => `garde ${k} enfoncé`,
     mainReleased: 'PRINCIPALE LIBÉRÉE',
     rslPulls: 'le RSL tire le secours',
@@ -272,6 +274,13 @@ export const fr = {
         collapsible: (k: string) => `${k} (manette : X) sous voile pour le replier sur les maillons : moins de traînée, moins de bruit.`,
         removable: (k: string) => `${k} (manette : X) sous voile pour l'enlever et le ranger : la voile vole un peu plus vite.`,
       },
+      container: 'SAC',
+      containers: { sport: 'Normal', base: 'BASE' },
+      containerLine: { sport: 'sac normal', base: 'sac BASE' },
+      containerNote: {
+        sport: (size: string) => `Principale, secours ${size} ft² et déclencheur de sécurité (coupé en BASE).`,
+        base: (_size: string) => 'Une seule voile, pliée pour s\'ouvrir vite, grand extracteur en main : pas de secours, pas de libération.',
+      },
       rsl: 'RSL',
       rslHint: 'la libération tire le secours',
       rslNote: (size: string, on: boolean, k: string) =>
@@ -322,7 +331,10 @@ export const fr = {
       },
       noPlane: 'Pas d\'avion ni de chute',
       baseLine: (run: string) => `Course d'élan de ${run} m jusqu'au bord`,
-      baseNote: 'Une seule voile : pas de secours ni de déclencheur',
+      baseNote: {
+        sport: 'Sac normal : secours, déclencheur coupé',
+        base: 'Sac BASE : une seule voile, pas de secours',
+      },
       runLine: (hdg: string, how: string) => `Axe ${hdg}, ${how}`,
       aloftLine: (kmh: string, seconds: string) => `Vent en altitude ${kmh} km/h · environ ${seconds} s de chute`,
       windOnRun: {
@@ -337,7 +349,7 @@ export const fr = {
         plane: 'Sortie d\'avion, chute libre, ouverture, puis le vol sous voile.',
         pattern: (h: string) => `Sous voile à ${h} m, au début de la vent arrière.`,
         final: (h: string) => `Sous voile à ${h} m, en finale.`,
-        base: (h: string) => `Sur le toit à ${h} m : élan, saut, quelques secondes de chute, une seule voile.`,
+        base: (h: string) => `Sur le toit à ${h} m : élan, saut, quelques secondes de chute, ouverture.`,
       },
       exitHeight: 'ALTITUDE DE LARGAGE',
       exitHint: 'au-dessus de la DZ',

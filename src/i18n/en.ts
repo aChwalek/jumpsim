@@ -115,6 +115,8 @@ export const en: Strings = {
     stowedRight: 'RIGHT BRAKE STILL STOWED',
     release: 'pull the toggle a little to release it',
     cuttingAway: 'CUTTING AWAY…',
+    noCutaway: 'NO CUTAWAY',
+    oneCanopy: 'BASE container: one canopy, no reserve',
     keepHolding: (k: string) => `keep ${k} held`,
     mainReleased: 'MAIN CUT AWAY',
     rslPulls: 'the RSL pulls the reserve',
@@ -268,6 +270,13 @@ export const en: Strings = {
         collapsible: (k: string) => `${k} (gamepad: X) under canopy to collapse it on the links: less drag, less noise.`,
         removable: (k: string) => `${k} (gamepad: X) under canopy to take it off and stow it: the canopy flies a little faster.`,
       },
+      container: 'CONTAINER',
+      containers: { sport: 'Skydiving', base: 'BASE' },
+      containerLine: { sport: 'skydiving container', base: 'BASE container' },
+      containerNote: {
+        sport: (size: string) => `Main, ${size} ft² reserve and AAD (off for BASE).`,
+        base: (_size: string) => 'One canopy packed to open fast, a big pilot chute in the hand: no reserve, no cutaway.',
+      },
       rsl: 'RSL',
       rslHint: 'the cutaway pulls the reserve',
       rslNote: (size: string, on: boolean, k: string) =>
@@ -318,7 +327,10 @@ export const en: Strings = {
       },
       noPlane: 'No plane, no freefall',
       baseLine: (run: string) => `A ${run} m run-up to the edge`,
-      baseNote: 'One canopy: no reserve, no AAD',
+      baseNote: {
+        sport: 'Skydiving container: a reserve, the AAD off',
+        base: 'BASE container: one canopy, no reserve',
+      },
       runLine: (hdg: string, how: string) => `Jump run ${hdg}, ${how}`,
       aloftLine: (kmh: string, seconds: string) => `Winds aloft ${kmh} km/h · about ${seconds} s of freefall`,
       windOnRun: {
@@ -333,7 +345,7 @@ export const en: Strings = {
         plane: 'Exit, freefall, deployment, then the canopy flight.',
         pattern: (h: string) => `Under canopy at ${h} m, at the top of downwind.`,
         final: (h: string) => `Under canopy at ${h} m, on final.`,
-        base: (h: string) => `On the roof at ${h} m: run up, jump, a few seconds of freefall, one canopy.`,
+        base: (h: string) => `On the roof at ${h} m: run up, jump, a few seconds of freefall, open.`,
       },
       exitHeight: 'EXIT ALTITUDE',
       exitHint: 'above the DZ',

@@ -1,6 +1,7 @@
 // A whole jump from the plane: in the door, freefall, the opening, then the
 // canopy, whose flight the flight model takes over. Or a BASE jump, from the
-// top of an object: the run-up, a short delay, one canopy and no reserve.
+// top of an object: the run-up, a short delay, the pull. On a BASE container
+// there is one canopy and nothing else: no reserve, no AAD, no cutaway.
 //
 // Until the canopy flies, this drives the flight model's state by hand (as
 // the arrival does on the ground), so the camera, the rig and the HUD follow
@@ -33,12 +34,20 @@ export interface Ledge {
 
 const isLedge = (from: JumpRun | Ledge): from is Ledge => (from as Ledge).kind === 'ledge';
 
+/**
+ * The container on the back: a skydiving one (a main, a reserve, an AAD) or
+ * a BASE one (one canopy packed to open fast, a big pilot chute in the hand).
+ */
+export type Container = 'sport' | 'base';
+
 export interface JumpOptions {
   /**
    * What the jumper can stand on or run into: the ground, and the roofs and
    * walls of what stands on it. The ground alone if not given.
    */
   solidAt?: (x: number, z: number) => number;
+  /** A skydiving container if not given. */
+  container?: Container;
   /** The reserve, flown once out. Without it the reserve flies as the main does. */
   reserve?: RigParams;
   /** A reserve static line: cutting the main away pulls the reserve. */
@@ -107,8 +116,10 @@ export class Jump {
   readonly plane: Plane | null;
   /** On a BASE jump, the jumper on top of the object until the exit. */
   readonly runUp: RunUp | null;
-  /** A BASE jump: one canopy, no reserve, no AAD. */
+  /** A BASE jump, off an object: the AAD is off, as for any BASE jump. */
   readonly base: boolean;
+  /** One canopy and nothing else: a BASE container. */
+  readonly single: boolean;
   readonly body: Freefall;
   opening: Opening | null = null;
   /** Seconds since leaving the door. */
@@ -155,6 +166,7 @@ export class Jump {
     this.solidAt = options.solidAt ?? groundAt;
     this.body = new Freefall(freefallParams(model.rig.gravMass));
     this.base = isLedge(from);
+    this.single = options.container === 'base';
     if (isLedge(from)) {
       this.phase = 'standing';
       this.plane = null;
@@ -248,7 +260,7 @@ export class Jump {
    * Only once the main is out of its bag.
    */
   cutaway(): void {
-    if (this.base) return;
+    if (this.single) return;
     const o = this.opening;
     const out = this.phase === 'canopy' || (this.phase === 'opening' && o !== null && o.stage === 'inflation');
     if (this.canopy !== 'main' || !out || this.impact) return;
@@ -298,7 +310,7 @@ export class Jump {
       this.follow();
       const b = this.body.state;
       this.log.topSpeed = Math.max(this.log.topSpeed, -b.vel.y);
-      if (!this.base && this.height() < AAD_HEIGHT && -b.vel.y > AAD_SPEED) this.pull(true);
+      if (!this.base && !this.single && this.height() < AAD_HEIGHT && -b.vel.y > AAD_SPEED) this.pull(true);
       else if (this.rslAt !== null && this.time >= this.rslAt) this.pull(false, 'rsl');
       else if (this.pullWhenFlat && this.body.offPosition() < FLAT_ENOUGH) this.pull(false);
     } else if (this.opening) {
@@ -466,7 +478,7 @@ export class Jump {
       this.log.malfunction = malfunction;
       // Nearly the other way round, to one side or the other.
       if (malfunction === 'offHeading') off = (this.random() < 0.5 ? -1 : 1) * (150 + 30 * this.random());
-      this.opening = new Opening(this.body, this.model, this.base ? BASE_OPENING : MAIN_OPENING, off, malfunction);
+      this.opening = new Opening(this.body, this.model, this.single ? BASE_OPENING : MAIN_OPENING, off, malfunction);
     }
     this.phase = 'opening';
   }

@@ -8,7 +8,7 @@ import { FlightModel, type Environment } from '../src/sim/flightModel';
 import { noBodyInputs, type BodyInputs } from '../src/sim/freefall';
 import { Jump, type JumpOptions } from '../src/sim/jump';
 import { RUN_SPEED, RunUp } from '../src/sim/runUp';
-import { DEFAULT_RIG, deriveRig } from '../src/sim/rig';
+import { DEFAULT_RIG, deriveRig, reserveConfig } from '../src/sim/rig';
 import { SIM_DT } from '../src/sim/telemetry';
 import { vec3 } from '../src/sim/vec';
 import { createTowerZone, TOWER_HEIGHT } from '../src/world/tower';
@@ -23,7 +23,8 @@ const run: BodyInputs = { ...noBodyInputs(), forward: 1 };
 function baseJump(options: JumpOptions = {}) {
   const model = new FlightModel(deriveRig({ ...DEFAULT_RIG, canopyAreaFt2: 230 }));
   const env: Environment = { wind: vec3(), airDensity: airDensityAt(HEIGHT) };
-  const jump = new Jump(model, ledge, env, ground, () => 0.5, { solidAt: solid, ...options });
+  const reserve = deriveRig(reserveConfig(90));
+  const jump = new Jump(model, ledge, env, ground, () => 0.5, { solidAt: solid, container: 'base', reserve, ...options });
   const step = (input = noBodyInputs()) => {
     env.airDensity = airDensityAt(model.state.pos.y);
     jump.step(SIM_DT, input, env);
@@ -90,7 +91,7 @@ describe('off the tower', () => {
     expect(-model.state.pos.z - 20).toBeGreaterThan(10);
   });
 
-  test('no reserve, no AAD: a pull that never comes is the ground', () => {
+  test('a BASE container: no reserve, no AAD, a pull that never comes is the ground', () => {
     const { jump, until } = baseJump();
     until(() => jump.phase !== 'standing', 10, run);
     until(() => jump.impact, 15);
@@ -100,6 +101,30 @@ describe('off the tower', () => {
     expect(jump.canopy).toBe('main');
     jump.cutaway();
     expect(jump.cutawayAt).toBeNull();
+  });
+
+  test('a skydiving container: the main can be cut away, and the reserve comes out', () => {
+    const { jump, until } = baseJump({ container: 'sport' });
+    expect(jump.single).toBe(false);
+    until(() => jump.phase !== 'standing', 10, run);
+    until(() => false, 1);
+    jump.act();
+    until(() => jump.phase === 'canopy' || jump.impact, 10);
+    expect(jump.phase).toBe('canopy');
+    jump.cutaway();
+    expect(jump.cutawayAt).not.toBeNull();
+    jump.act();
+    until(() => jump.phase === 'canopy' || jump.impact, 10);
+    expect(jump.canopy).toBe('reserve');
+    expect(jump.log.reserveBy).toBe('hand');
+  });
+
+  test('the AAD is off for BASE, even on a skydiving container', () => {
+    const { jump, until } = baseJump({ container: 'sport' });
+    until(() => jump.phase !== 'standing', 10, run);
+    until(() => jump.impact || jump.phase !== 'freefall', 15);
+    expect(jump.log.aad).toBe(false);
+    expect(jump.impact).toBe(true);
   });
 
   test('a canopy opening the other way, off a step-off, flies into the wall', () => {

@@ -34,7 +34,7 @@ import { Arrival } from './sim/arrival';
 import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
 import { noBodyInputs, stepPosition, type BodyPosition } from './sim/freefall';
-import { Jump } from './sim/jump';
+import { Jump, type JumpOptions } from './sim/jump';
 import { detectTouchdown, feetHeight, type Touchdown } from './sim/landing';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
@@ -367,6 +367,15 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
   });
 }
 
+/** What the jump gets from the gear: the container, and its reserve if it has one. */
+function rigOptions(): JumpOptions {
+  const { container, rsl } = setup.gear;
+  return { container, reserve: reserveRig, rsl: container === 'sport' && rsl, solidAt: solid };
+}
+
+/** One canopy and no reserve: a BASE container. */
+const singleCanopy = (): boolean => (jump ? jump.single : setup.gear.container === 'base');
+
 function spawn(kind: Start): void {
   // No BASE object here: from the plane instead.
   if (kind === 'base' && !dz.base) kind = 'plane';
@@ -379,12 +388,12 @@ function spawn(kind: Start): void {
   if (kind === 'plane') {
     windAt(env.wind, setup.weather, spots.plane.height, airTime);
     const malfunction = unlucky ? 'streamer' : null;
-    jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, { reserve: reserveRig, rsl: setup.gear.rsl, malfunction, solidAt: solid });
+    jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction });
   } else if (kind === 'base') {
     const b = dz.base!;
     windAt(env.wind, setup.weather, b.height, airTime);
     const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg: b.headingDeg } as const;
-    jump = new Jump(model, ledge, env, dz.groundAt, Math.random, { malfunction: unlucky ? 'offHeading' : null, solidAt: solid });
+    jump = new Jump(model, ledge, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction: unlucky ? 'offHeading' : null });
   } else {
     jump = null;
     const s = spots[kind];
@@ -955,7 +964,7 @@ function aimChase(): ChaseTarget {
 function keysPhase(): KeysPhase | null {
   if (menu.isOpen) return null;
   if (touchdown || arrival || impact) return 'ground';
-  if (!jump || jump.phase === 'canopy' || jump.phase === 'opening') return 'canopy';
+  if (!jump || jump.phase === 'canopy' || jump.phase === 'opening') return singleCanopy() ? 'baseCanopy' : 'canopy';
   if (jump.phase === 'standing') return 'ledge';
   return jump.phase === 'plane' ? 'plane' : 'freefall';
 }
@@ -964,6 +973,10 @@ function keysPhase(): KeysPhase | null {
 function cue(): string {
   if (flash && performance.now() < flash.until) return flash.text;
   const mainOut = jump !== null && jump.canopy === 'main' && (jump.phase === 'canopy' || (jump.phase === 'opening' && jump.inflation !== null));
+  if (devices.cutawayHeld > 0 && (mainOut || !jump) && !touchdown && !arrival && singleCanopy()) {
+    // One canopy and nothing under it: a BASE container has no cutaway handle.
+    return `${T.cue.noCutaway}<small>${T.cue.oneCanopy}</small>`;
+  }
   if (devices.cutawayHeld > 0 && devices.cutawayHeld < 1 && mainOut && !touchdown) {
     return `${T.cue.cuttingAway}<small>${T.cue.keepHolding(keyLabel('KeyX'))}</small>`;
   }
@@ -1041,8 +1054,9 @@ function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation
   o.reserve = jump?.canopy === 'reserve';
   o.cutaway = jump !== null && jump.cutawayAt !== null;
   o.onRisers = onRisers;
-  o.mainHandle = jump === null || jump.cutawayAt === null;
-  o.reserveHandle = jump === null || !(jump.canopy === 'reserve' && jump.log.reserveBy === 'hand');
+  const handles = !singleCanopy();
+  o.mainHandle = handles && (jump === null || jump.cutawayAt === null);
+  o.reserveHandle = handles && (jump === null || !(jump.canopy === 'reserve' && jump.log.reserveBy === 'hand'));
   o.landed = arrival !== null;
   o.inflation = inflation;
   Object.assign(o.controls, applied);
@@ -1108,7 +1122,9 @@ function frame(now: number): void {
   rigView.body.setPose(posture.update(moving, pose, FREEFALL_STANCES.has(pose) ? devices.body : still, legs, legCues));
   rigView.body.showArms(!onRisers);
   rigView.body.setHeight(feetHeight(model, solid));
-  if (jump) rigView.body.setHandles(jump.cutawayAt === null, !(jump.canopy === 'reserve' && jump.log.reserveBy === 'hand'));
+  // A BASE container has neither handle.
+  if (singleCanopy()) rigView.body.setHandles(false, false);
+  else if (jump) rigView.body.setHandles(jump.cutawayAt === null, !(jump.canopy === 'reserve' && jump.log.reserveBy === 'hand'));
   // On the ground the canopy empties and goes down in a heap.
   if (arrival && !rigView.detached) {
     if (arrival.time < 0.05) heapFrom.set(model.state.pos.x, model.state.pos.y, model.state.pos.z);
