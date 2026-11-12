@@ -22,6 +22,7 @@ import { CANOPY_COLORS, type CanopyColorId } from '../render/canopyColors';
 import { SMOKE_BURN, SMOKE_COLORS, SMOKE_KINDS, type SmokeColor, type SmokeKind } from '../render/smoke';
 import { OUTFIT_COLORS, OUTFIT_COLOR_IDS, type OutfitColor } from '../render/outfit';
 import { OUTCOME_GROUPS, clearLogbook, loadLogbook, logStats, type LogEntry } from '../logbook';
+import { clearTracks, storedTracks, trackId } from '../replay/store';
 import { QUALITY_LEVELS, SENSITIVITY_MAX, SENSITIVITY_MIN, type Settings } from '../settings';
 import {
   CANOPY_SIZES,
@@ -85,6 +86,7 @@ import {
   ICON_MORE,
   ICON_PEOPLE,
   ICON_PLANE,
+  ICON_PLAY,
   ICON_WEATHER,
   LOGO,
 } from './icons';
@@ -294,6 +296,8 @@ export class Menu {
   onCancel: () => void = () => {};
   /** Called when the drop zone, the hour or the weather change, to show them behind the menu. */
   onPreview: (setup: Setup) => void = () => {};
+  /** A jump of the logbook to watch again, from its track. */
+  onWatch: (entry: LogEntry) => void = () => {};
   /** Called when a setting changes: it is already in the settings object. */
   onSettings: () => void = () => {};
   /** Called when anything the room shares changes (drop zone, hour, weather, jump). */
@@ -328,6 +332,8 @@ export class Menu {
   private cornerLanguage!: HTMLButtonElement;
   private logbookBody!: HTMLElement;
   private clearArmed = 0;
+  /** The last jump of the logbook watched again, to come back to its line. */
+  private watched: string | null = null;
   private room: RoomView | null = null;
   /** How many are in the public room of the drop zone on the menu; null when not known. */
   private publicCount: number | null = null;
@@ -365,13 +371,27 @@ export class Menu {
     return cloneSetup(this.setup);
   }
 
-  /** `canCancel`: a jump is under way and can be resumed. */
-  open(canCancel: boolean): void {
+  /** `canCancel`: a jump is under way and can be resumed. `screen`: back to the logbook, after watching a jump of it. */
+  open(canCancel: boolean, screen: 'home' | 'logbook' = 'home'): void {
     this.setResumable(canCancel);
     this.isOpen = true;
     this.root.style.display = 'flex';
     this.nav.holdUntilReleased();
-    this.show('home', canCancel ? this.resume : this.jump);
+    if (screen !== 'logbook') return this.show('home', canCancel ? this.resume : this.jump);
+    this.show('logbook');
+    // Back on the line of the jump just watched.
+    const row = this.watched ? this.logbookBody.querySelector<HTMLElement>(`[data-track="${this.watched}"]`) : null;
+    if (row) this.nav.focus(row, true);
+  }
+
+  /** Whether the jump under way can be resumed. */
+  get resumable(): boolean {
+    return this.canCancel;
+  }
+
+  /** Out of the way while a jump of the logbook is watched; `open` brings it back. */
+  hide(): void {
+    this.close();
   }
 
   /** Whether the jump under way can still be resumed: not once it has moved to another drop zone. */
@@ -1246,7 +1266,11 @@ export class Menu {
         note: () => {
           const info = dzInfo(this.setup.dz);
           const start = plan().start;
-          if (start === 'base') return (info.base?.standing ? j.startNote.bridge : j.startNote.base)(num(info.base?.height ?? 0));
+          if (start === 'base') {
+            const h = info.base?.height ?? 0;
+            // Off a bridge as high as Millau's, a longer delay than off a low one.
+            return info.base?.standing ? j.startNote.bridge(num(h), h > 200) : j.startNote.base(num(h));
+          }
           if (start === 'pattern') return j.startNote.pattern(num(info.starts.pattern));
           if (start === 'final') return j.startNote.final(num(info.starts.final));
           return j.startNote.plane;
@@ -1439,13 +1463,29 @@ export class Menu {
 
     body.append(h('h3', 'section', t.list));
     if (!entries.length) body.append(h('p', 'empty', t.empty));
-    for (const e of [...entries].reverse()) body.append(this.nav.add(this.logRow(e)));
+    // Which jumps can be watched again is only known a moment later.
+    const tracks = storedTracks();
+    for (const e of [...entries].reverse()) {
+      const row = this.logRow(e);
+      const id = trackId(e.n, e.time);
+      row.dataset.track = id;
+      const watch = (): void => {
+        if (!row.classList.contains('watchable')) return;
+        this.watched = id;
+        this.onWatch(e);
+      };
+      // The whole line, its button with it.
+      row.addEventListener('click', watch);
+      void tracks.then((have) => row.classList.toggle('watchable', have.has(id)));
+      body.append(this.nav.add(row, { activate: watch }));
+    }
 
     if (entries.length) {
       const clear = button('action danger', t.clear);
       const act = (): void => {
         if (performance.now() < this.clearArmed) {
           clearLogbook();
+          void clearTracks();
           this.clearArmed = 0;
           this.fillLogbook();
           this.nav.setScreen(this.screens.get('logbook')!);
@@ -1486,7 +1526,8 @@ export class Menu {
     row.innerHTML = `
       <span class="n">#${e.n}</span>
       <span class="what"><b>${e.dzName}</b> · ${start}${ff}<small>${when} · ${canopy} · ${t.wind(String(e.weather.windKmh))}</small></span>
-      <span class="res${bad ? ' bad' : ''}"><b>${T.logbook.outcomes[e.outcome]}</b><small>${result}</small></span>`;
+      <span class="res${bad ? ' bad' : ''}"><b>${T.logbook.outcomes[e.outcome]}</b><small>${result}</small></span>
+      <button class="watch" tabindex="-1" title="${t.watch}" aria-label="${t.watch}">${ICON_PLAY}</button>`;
     return row;
   }
 }

@@ -7,7 +7,8 @@ landing areas, target, buildings of the DZ, pattern, wind; WGS84 lat/lon)
 and downloads, once, into the cache:
   - relief: Mapzen/AWS Terrain Tiles (Terrarium PNG; SRTM, EU-DEM, GEBCO...);
   - imagery: orthophotos (IGN BD ORTHO in France and overseas, PNOA in Spain,
-    SWISSIMAGE in Switzerland, DGU DOF5 in Croatia) near the field,
+    SWISSIMAGE in Switzerland, DGU DOF5 in Croatia, the Province of Trento's
+    2015 flight in Trentino) near the field,
     Sentinel-2 cloudless (EOX) out to the horizon;
   - OpenStreetMap through Overpass: buildings, trees, woods, water, coastline.
 
@@ -90,16 +91,24 @@ def cache_path(url, ext, data=None):
     return os.path.join(CACHE, key[:2], key + ext)
 
 
-def cached(url, ext, data=None):
+def cached(url, ext, data=None, content_type=None):
     path = cache_path(url, ext, data)
     if os.path.exists(path):
         return path
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    req = urllib.request.Request(url, data=data.encode() if data else None, headers={'User-Agent': UA})
+    headers = {'User-Agent': UA, **({'Content-Type': content_type} if content_type else {})}
+    req = urllib.request.Request(url, data=data.encode() if data else None, headers=headers)
     for attempt in range(4):
         try:
             with urllib.request.urlopen(req, timeout=180) as r:
                 body = r.read()
+            # A map server in trouble can still answer 200, with an XML report
+            # where the picture should be: once more, then a blank tile.
+            if ext in ('.jpg', '.png', '.tif') and body[:1] == b'<':
+                if attempt == 3:
+                    body = b''
+                    break
+                raise ConnectionError('service exception')
             break
         except urllib.error.HTTPError as e:
             if e.code in (400, 404):
@@ -157,6 +166,9 @@ SOURCES = {
     # anonymous users; this INSPIRE service does not.
     'dgu': 'https://geoportal.dgu.hr/services/inspire/orthophoto_2019_2020/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap'
            '&LAYERS=OI.OrthoimageCoverage&STYLES=&CRS=EPSG:3857&BBOX={bbox}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg',
+    # Trentino: the Province of Trento's orthophoto of 2015 (20 cm), a WMS too.
+    'pat': 'https://siat.provincia.tn.it/geoserver/stem/ecw-rgb-2015/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap'
+           '&LAYERS=ecw-rgb-2015&STYLES=&CRS=EPSG:3857&BBOX={bbox}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg',
 }
 
 
@@ -679,23 +691,61 @@ def sea_polygons(coast_ways, half):
 
 
 # --- Bridges --------------------------------------------------------------------------------
-def bridge_frame(b):
+class BridgeFrame:
     """
     A bridge's deck in the local frame: its ends (those of the OSM way), its
-    length, the unit vector along it and the one to its right, and its piers
+    length along the axis, straight or an arc of `radius_m` (positive if it
+    bends to the right from the first end to the second), and its piers
     (metres along it from the first end), the published spans laid from
-    `firstPier_m`.
+    `firstPier_m`. As in src/world/bridge.ts.
     """
-    (ax, az), (bx, bz) = local(*b['ends'][0]), local(*b['ends'][1])
-    length = math.hypot(bx - ax, bz - az)
-    ux, uz = (bx - ax) / length, (bz - az) / length
-    piers = [b['firstPier_m']]
-    for span in b['spans_m'][1:-1]:
-        piers.append(piers[-1] + span)
-    return {'a': (ax, az), 'b': (bx, bz), 'length': length, 'u': (ux, uz), 'r': (-uz, ux), 'piers': piers}
+
+    def __init__(self, b):
+        (ax, az), (bx, bz) = local(*b['ends'][0]), local(*b['ends'][1])
+        self.a, self.b = (ax, az), (bx, bz)
+        chord = math.hypot(bx - ax, bz - az)
+        ux, uz = (bx - ax) / chord, (bz - az) / chord
+        self.radius = abs(b.get('radius_m', 0))
+        if self.radius < chord / 2:
+            self.radius = 0
+            self.length = chord
+            self.u, self.r = (ux, uz), (-uz, ux)
+        else:
+            R = self.radius
+            self.right = 1 if b['radius_m'] > 0 else -1
+            off = math.sqrt(R * R - (chord / 2) ** 2) * self.right
+            self.c = ((ax + bx) / 2 - uz * off, (az + bz) / 2 + ux * off)
+            self.angle_a = math.atan2(az - self.c[1], ax - self.c[0])
+            sweep = self.wrap(math.atan2(bz - self.c[1], bx - self.c[0]) - self.angle_a)
+            self.turn = 1 if sweep > 0 else -1
+            self.length = R * abs(sweep)
+        self.piers = [b['firstPier_m']]
+        for span in b['spans_m'][1:-1]:
+            self.piers.append(self.piers[-1] + span)
+
+    @staticmethod
+    def wrap(t):
+        return math.atan2(math.sin(t), math.cos(t))
+
+    def local(self, x, z):
+        """Metres along the axis and to its right of a point."""
+        if not self.radius:
+            dx, dz = x - self.a[0], z - self.a[1]
+            return dx * self.u[0] + dz * self.u[1], dx * self.r[0] + dz * self.r[1]
+        rho = math.hypot(x - self.c[0], z - self.c[1])
+        s = self.radius * self.wrap(math.atan2(z - self.c[1], x - self.c[0]) - self.angle_a) * self.turn
+        return s, (self.radius - rho) * self.right
+
+    def world(self, s, u):
+        """The point `s` metres along the axis and `u` to its right."""
+        if not self.radius:
+            return self.a[0] + self.u[0] * s + self.r[0] * u, self.a[1] + self.u[1] * s + self.r[1] * u
+        t = self.angle_a + self.turn * s / self.radius
+        rho = self.radius - u * self.right
+        return self.c[0] + rho * math.cos(t), self.c[1] + rho * math.sin(t)
 
 
-BRIDGES = [bridge_frame(b) for b in CONF.get('bridges', [])]
+BRIDGES = [BridgeFrame(b) for b in CONF.get('bridges', [])]
 
 
 def erase_bridges(rgb, px, size_m):
@@ -709,17 +759,15 @@ def erase_bridges(rgb, px, size_m):
         if not conf.get('inPhotos'):
             continue
         half = conf['width_m'] / 2 + conf.get('photoMargin_m', 4)
-        (ax, az), (ux, uz), (rx, rz) = f['a'], f['u'], f['r']
-        ends = [(ax + ux * s + rx * u, az + uz * s + rz * u) for s in (-4, f['length'] + 4) for u in (-half, half)]
         to_px = lambda x, z: ((x / size_m + 0.5) * px - 0.5, (z / size_m + 0.5) * px - 0.5)  # noqa: E731
-        corners = [to_px(*e) for e in ends]
-        i0, i1 = max(0, int(min(c[0] for c in corners))), min(px - 1, int(max(c[0] for c in corners)) + 1)
-        j0, j1 = max(0, int(min(c[1] for c in corners))), min(px - 1, int(max(c[1] for c in corners)) + 1)
+        # The band's bounds, from points all along both its edges.
+        edge = [to_px(*f.world(s, u)) for s in [-4 + (f.length + 8) * k / 64 for k in range(65)] for u in (-half, half)]
+        i0, i1 = max(0, int(min(c[0] for c in edge))), min(px - 1, int(max(c[0] for c in edge)) + 1)
+        j0, j1 = max(0, int(min(c[1] for c in edge))), min(px - 1, int(max(c[1] for c in edge)) + 1)
         src = bytes(rgb)
 
         def at(s, u):
-            x, z = ax + ux * s + rx * u, az + uz * s + rz * u
-            i, j = to_px(x, z)
+            i, j = to_px(*f.world(s, u))
             i, j = min(px - 1, max(0, round(i))), min(px - 1, max(0, round(j)))
             k = (j * px + i) * 3
             return src[k:k + 3]
@@ -727,12 +775,11 @@ def erase_bridges(rgb, px, size_m):
         fade = max(3.0, m_px * 2)
         count = 0
         for j in range(j0, j1 + 1):
+            z = ((j + 0.5) / px - 0.5) * size_m
             for i in range(i0, i1 + 1):
                 x = ((i + 0.5) / px - 0.5) * size_m
-                z = ((j + 0.5) / px - 0.5) * size_m
-                s = (x - ax) * ux + (z - az) * uz
-                u = (x - ax) * rx + (z - az) * rz
-                if s < -4 or s > f['length'] + 4 or abs(u) > half:
+                s, u = f.local(x, z)
+                if s < -4 or s > f.length + 4 or abs(u) > half:
                     continue
                 # Mirrored in from either side, the ground just past the band.
                 left = at(s, -2 * half - u if u < 0 else -2 * half + u)
@@ -774,6 +821,7 @@ if ONLY is None or 'relief' in ONLY:
 # where one is open (`survey`: swissalti3d), else from the terrain tiles at
 # their finest (terrarium), which follow a valley floor better than the grid
 # does but know no more than the tiles do. Its sides fall on the 100 m lines.
+# Open surveys: swissALTI3D (swissalti3d), the IGN's RGE ALTI (rgealti) and the Province of Trento's LiDAR (pat).
 FINE = CONF.get('fineRelief')
 
 
@@ -836,6 +884,96 @@ def terrarium(points):
     return [elevation(lat, lon, zoom) for lat, lon in points]
 
 
+def rgealti(points):
+    """
+    Heights of WGS84 points from the IGN's RGE ALTI (1 m to 5 m) through the
+    Géoplateforme's altimetry service, 5000 points a request.
+    """
+    url = 'https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevation.json'
+    batches = [points[i:i + 5000] for i in range(0, len(points), 5000)]
+    print(f'  fine relief: RGE ALTI, {len(batches)} requests', flush=True)
+
+    def batch(pts):
+        body = json.dumps({'lon': '|'.join(f'{p[1]:.7f}' for p in pts), 'lat': '|'.join(f'{p[0]:.7f}' for p in pts),
+                           'resource': 'ign_rge_alti_wld', 'zonly': 'true'})
+        with open(cached(url, '.json', body, 'application/json')) as f:
+            return json.load(f)['elevations']
+
+    with concurrent.futures.ThreadPoolExecutor(4) as pool:
+        heights = [h for part in pool.map(batch, batches) for h in part]
+    if len(heights) != len(points) or min(heights) < -1000:
+        raise RuntimeError('RGE ALTI: no height for some points')
+    return heights
+
+
+def utm32(lat, lon):
+    """UTM zone 32 north east and north of a WGS84 point, m: Krüger's series to the fourth order, well under a millimetre."""
+    f = 1 / 298.257223563
+    n = f / (2 - f)
+    a = 6378137.0 / (1 + n) * (1 + n ** 2 / 4 + n ** 4 / 64)
+    alpha = [n / 2 - 2 * n ** 2 / 3 + 5 * n ** 3 / 16 + 41 * n ** 4 / 180,
+             13 * n ** 2 / 48 - 3 * n ** 3 / 5 + 557 * n ** 4 / 1440,
+             61 * n ** 3 / 240 - 103 * n ** 4 / 140,
+             49561 * n ** 4 / 161280]
+    e = math.sqrt(f * (2 - f))
+    phi, lam = math.radians(lat), math.radians(lon - 9)
+    t = math.sinh(math.atanh(math.sin(phi)) - e * math.atanh(e * math.sin(phi)))
+    xi, eta = math.atan2(t, math.cos(lam)), math.atanh(math.sin(lam) / math.sqrt(1 + t * t))
+    x = eta + sum(alpha[j] * math.cos(2 * (j + 1) * xi) * math.sinh(2 * (j + 1) * eta) for j in range(4))
+    y = xi + sum(alpha[j] * math.sin(2 * (j + 1) * xi) * math.cosh(2 * (j + 1) * eta) for j in range(4))
+    return 500000 + 0.9996 * a * x, 0.9996 * a * y
+
+
+# The Province of Trento's LiDAR of 2006-2009: a DTM in 2 km tiles, GeoTIFFs at
+# 1 m where people live and in the valleys, at 2 m elsewhere, in UTM 32N. Its
+# index, a WFS layer, names the tiles over a box.
+PAT_INDEX = ('https://siat.provincia.tn.it/geoserver/wfs?service=WFS&version=1.1.0&request=GetFeature'
+             '&typeName=stem:inqlid2009_dtm_asc&outputFormat=application/json&bbox={},{},{},{},EPSG:32632')
+PAT_DTM = 'https://siatservices.provincia.tn.it/idt/raster/lidar_2009_pat_dtm_{}/{}.tif'
+
+
+def pat(points):
+    """Heights of WGS84 points from the Province of Trento's LiDAR DTM, a 2 km tile at a time."""
+    import numpy as np  # noqa: PLC0415  Only the surveys need them.
+    from PIL import Image  # noqa: PLC0415
+    utm = [utm32(lat, lon) for lat, lon in points]
+    box = [math.floor(min(e for e, _ in utm)), math.floor(min(n for _, n in utm)),
+           math.ceil(max(e for e, _ in utm)), math.ceil(max(n for _, n in utm))]
+    with open(cached(PAT_INDEX.format(*box), '.json')) as f:
+        names = sorted({os.path.basename(t['properties']['location']).split('.')[0] for t in json.load(f)['features']})
+    print(f'  fine relief: PAT LiDAR, {len(names)} tiles', flush=True)
+
+    def tile(name):
+        # At 1 m if flown so, else at 2 m.
+        path = cached(PAT_DTM.format('1mX1m', name), '.tif')
+        if os.path.getsize(path) == 0:
+            path = cached(PAT_DTM.format('2mX2m', name), '.tif')
+        im = Image.open(path)
+        x0, y0 = im.tag_v2[33922][3:5]
+        return np.array(im, dtype=np.float32), x0, y0, im.tag_v2[33550][0]
+
+    with concurrent.futures.ThreadPoolExecutor(4) as pool:
+        tiles = list(pool.map(tile, names))
+    out = []
+    for e, n in utm:
+        for t, x0, y0, step in tiles:
+            # Pixel centres every `step` metres, rows from the north edge of the tile.
+            c = (e - x0) / step - 0.5
+            r = (y0 - n) / step - 0.5
+            if not (0 <= c < t.shape[1] - 1 and 0 <= r < t.shape[0] - 1):
+                continue
+            c0, r0 = int(c), int(r)
+            corners = t[r0:r0 + 2, c0:c0 + 2]
+            if corners.min() < -1000:
+                continue  # No data there: the next tile overlapping it may have some.
+            fc, fr = c - c0, r - r0
+            out.append(float((corners[0, 0] * (1 - fc) + corners[0, 1] * fc) * (1 - fr) + (corners[1, 0] * (1 - fc) + corners[1, 1] * fc) * fr))
+            break
+        else:
+            raise RuntimeError(f'no LiDAR at {e:.0f} E, {n:.0f} N')
+    return out
+
+
 def wgs84(e, n):
     """The other way, to WGS84 latitude and longitude."""
     y = (e - 2600000) / 1e6
@@ -851,7 +989,7 @@ if FINE and (ONLY is None or 'relief' in ONLY):
     size = int(FINE['size_m'] / FINE['spacing_m']) + 1
     half = FINE['size_m'] / 2
     grid = [latlon(cx - half + c * FINE['spacing_m'], cz - half + r * FINE['spacing_m']) for r in range(size) for c in range(size)]
-    survey = {'swissalti3d': swissalti3d, 'terrarium': terrarium}[FINE.get('survey', 'swissalti3d')]
+    survey = {'swissalti3d': swissalti3d, 'terrarium': terrarium, 'rgealti': rgealti, 'pat': pat}[FINE.get('survey', 'swissalti3d')]
     heights = survey(grid + [(LAT0, LON0)])
     # The landing area is the plain: this survey says best how high it is.
     state['relief']['plain'] = heights.pop()
@@ -1181,11 +1319,30 @@ dz = {
     'windsocks': [pt(w) for w in CONF.get('windsocks', [])],
     'flags': [pt(f) + [f.get('height_m', 4)] for f in CONF.get('flags', [])],
 }
+def bridge_out(b, f):
+    """A deck as src/world/dz.ts has it: its axis, the road's height above the landing area, the piers, its shape."""
+    out = {'name': b['name'], 'a': [round(v, 2) for v in f.a], 'b': [round(v, 2) for v in f.b],
+           'top': round(b['deckTop_m'] - PLAIN, 1), 'width': b['width_m'], 'piers': [round(p, 1) for p in f.piers],
+           'depth': b['girderDepth_m']}
+    if b.get('grade'):
+        out['grade'] = b['grade']
+    if f.radius:
+        out['radius'] = b['radius_m']
+    for key, name in (('girderShare', 'girder'), ('parapet_m', 'parapet'), ('pierShape', 'pierShape'), ('pylons', 'pylons')):
+        if key in b:
+            out[name] = b[key]
+    if 'paintHex' in b:
+        out['paint'] = int(b['paintHex'].lstrip('#'), 16)
+    return out
+
+
+def road_at(b, s):
+    """The road's height `s` metres along a deck, absolute, m."""
+    return b['deckTop_m'] + b.get('grade', 0) * s
+
+
 if CONF.get('bridges'):
-    # Decks: their axis, the road's height above the landing area, the piers.
-    dz['bridges'] = [{'name': b['name'], 'a': [round(v, 2) for v in f['a']], 'b': [round(v, 2) for v in f['b']],
-                      'top': round(b['deckTop_m'] - PLAIN, 1), 'width': b['width_m'], 'piers': [round(p, 1) for p in f['piers']],
-                      'depth': b['girderDepth_m']} for b, f in zip(CONF['bridges'], BRIDGES)]
+    dz['bridges'] = [bridge_out(b, f) for b, f in zip(CONF['bridges'], BRIDGES)]
 if CONF.get('base') and 'bridge' in CONF['base']:
     # Off a bridge: no run, the jumper stands on the edge of the deck, outside
     # the parapet, square to the road; as high as the road above the landing.
@@ -1193,12 +1350,11 @@ if CONF.get('base') and 'bridge' in CONF['base']:
     conf, f = CONF['bridges'][b['bridge']], BRIDGES[b['bridge']]
     side = 1 if b['side'] == 'right' else -1
     out = conf['width_m'] / 2 - b['edgeInset_m']
-    (ax, az), (ux, uz), (rx, rz) = f['a'], f['u'], f['r']
-    x = ax + ux * b['station_m'] + rx * side * out
-    z = az + uz * b['station_m'] + rz * side * out
-    heading = math.degrees(math.atan2(rx * side, -rz * side)) % 360
+    x, z = f.world(b['station_m'], side * out)
+    x1, z1 = f.world(b['station_m'], side * (out + 1))
+    heading = math.degrees(math.atan2(x1 - x, -(z1 - z))) % 360
     dz['base'] = {'x': round(x, 2), 'z': round(z, 2), 'headingDeg': round(heading, 1), 'runUp': 0, 'width': 1,
-                  'height': round(conf['deckTop_m'] - PLAIN, 1), 'name': b['name']}
+                  'height': round(road_at(conf, b['station_m']) - PLAIN, 1), 'name': b['name']}
 elif CONF.get('base'):
     # The exit: where the jumper stands, the way to the edge, and how far it is.
     b = CONF['base']

@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from 'vitest';
 import { airDensityAt } from '../src/sim/atmosphere';
-import { Bot, SLOT_SPACING, botHeights, roundRadius, type BotMode, type Lead } from '../src/sim/bot';
+import { Bot, SLOT_SPACING, botHeights, botSpot, roundRadius, type BotMode, type Lead } from '../src/sim/bot';
 import { FlightModel, neutralControls, type Environment } from '../src/sim/flightModel';
 import { noBodyInputs, type BodyInputs } from '../src/sim/freefall';
 import { Jump } from '../src/sim/jump';
@@ -160,6 +160,11 @@ describe('bots', () => {
         expect(Math.hypot(b.model.state.pos.x, b.model.state.pos.z)).toBeLessThan(150);
       }
     }
+  });
+
+  test('in the plane they take the places at the door we left free, and past those the cabin', () => {
+    expect([0, 1, 2, 3].map((i) => botSpot(i, 'low'))).toEqual(['high', 'step', 'inside', 'inside']);
+    expect([0, 1, 2, 3].map((i) => botSpot(i, 'inside'))).toEqual(['high', 'low', 'step', 'inside']);
   });
 
   test('how many and what they fly are kept with the setup, within bounds', () => {

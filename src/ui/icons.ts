@@ -24,6 +24,8 @@ export const ICON_COG = icon(
 export const ICON_GLOBE = icon(
   '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3Z"/>',
 );
+/** Play: a jump of the logbook watched again. */
+export const ICON_PLAY = icon('<path d="M8 5.5v13l10.5-6.5Z"/>');
 export const ICON_BACK = icon('<path d="M14.5 5.5 8 12l6.5 6.5"/>');
 export const ICON_MORE = icon('<path d="M9.5 5.5 16 12l-6.5 6.5"/>');
 

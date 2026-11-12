@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { Altisonic } from './audio/altisonic';
-import { Sound } from './audio/sound';
+import { Sound, type Landing } from './audio/sound';
 import { T, lang, num, setLanguage } from './i18n';
-import { InputDevices, type Action } from './input/devices';
+import { InputDevices, type Action, type PadMode } from './input/devices';
 import { keyLabel, readKeyboardLayout } from './input/keyLabels';
 import { noWraps, rampControls, wrapTravel } from './input/ramp';
 import { CANOPY_COLORS, RESERVE_PALETTE } from './render/canopyColors';
@@ -20,7 +20,7 @@ import { SMOKE_BURN, SmokeTrail } from './render/smoke';
 import { copyPose, type Pose } from './render/body';
 import { TopView } from './render/topView';
 import { FIELD_OF_VIEW, GEAR_LAYER, OUTSIDE_LAYER, Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
-import { logJump, type Outcome } from './logbook';
+import { logJump, type LogEntry, type Outcome } from './logbook';
 import { QUALITY_LEVELS, loadSettings, saveSettings } from './settings';
 import {
   MALFUNCTION_ODDS,
@@ -35,6 +35,7 @@ import {
   outfitOf,
   sameSuit,
   suitOf,
+  validSetup,
   wingColor,
   type Setup,
   type Start,
@@ -43,12 +44,17 @@ import { Arrival } from './sim/arrival';
 import { hasWings } from './sim/suit';
 import { J, JOINT_COUNT, PART, Ragdoll } from './sim/ragdoll';
 import { Recorder, type Replay, type ReplayFrame } from './crashReplay';
+import { TrackPlayer, TrackRecorder, makeTrackFrame, type Track, type TrackEvent } from './replay/track';
+import { loadTrack, saveTrack } from './replay/store';
+import { TrackView } from './render/trackView';
+import { FreeCamera } from './render/freeCamera';
 import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
 import { noBodyInputs, stepPosition, type BodyPosition } from './sim/freefall';
 import { Jump, type JumpOptions } from './sim/jump';
 import { detectTouchdown, feetHeight, type Touchdown } from './sim/landing';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
+import type { RunUp } from './sim/runUp';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
 import { DEG, quat, rotateInv, vec3 } from './sim/vec';
 import { gustPeakKmh, windAt } from './sim/weather';
@@ -95,6 +101,8 @@ let rigView = new RigView(rig, CANOPY_COLORS[setup.gear.color].cells, light);
 scene.add(rigView.object);
 /** The main once cut away, drifting down on its own; drawn until the next jump. */
 let releasedView: CanopyView | null = null;
+/** A whole jump being watched again, from its track; null when not. */
+let watching: Watching | null = null;
 /** What the main's slider is doing. */
 let sliderState: SliderState = 'open';
 /** Where the camera is: the pilot's eyes, or outside following them. */
@@ -208,7 +216,7 @@ function newRigView(): void {
 function fitSuit(): void {
   const suit = suitOf(setup.gear);
   rigView.body.setSuit(suit, wingColor(setup.gear.color));
-  posture.wings = hasWings(suit);
+  posture.wings = hasWings(suit) ? suit.level : null;
   const outfit = outfitOf(setup.gear);
   rigView.setOutfit(outfit);
   ragdollView.setOutfit(outfit);
@@ -286,14 +294,20 @@ function attachReserve(): void {
   applySliderDrag();
 }
 
-function showGear(): void {
-  const { gear } = setup;
-  const loading = `${num(rig.wingLoading, 2)} lb/ft² · ${loadingLabel(rig.wingLoading)}`;
+/** What the pilot flies, under the wind: the drop zone, the canopy, the weight, the wing loading. */
+function gearText(gear: Setup['gear'], wingLoading: number): string {
+  const loading = `${num(wingLoading, 2)} lb/ft² · ${loadingLabel(wingLoading)}`;
   const kind = gear.kind === 'classic' ? '' : ` ${kindName(gear.kind)}`;
+  return `${dz.name} · ${gear.canopyAreaFt2} ft²${kind} · ${gear.exitWeightKg} kg · ${loading}`;
+}
+
+function showGear(): void {
   const together = net ? ` · ${publicDz(net.room) ? T.menu.room.hudPublic : net.room} (${net.players})` : '';
-  hud.setGear(`${dz.name} · ${gear.canopyAreaFt2} ft²${kind} · ${gear.exitWeightKg} kg · ${loading}${together}`);
+  // Watching a jump again: what that one was flown with.
+  if (watching) hud.setGear(gearText(watching.view.setup.gear, rigFor(watching.view.setup.gear).wingLoading));
+  else hud.setGear(`${gearText(setup.gear, rig.wingLoading)}${together}`);
   playersShown = net?.players ?? 0;
-  net?.setHello(setup.dz, gear);
+  net?.setHello(setup.dz, setup.gear);
 }
 
 /**
@@ -496,12 +510,39 @@ const GATHER_TIME = 3.5;
 /** Where the crash happened and the way the pilot was going, for the replay's camera. */
 const crashPoint = new THREE.Vector3();
 let crashHeading = 0;
+/** The whole jump, recorded as it is flown, to be watched again from the card or the logbook. */
+const trackRecorder = new TrackRecorder();
+const trackFrame = makeTrackFrame();
+/** The track of the jump just over, once at rest. */
+let lastTrack: Track | null = null;
+/**
+ * A whole jump being watched again: the jump under way waits, out of
+ * sight. From the logbook, the menu comes back at the end, as it was.
+ */
+interface Watching {
+  player: TrackPlayer;
+  view: TrackView;
+  /** From the logbook, and whether the jump under way could be resumed then, and where it is. */
+  fromLogbook: boolean;
+  resumable: boolean;
+  liveDz: Setup['dz'];
+  /** Just started or gone to another moment: the camera and the smoke start again. */
+  jumped: boolean;
+  /** When the smoke was lit, on the track's clock. */
+  smokeLitAt: number | null;
+  /** The camera let loose to walk about the scene; null while it follows the jumper. */
+  free: FreeCamera | null;
+  /** The live objects hidden meanwhile, and whether they were shown. */
+  hidden: [THREE.Object3D, boolean][];
+}
+const watchWind = new THREE.Vector3();
+const watchEnv: Environment = { wind: vec3(), airDensity: AIR_DENSITY_SEA_LEVEL };
 
 /** Writes the jump that just ended in the logbook. */
 function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distance?: number, wet?: boolean): void {
   const { gear, weather } = setup;
   const log = jump?.log;
-  logJump({
+  const logged = logJump({
     time: Date.now(),
     dz: setup.dz,
     dzName: dz.name,
@@ -531,6 +572,21 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
     distance,
     wet,
   });
+  trackRecorder.logged(logged.n, logged.time);
+}
+
+/** A landing heard, and kept for the replay. */
+function land(l: Landing): void {
+  sound.land(l);
+  trackRecorder.hear({ kind: 'land', ...l });
+}
+
+/** The jump is over and at rest: its track goes in the logbook. */
+function finishTrack(): void {
+  const track = trackRecorder.finish();
+  if (!track) return;
+  lastTrack = track;
+  void saveTrack(track);
 }
 
 /** What the jump gets from the gear: the container, and its reserve if it has one; the suit. */
@@ -546,6 +602,10 @@ function spawn(kind: Start): void {
   // No BASE object here: from the plane instead.
   if (kind === 'base' && !dz.base) kind = 'plane';
   scenario = kind;
+  // A jump over but not yet at rest still goes in the logbook whole.
+  if (trackRecorder.isLogged) finishTrack();
+  lastTrack = null;
+  trackRecorder.begin(cloneSetup(setup), kind);
   airTime = 0;
   dropBots();
   resetCanopies();
@@ -584,6 +644,7 @@ function spawn(kind: Start): void {
     initTrimmed(model, vec3(s.x, y, s.z), s.headingDeg, env);
   }
   planeView.object.visible = jump?.plane != null;
+  if (jump?.plane) trackRecorder.setPlane(jump.plane.type.id, jump.plane.pos, jump.plane.vel, jump.plane.att);
   impact = false;
   Object.assign(ramped, neutralControls());
   Object.assign(wraps, noWraps());
@@ -626,6 +687,56 @@ function flyInto(position: BodyPosition): void {
   const b = devices.body;
   const flat = position === 'belly' || position === 'back';
   jump.fly(position, (flat ? b.slide : b.forward) < 0 ? -1 : 1);
+}
+
+/**
+ * B, Y, X on the gamepad: straight into that position, in freefall or to go
+ * out in. The same button again, back to the belly.
+ */
+function takePosition(position: BodyPosition): void {
+  if (!jump) return;
+  flyInto(jump.body.position === position ? 'belly' : position);
+}
+
+/**
+ * On foot, free to walk and turn: on top of the object before the run-up,
+ * or on the ground once at rest after the landing. Then the mouse and the
+ * right stick turn the body, as in any first-person game; locked on a
+ * target, the body faces where the camera looks (see faceTheView). Not on
+ * the lip of a bridge, where nobody turns round, nor while gathering the
+ * canopy up.
+ */
+function onFoot(): boolean {
+  if (replay || ragdoll) return false;
+  if (arrival) return arrival.canWalk && !(gather !== null && gather < 1);
+  return jump?.phase === 'standing' && jump.runUp !== null && !jump.runUp.standing;
+}
+
+const viewDir = new THREE.Vector3();
+
+/**
+ * Locked on a target, the camera looks at it, and the mouse turns the view
+ * about it: on foot the body faces where the camera looks, so that forward
+ * goes there and the sides go round the target, as in any game. Looking
+ * straight down or up says nothing about where that is.
+ */
+function faceTheView(feet: RunUp | null): void {
+  if (!feet) return;
+  camera.getWorldDirection(viewDir);
+  if (Math.hypot(viewDir.x, viewDir.z) < 0.2) return;
+  feet.headingDeg = ((Math.atan2(viewDir.x, -viewDir.z) / DEG) % 360 + 360) % 360;
+}
+
+/** The feet the mouse turns: on the ground, up on them first if sitting. */
+function feetToTurn(): RunUp | null {
+  return arrival ? arrival.getUp() : (jump?.runUp ?? null);
+}
+
+/** What the gamepad's right stick and B, Y, X are for at this moment of the jump. */
+function padMode(): PadMode {
+  if (!jump || touchdown || arrival || impact) return 'default';
+  if (jump.phase === 'freefall') return 'freefall';
+  return jump.phase === 'plane' || jump.phase === 'standing' ? 'exit' : 'default';
 }
 
 /**
@@ -696,6 +807,9 @@ const actions: Record<Action, () => void> = {
   track: () => {
     if (!paused) devices.padTrack = !devices.padTrack;
   },
+  posBack: () => takePosition('back'),
+  posSit: () => takePosition('sit'),
+  posHeadDown: () => takePosition('headDown'),
   flyUp: () => flyStep(1),
   flyDown: () => flyStep(-1),
   toggleHud: () => hud.toggle(),
@@ -748,6 +862,7 @@ const actions: Record<Action, () => void> = {
     devices.recentre();
     say(locked ? T.cue.locked : T.cue.unlocked);
   },
+  lockOrRecentre: () => (target ? actions.lock() : devices.recentre()),
   camera: () => {
     view = view === 'eyes' ? 'outside' : 'eyes';
     chase.reset();
@@ -760,6 +875,7 @@ const actions: Record<Action, () => void> = {
     menu.refresh();
   },
   openMenu: () => {
+    if (watching) return leaveWatching();
     if (menu.isOpen) return menu.cancel();
     // The jump waits behind the menu, and the mouse goes back to the page.
     waiting = true;
@@ -778,11 +894,26 @@ hud.onCard = (action) => {
     devices.capture();
   }
   else if (action === 'change') actions.openMenu();
-  else actions.replay();
+  else if (action === 'watch') {
+    if (lastTrack) watchTrack(lastTrack, { logbook: false });
+  } else actions.replay();
+};
+hud.onWatch = (command) => {
+  const w = watching;
+  if (!w || menu.isOpen) return;
+  if (command === 'close') return leaveWatching();
+  if (command === 'toggle') {
+    watchAction('jump');
+    return;
+  }
+  w.player.seek(command.seek);
+  w.jumped = true;
 };
 // Flight keys do nothing while the menu is up, except the one that closes it.
 devices.onAction = (action) => {
-  if (!menu.isOpen || action === 'openMenu') actions[action]();
+  if (menu.isOpen && action !== 'openMenu') return;
+  if (watchAction(action)) return;
+  actions[action]();
 };
 
 function fly(): void {
@@ -793,12 +924,30 @@ function fly(): void {
 /** Counts the menu's requests: one answered after the drop zone has loaded may be stale. */
 let request = 0;
 menu.onStart = async (chosen, start) => {
+  // The room may go while a jump is being watched again.
+  endWatching();
   const mine = ++request;
   await dzInfo(chosen.dz).load();
   if (mine !== request) return;
   apply(chosen, true);
   spawn(start);
   fly();
+};
+// A jump of the logbook watched again, where it was flown and under its sky.
+menu.onWatch = async (entry: LogEntry) => {
+  const mine = ++request;
+  const track = await loadTrack(entry.n, entry.time);
+  if (mine !== request || !track) return;
+  const recorded = validSetup(track.meta.setup);
+  await dzInfo(recorded.dz).load();
+  if (mine !== request || !menu.isOpen) return;
+  const from = { logbook: true, resumable: menu.resumable, liveDz: setup.dz } as const;
+  // The drop zone and the sky of that jump; the gear is the replay's own.
+  apply({ ...setup, dz: recorded.dz, hour: recorded.hour, weather: recorded.weather }, false);
+  menu.hide();
+  waiting = false;
+  sound.wake();
+  watchTrack(track, from);
 };
 // The scenery follows the menu. Another drop zone puts the jump at its start,
 // to be seen from there, and it can no longer be resumed.
@@ -864,11 +1013,13 @@ function simulate(seconds: number): void {
     }
     rampControls(ramped, devices.pulls, dt);
     const pulls = devices.pulls;
-    // Kept pulled all the way, a toggle goes on into wraps and can stall the canopy.
+    // Kept pulled all the way, the toggles go on into wraps and can stall the
+    // canopy. It takes both: one toggle buried alone is a turn, the canopy
+    // dives round and keeps flying.
     const fullL = (pulls.brakeL && ramped.brakeL >= 1) || devices.analogBrakeL >= FULL_TRIGGER;
     const fullR = (pulls.brakeR && ramped.brakeR >= 1) || devices.analogBrakeR >= FULL_TRIGGER;
-    applied.brakeL = Math.max(ramped.brakeL, devices.analogBrakeL) + wrapTravel(wraps, 'brakeL', fullL, pulls.hold, dt);
-    applied.brakeR = Math.max(ramped.brakeR, devices.analogBrakeR) + wrapTravel(wraps, 'brakeR', fullR, pulls.hold, dt);
+    applied.brakeL = Math.max(ramped.brakeL, devices.analogBrakeL) + wrapTravel(wraps, 'brakeL', fullL && fullR, pulls.hold, dt);
+    applied.brakeR = Math.max(ramped.brakeR, devices.analogBrakeR) + wrapTravel(wraps, 'brakeR', fullL && fullR, pulls.hold, dt);
     applied.frontL = ramped.frontL;
     applied.frontR = ramped.frontR;
     Object.assign(hands, applied);
@@ -900,7 +1051,7 @@ function simulate(seconds: number): void {
       };
       recorder.crash();
       logThisJump(landed.rating, landed.sink, landed.groundSpeed, distance, wet);
-      sound.land({ sink: landed.sink, groundSpeed: landed.groundSpeed, wet });
+      land({ sink: landed.sink, groundSpeed: landed.groundSpeed, wet });
       // What is left of the frame is spent on the ground.
       arrival.update(left);
       if (landed.rating === 'hard' || landed.rating === 'crash') startRagdoll(true);
@@ -926,7 +1077,7 @@ function hitSide(): boolean {
   s.pos.x = beforeStep.x;
   s.pos.z = beforeStep.z;
   s.vel.x = s.vel.y = s.vel.z = 0;
-  sound.land({ sink: speed, groundSpeed: 0, wet: false });
+  land({ sink: speed, groundSpeed: 0, wet: false });
   hud.showStrike('canopy', speed, jump?.log ?? null);
   recorder.crash();
   devices.release();
@@ -945,7 +1096,7 @@ function hitWithoutCanopy(j: Jump): void {
   recorder.crash();
   devices.release();
   s.vel.x = s.vel.y = s.vel.z = 0;
-  sound.land({ sink: speed, groundSpeed: 0, wet: false });
+  land({ sink: speed, groundSpeed: 0, wet: false });
   if (j.struck) hud.showStrike(j.phase === 'opening' ? 'opening' : 'freefall', speed, j.log);
   else hud.showImpact(j.log, j.phase === 'opening', speed, j.opening?.malfunction ?? null);
   logThisJump('impact', speed, 0);
@@ -1022,6 +1173,7 @@ function hearRagdoll(r: Ragdoll): void {
   const ouch = (kind: 'hit' | 'crack' | 'cry' | 'groan', level: number) => {
     sound.ouch(kind, level);
     recorder.hear(kind, level);
+    trackRecorder.hear({ kind: 'ouch', ouch: kind, level });
   };
   for (; hitsHeard < r.hits.length; hitsHeard++) {
     const h = r.hits[hitsHeard]!;
@@ -1092,6 +1244,184 @@ function stopReplay(): void {
   chase.reset();
 }
 
+/**
+ * Watches a whole jump again: the one just over, or one from the logbook,
+ * whose drop zone and sky must have been put in place.
+ */
+function watchTrack(track: Track, from: { logbook: false } | { logbook: true; resumable: boolean; liveDz: Setup['dz'] }): void {
+  if (replay) stopReplay();
+  endWatching();
+  const player = new TrackPlayer(track);
+  const view = new TrackView(scene, track.meta, light);
+  // The jump under way waits out of sight.
+  const live = [rigView.object, planeView.object, ragdollView.object, smoke.object];
+  if (releasedView) live.push(releasedView.object, releasedView.shadow, releasedView.deployment.object);
+  const hidden = live.map((o): [THREE.Object3D, boolean] => [o, o.visible]);
+  for (const o of live) o.visible = false;
+  const { meta } = track;
+  // The canister is lit on leaving, or at once under canopy.
+  const aboard = meta.start === 'plane' || meta.start === 'base';
+  const smokeLitAt = view.setup.gear.smoke === 'none' ? null : aboard ? player.marks.exit : player.start;
+  watching = {
+    player,
+    view,
+    fromLogbook: from.logbook,
+    resumable: from.logbook && from.resumable,
+    liveDz: from.logbook ? from.liveDz : setup.dz,
+    jumped: true,
+    smokeLitAt,
+    free: null,
+    hidden,
+  };
+  hud.setWatching({ n: meta.n, dz: dzInfo(view.setup.dz).name, start: player.start, end: player.end, marks: player.marks });
+  hud.setAltimeter(view.setup.gear.altimeter, 0);
+  showGear();
+  chase.reset();
+  devices.recentre();
+  devices.release();
+}
+
+/** The jump watched again goes, and the one under way shows again. */
+function endWatching(): void {
+  const w = watching;
+  if (!w) return;
+  watching = null;
+  w.view.dispose();
+  for (const [o, shown] of w.hidden) o.visible = shown;
+  hud.setWatching(null);
+  hud.setAltimeter(setup.gear.altimeter, altitude());
+  showGear();
+  chase.reset();
+  devices.recentre();
+}
+
+/** Done watching: back to the card of the jump just over, or to the logbook, as it was. */
+function leaveWatching(): void {
+  const w = watching;
+  if (!w) return;
+  endWatching();
+  if (!w.fromLogbook) return;
+  waiting = true;
+  devices.release();
+  menu.open(w.resumable, 'logbook');
+  // The scenery goes back to the menu's; the jump under way only goes on where it was.
+  const chosen = menu.current;
+  const mine = ++request;
+  void dzInfo(chosen.dz)
+    .load()
+    .then(() => {
+      if (mine !== request) return;
+      apply(chosen, false);
+      if (setup.dz !== w.liveDz) {
+        spawn(scenario);
+        menu.setResumable(false);
+      }
+      menu.refresh();
+    });
+}
+
+/** The keys while watching: play and pause, go back and on, faster and slower. True if taken. */
+function watchAction(action: Action): boolean {
+  const w = watching;
+  if (!w) return false;
+  const p = w.player;
+  const seek = (t: number) => {
+    p.seek(t);
+    w.jumped = true;
+  };
+  switch (action) {
+    case 'jump':
+    case 'togglePause':
+      if (p.done) {
+        seek(p.start);
+        p.paused = false;
+      } else p.paused = !p.paused;
+      return true;
+    case 'flyLeft':
+    case 'flyRight':
+      seek(p.time + (action === 'flyLeft' ? -WATCH_STEP : WATCH_STEP));
+      return true;
+    case 'flyUp':
+    case 'flyDown':
+      p.faster(action === 'flyUp' ? 1 : -1);
+      return true;
+    case 'reset':
+      seek(p.start);
+      p.paused = false;
+      return true;
+    case 'replay':
+      leaveWatching();
+      return true;
+    case 'camera':
+      // Let loose from where it is, or back behind the jumper.
+      w.free = w.free ? null : new FreeCamera(camera);
+      chase.reset();
+      devices.recentre();
+      return true;
+    // No target to lock on in a replay: the right stick tapped looks straight ahead again.
+    case 'lockOrRecentre':
+      devices.recentre();
+      return true;
+    // The menu leaves the replay (see actions.openMenu); the rest as always.
+    case 'openMenu':
+    case 'padMenu':
+    case 'toggleHud':
+    case 'toggleSound':
+    case 'toggleKeys':
+    case 'cycleQuality':
+    case 'recentre':
+      return false;
+    default:
+      // Flying does nothing here.
+      return true;
+  }
+}
+/** How far the arrows go back or on in a replay, s. */
+const WATCH_STEP = 5;
+
+/** A sound of the jump watched again, slowed down with it. */
+function hearTrack(e: TrackEvent, rate: number): void {
+  if (e.kind === 'ouch') sound.ouch(e.ouch, e.level, rate);
+  else if (e.kind === 'land') sound.land(e);
+  else if (e.kind === 'step') sound.step(e.speed);
+  else sound.beep(e);
+}
+
+/** Draws the jump watched again as it was at the moment the replay is at. */
+function drawWatching(w: Watching, dt: number): void {
+  const f = w.player.frame;
+  const m = w.view.model;
+  const { weather } = w.view.setup;
+  const height = Math.max(0, feetHeight(m, dz.groundAt)) + m.rig.canopyPos.y - m.rig.feetPos.y;
+  windAt(watchEnv.wind, weather, height, f.t);
+  watchEnv.airDensity = airDensityAt(f.pos.y);
+  watchWind.set(watchEnv.wind.x, watchEnv.wind.y, watchEnv.wind.z);
+  w.view.update(f, { dt, jumped: w.jumped, wind: watchWind, airDensity: watchEnv.airDensity, groundAt: solid, light, smokeLitAt: w.smokeLitAt });
+}
+
+/** The camera of the replay: the outside one, framing as it did on the jump; the mouse takes it round. */
+function aimWatching(w: Watching, dt: number): void {
+  const f = w.player.frame;
+  camera.layers.enable(GEAR_LAYER);
+  camera.layers.enable(OUTSIDE_LAYER);
+  const t = chaseTarget;
+  t.focus.set(f.pos.x + f.focus.x, f.pos.y + f.focus.y, f.pos.z + f.focus.z);
+  t.heading = f.heading;
+  t.distance = f.distance;
+  t.above = f.above;
+  if (w.jumped) {
+    chase.reset();
+    hud.setAltimeter(w.view.setup.gear.altimeter, feetHeight(w.view.model, groundAtTarget));
+  }
+  w.jumped = false;
+  // Let loose, it stays where it was taken whatever the replay does.
+  if (w.free) w.free.update(camera, dt, devices.free, solid);
+  else chase.update(camera, t, dt, devices.lookYaw, devices.lookPitch, devices.zoom, solid);
+}
+
+/** The ground the altimeter was zeroed on: the landing area. */
+const groundAtTarget = (): number => dz.groundAt(dz.target.x, dz.target.z);
+
 const liveJoints = new Float32Array(3 * JOINT_COUNT);
 function jointArray(r: Ragdoll, out: Float32Array): Float32Array {
   r.pos.forEach((p, i) => {
@@ -1138,6 +1468,56 @@ function record(f: ReplayFrame, pose: Pose, inflation: number | null, onRisers: 
   f.heap = heap;
   f.hasJoints = ragdoll !== null;
   if (ragdoll) jointArray(ragdoll, f.joints);
+}
+
+/** This frame as drawn, for the replay of the whole jump. */
+function recordTrack(pose: Pose, inflation: number | null, onRisers: boolean, heap: number): void {
+  const f = trackFrame;
+  const s = model.state;
+  f.phase = jump ? jump.phase : 'none';
+  f.deploy = rigFrame.deploy;
+  f.deployTime = rigFrame.deployTime;
+  f.bagOut = rigFrame.bagOut;
+  f.slider = sliderState;
+  f.onRisers = onRisers;
+  f.reserve = jump?.canopy === 'reserve';
+  const handles = !singleCanopy();
+  f.mainHandle = handles && (jump === null || jump.cutawayAt === null);
+  f.reserveHandle = handles && (jump === null || !(jump.canopy === 'reserve' && jump.log.reserveBy === 'hand'));
+  f.landed = arrival !== null || impact;
+  Object.assign(f.pos, s.pos);
+  Object.assign(f.vel, s.vel);
+  Object.assign(f.att, s.att);
+  Object.assign(f.pilotAtt, s.pilotAtt);
+  f.deflationL = model.deflationL;
+  f.deflationR = model.deflationR;
+  Object.assign(f.controls, applied);
+  Object.assign(f.hands, hands);
+  f.inflation = inflation;
+  f.heap = heap;
+  copyPose(f.pose, pose);
+  const c = chaseFraming();
+  f.focus.x = c.focus.x - s.pos.x;
+  f.focus.y = c.focus.y - s.pos.y;
+  f.focus.z = c.focus.z - s.pos.z;
+  f.heading = c.heading;
+  f.distance = c.distance;
+  f.above = c.above;
+  f.hasJoints = ragdoll !== null;
+  if (ragdoll) jointArray(ragdoll, f.joints);
+  const free = jump?.released;
+  f.hasReleased = !!free && releasedView !== null;
+  if (free) {
+    const r = f.released;
+    Object.assign(r.pos, free.pos);
+    Object.assign(r.vel, free.vel);
+    Object.assign(r.att, free.att);
+    r.crumple = free.crumple;
+    r.heap = free.landedFor === null ? 0 : ease(free.landedFor / 1.8);
+    Object.assign(r.fallTo, free.fallTo);
+  }
+  if (heap > 0) trackRecorder.setLanding(heapFrom, fallTo);
+  trackRecorder.push(f);
 }
 
 /** Draws the jumper as the replay has them. */
@@ -1413,8 +1793,21 @@ function drawPointMarker(): void {
   pointMarker.update(camera, pointMarks, 'point');
 }
 
-/** What the outside camera frames: pilot and canopy under canopy, the jumper alone in freefall. */
+/** What the outside camera frames, locked or not. */
 function aimChase(): ChaseTarget {
+  const t = chaseFraming();
+  // Locked: behind the jumper on the line from the target, which shows past them.
+  const at = locked ? targetPos() : null;
+  const line = at && lockedChase(t.focus, at);
+  if (line) {
+    if (line.heading !== null) t.heading = line.heading;
+    t.above = line.above;
+  }
+  return t;
+}
+
+/** What the outside camera frames: pilot and canopy under canopy, the jumper alone in freefall. */
+function chaseFraming(): ChaseTarget {
   const t = chaseTarget;
   const s = model.state;
   t.focus.set(s.pos.x, s.pos.y, s.pos.z);
@@ -1449,13 +1842,6 @@ function aimChase(): ChaseTarget {
     t.distance = arrival ? 9 : 6 + 8 * k;
     t.above = arrival ? 0.3 : 0.16;
   }
-  // Locked: behind the jumper on the line from the target, which shows past them.
-  const at = locked ? targetPos() : null;
-  const line = at && lockedChase(t.focus, at);
-  if (line) {
-    if (line.heading !== null) t.heading = line.heading;
-    t.above = line.above;
-  }
   return t;
 }
 
@@ -1478,6 +1864,7 @@ function flying(j: Jump): { name: string; glide: string } {
 /** Which keys the side of the screen shows: what can be done right now. */
 function keysPhase(): KeysPhase | null {
   if (menu.isOpen) return null;
+  if (watching) return watching.free ? 'replayFree' : 'replay';
   if (touchdown || arrival || impact) return 'ground';
   if (!jump || jump.phase === 'canopy' || jump.phase === 'opening') return singleCanopy() ? 'baseCanopy' : 'canopy';
   if (jump.phase === 'standing') return 'ledge';
@@ -1657,12 +2044,25 @@ function frame(now: number): void {
   frameAverage += (elapsed - frameAverage) * 0.05;
   if (elapsed < 0.25 && settings.autoResolution) resolution.track(elapsed);
 
+  devices.padMode = padMode();
+  devices.feetTurn = onFoot() && !locked;
   devices.poll();
+  const feetYaw = devices.takeFeetYaw();
   // After the devices: Start may just have opened the menu, which then ignores it until let go.
   menu.poll();
   hud.setMenuOpen(menu.isOpen);
   const live = !waiting && !paused;
-  if (live && replay) {
+  /** How far the replay of the whole jump went on this frame, s of its own clock. */
+  let watched = 0;
+  // Paused or not before, the replay has its own pause.
+  if (watching && !waiting) {
+    const p = watching.player;
+    const before = p.time;
+    p.advance(Math.min(elapsed, 0.1), hearTrack);
+    watched = Math.max(0, p.time - before);
+    // At the end it waits there, to be played again or left.
+    if (p.done) p.paused = true;
+  } else if (live && replay) {
     replay.advance(Math.min(elapsed, 0.1), (kind, level, rate) => sound.ouch(kind, level, rate));
     if (replay.done) stopReplay();
   } else if (live) {
@@ -1671,11 +2071,18 @@ function frame(now: number): void {
       // Before our own step, so that they see us where we are at the same moment as they are.
       us.pos = model.state.pos;
       us.vel = model.state.vel;
+      const wasOut = us.out;
       us.out = jump !== null && jump.phase !== 'plane';
+      // Out of the door behind a leader: it is the one to keep in sight, unless someone else already is.
+      const leader = bots.leader;
+      if (us.out && !wasOut && leader && target?.kind !== 'player') setTarget({ kind: 'player', id: leader });
       us.falling = jump?.phase === 'freefall' && !impact;
       us.headingDeg = jump?.headingDeg();
       bots.step(seconds, us, airTime);
     }
+    if (feetYaw !== 0) feetToTurn()?.turnBy(feetYaw);
+    // Locked, the camera of the last frame says where the body faces; on the ground once walking.
+    if (locked && onFoot()) faceTheView(arrival ? arrival.walker : (jump?.runUp ?? null));
     if (arrival) {
       airTime += seconds;
       // On the feet again: walking, but not while gathering the canopy up.
@@ -1691,7 +2098,10 @@ function frame(now: number): void {
       if (ragdoll.settled && !replayed) playReplay();
     }
     if (arrival) {
-      for (; stepsHeard < arrival.steps && !ragdoll; stepsHeard++) sound.step(arrival.speed);
+      for (; stepsHeard < arrival.steps && !ragdoll; stepsHeard++) {
+        sound.step(arrival.speed);
+        trackRecorder.hear({ kind: 'step', speed: arrival.speed });
+      }
       if (arrival.done && verdict && (!ragdoll || (ragdoll.settled && replayed))) {
         verdict();
         verdict = null;
@@ -1699,13 +2109,15 @@ function frame(now: number): void {
     }
   }
 
-  const moving = live && !replay ? Math.min(elapsed, 0.1) : 0;
+  const moving = live && !replay && !watching ? Math.min(elapsed, 0.1) : 0;
   const pose = stance();
   const inflation = replay ? replay.frame.inflation : jump ? jump.inflation : 1;
   // The hands are on the risers from line stretch until they let go on the
   // ground; otherwise they are free, and the body shows them.
   const onRisers = replay ? replay.frame.onRisers : inflation !== null && !(arrival && arrival.time >= 0.25) && !ragdoll;
-  if (replay) {
+  if (watching) {
+    drawWatching(watching, watched);
+  } else if (replay) {
     showReplay(replay.frame);
     rigFrame.time = airTime;
     rigFrame.dt = Math.min(elapsed, 0.1) * replay.speed();
@@ -1739,7 +2151,7 @@ function frame(now: number): void {
     if (gather !== null && !rigView.detached) carryCanopy(shown, gather);
     rigView.body.group.visible = !ragdoll;
     ragdollView.update(ragdoll ? jointArray(ragdoll, liveJoints) : null);
-    hud.setCard(canReplay(), !!arrival?.walker);
+    hud.setCard(canReplay(), !!arrival?.walker, lastTrack !== null);
     rigFrame.time = airTime;
     rigFrame.dt = moving;
     rigFrame.wind.set(env.wind.x, env.wind.y, env.wind.z);
@@ -1747,6 +2159,11 @@ function frame(now: number): void {
     deployStage(jump, rigFrame);
     // The last seconds are kept, in case they end badly; a crash, until the body is still.
     if (moving > 0 && !(recorder.crashAt !== null && canReplay())) record(recorder.next(moving), shown, inflation, onRisers, heap);
+    // And all of it for the logbook, until at rest: every frame while the body is thrown about.
+    if (trackRecorder.isLogged && canReplay()) finishTrack();
+    else if (moving > 0 && trackRecorder.tick(moving, ragdoll !== null || (arrival !== null && arrival.time < 3))) {
+      recordTrack(shown, inflation, onRisers, heap);
+    }
     rigView.update(model, applied, solid, light, hands, rigFrame);
     drawReleased(moving);
     drawSmoke(moving);
@@ -1762,7 +2179,9 @@ function frame(now: number): void {
     for (const name of bots.exited.splice(0)) showExit(name);
   }
   if (jump?.plane) planeView.update(jump.plane);
-  model.pilotPoint(eye, model.rig.eyePos);
+  /** The pilot drawn: the one of the replay of the whole jump, while it plays. */
+  const shownModel = watching ? watching.view.model : model;
+  shownModel.pilotPoint(eye, shownModel.rig.eyePos);
   if (replay) {
     camera.layers.enable(GEAR_LAYER);
     camera.layers.enable(OUTSIDE_LAYER);
@@ -1776,7 +2195,9 @@ function frame(now: number): void {
   }
   const seen = locked ? targetPos() : null;
   lockBlend = Math.max(0, Math.min(1, lockBlend + ((seen ? 1 : -1) * Math.min(elapsed, 0.1)) / LOCK_TURN));
-  if (replay) {
+  if (watching) {
+    aimWatching(watching, Math.min(elapsed, 0.1));
+  } else if (replay) {
     // Placed above.
   } else if (view === 'outside') {
     camera.layers.enable(GEAR_LAYER);
@@ -1806,7 +2227,7 @@ function frame(now: number): void {
   world.update(camera.position, now / 1000);
   drawMap(now);
   renderer.render(scene, camera);
-  if (view === 'eyes' && !replay) {
+  if (view === 'eyes' && !replay && !watching) {
     // The gear in the hands goes on top, from the same eye.
     gearCamera.position.copy(camera.position);
     gearCamera.quaternion.copy(camera.quaternion);
@@ -1818,23 +2239,28 @@ function frame(now: number): void {
 
   // The air past the head, in the head's own axes. On the ground that is
   // what is left of the speed, then only the wind.
-  model.pilotPointVelocity(eyeVel, model.rig.eyePos);
-  air.set(env.wind.x - eyeVel.x, env.wind.y - eyeVel.y, env.wind.z - eyeVel.z);
+  // In a replay of the whole jump, as the pilot heard it then; paused, the air is still.
+  const wf = watching?.player.frame ?? null;
+  const heard = watching ? !waiting && !watching.player.paused : live;
+  const heardWind = watching ? watchEnv.wind : env.wind;
+  shownModel.pilotPointVelocity(eyeVel, shownModel.rig.eyePos);
+  air.set(heardWind.x - eyeVel.x, heardWind.y - eyeVel.y, heardWind.z - eyeVel.z);
   const airspeed = air.length();
   air.applyQuaternion(unlook.copy(camera.quaternion).invert());
   // The slider is most of the flapping: much less of it collapsed, none once off.
-  const streamer = jump?.phase === 'opening' && jump.opening?.malfunction === 'streamer' && inflation !== null;
-  const flapping = sliderState === 'open' || rigView.canopy.reserve ? 1 : sliderState === 'collapsed' ? 0.35 : 0.15;
+  const streamer = !wf && jump?.phase === 'opening' && jump.opening?.malfunction === 'streamer' && inflation !== null;
+  const slider = wf ? wf.slider : sliderState;
+  const flapping = slider === 'open' || (wf ? wf.reserve : rigView.canopy.reserve) ? 1 : slider === 'collapsed' ? 0.35 : 0.15;
   sound.update({
-    airspeed: impact ? 0 : airspeed,
+    airspeed: impact && !wf ? 0 : airspeed,
     fromRight: airspeed > 0.1 ? -air.x / airspeed : 0,
-    live,
-    canopy: streamer ? 1 : (inflation ?? 0) * flapping,
+    live: heard,
+    canopy: streamer ? 1 : ((wf ? wf.inflation : inflation) ?? 0) * flapping,
   });
-  if (jump?.plane) {
+  const plane = watching ? watching.view.planeNow : jump?.plane;
+  if (plane) {
     // The plane: how far, which way, and how fast it is going away, heard
     // from its nearest propeller.
-    const plane = jump.plane;
     let near = Infinity;
     for (const hub of plane.type.propellers) {
       plane.point(toPlane, hub);
@@ -1852,20 +2278,24 @@ function frame(now: number): void {
       (toPlane.x * (plane.vel.x - eyeVel.x) + toPlane.y * (plane.vel.y - eyeVel.y) + toPlane.z * (plane.vel.z - eyeVel.z)) /
       distance;
     toPlane.applyQuaternion(unlook);
-    sound.hearPlane({ distance, closing: -away, fromRight: toPlane.x / distance, live });
+    sound.hearPlane({ distance, closing: -away, fromRight: toPlane.x / distance, live: heard });
   } else {
     sound.hearPlane(null);
   }
 
+  hud.setKeys(keysPhase(), devices.lastUsed, devices.padKind);
+  if (watching) return showWatching(watching, elapsed);
   const reading = altitude();
   if (live && !touchdown) {
     const beeps = altisonic.update(reading);
-    if (beeps) sound.beep(beeps);
+    if (beeps) {
+      sound.beep(beeps);
+      trackRecorder.hear({ kind: 'beep', ...beeps });
+    }
   }
   readTelemetry(model, env, telemetry);
   const height = Math.max(0, feetHeight(model, dz.groundAt));
   const falling = jump !== null && jump.phase !== 'canopy';
-  hud.setKeys(keysPhase(), devices.lastUsed, devices.padKind);
   hud.update(
     {
       altitude: reading,
@@ -1887,6 +2317,39 @@ function frame(now: number): void {
     },
     elapsed,
   );
+}
+
+/** The instruments as they read on the jump watched again, and where the replay is. */
+function showWatching(w: Watching, elapsed: number): void {
+  const p = w.player;
+  const f = p.frame;
+  const m = w.view.model;
+  const { weather } = w.view.setup;
+  readTelemetry(m, watchEnv, telemetry);
+  const falling = f.phase === 'freefall' || f.phase === 'opening';
+  hud.update(
+    {
+      altitude: feetHeight(m, groundAtTarget),
+      verticalSpeed: telemetry.verticalSpeed,
+      groundSpeed: telemetry.groundSpeed,
+      // In freefall the way the body faces, as the outside camera had it.
+      headingDeg: falling ? (((f.heading / DEG) % 360) + 360) % 360 : telemetry.headingDeg,
+      controls: f.controls,
+      held: false,
+      fps: 1 / frameAverage,
+      renderScale: resolution.scale,
+      windFromDeg: weather.windFromDeg,
+      windKmh: weather.windKmh,
+      gustKmh: gustPeakKmh(weather),
+      muted: sound.muted,
+      freefall: falling || f.phase === 'plane' || f.phase === 'standing',
+      cue: '',
+      guide: '',
+      heightAlert: 'none',
+    },
+    elapsed,
+  );
+  hud.showWatched(p.time, p.speed, p.paused, p.done, w.free !== null);
 }
 
 applyWeather();
@@ -1918,6 +2381,7 @@ if (import.meta.env.DEV) {
     gather: { get: () => gather },
     net: { get: () => net },
     bots: { get: () => bots },
+    target: { get: () => target },
   });
   Object.assign(window, { sim });
 }

@@ -51,6 +51,20 @@ describe('the run-up', () => {
     expect(r.x).toBeGreaterThan(9);
   });
 
+  test('runs backwards and sideways too, diagonally no faster than ahead', () => {
+    const back = new RunUp(() => 0, 0, 0, 90);
+    const side = new RunUp(() => 0, 0, 0, 90);
+    const slant = new RunUp(() => 0, 0, 0, 90);
+    for (let i = 0; i < 3 / SIM_DT; i++) {
+      back.step(SIM_DT, { ...run, forward: -1 });
+      side.step(SIM_DT, { ...run, forward: 0, slide: 1 });
+      slant.step(SIM_DT, { ...run, forward: 1, slide: 1 });
+    }
+    expect(back.vel.x).toBeLessThan(-3.5);
+    expect(side.vel.z).toBeGreaterThan(4.5);
+    expect(Math.hypot(slant.vel.x, slant.vel.z)).toBeCloseTo(RUN_SPEED, 1);
+  });
+
   test('stands on the roof and leaves it over the edge', () => {
     const { jump, until, model } = baseJump();
     expect(jump.phase).toBe('standing');

@@ -168,7 +168,7 @@ export class RemoteJumper {
     const suit = suitOf(this.gear);
     this.view?.body.setSuit(suit, wingColor(this.gear.color));
     this.view?.setOutfit(outfitOf(this.gear));
-    this.posture.wings = hasWings(suit);
+    this.posture.wings = hasWings(suit) ? suit.level : null;
   }
 
   /** A canister on their ankle, and a trail for it, as their gear has it. */

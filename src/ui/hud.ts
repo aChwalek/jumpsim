@@ -4,6 +4,7 @@ import type { AltimeterKind } from '../setup';
 import type { Controls } from '../sim/flightModel';
 import type { JumpLog } from '../sim/jump';
 import type { Malfunction } from '../sim/opening';
+import type { TrackMarks } from '../replay/track';
 import type { Touchdown } from '../sim/landing';
 import { Altimeter } from './altimeter';
 import { keysHtml, type InputKind, type KeysPhase, type PadKind } from './keys';
@@ -68,10 +69,29 @@ const hint = (): string => `
     <button data-act="retry">${T.hud.retry}</button>
     <button data-act="change">${T.hud.change}</button>
     <button data-act="replay" class="replayBtn">${T.hud.watchAgain}</button>
+    <button data-act="watch" class="watchBtn">${T.hud.watchJump}</button>
   </div>
   <p class="hint">${T.hud.again(keyLabel)}</p>`;
 
-export type CardAction = 'retry' | 'change' | 'replay';
+export type CardAction = 'retry' | 'change' | 'replay' | 'watch';
+
+/** The replay bar's buttons, and a click on its track: to that moment, s. */
+export type WatchCommand = 'toggle' | 'close' | { seek: number };
+
+/** What the replay bar shows of the jump watched again. */
+export interface Watched {
+  n: number;
+  dz: string;
+  start: number;
+  end: number;
+  marks: TrackMarks;
+}
+
+/** Minutes and seconds. */
+const clock = (s: number): string => {
+  const whole = Math.max(0, Math.floor(s));
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+};
 
 export class Hud {
   private readonly root = el('hud');
@@ -100,18 +120,84 @@ export class Hud {
   showFps = true;
   /** A button of the card at the end of the jump. */
   onCard: (action: CardAction) => void = () => {};
+  /** A button of the replay bar, or a click on it. */
+  onWatch: (command: WatchCommand) => void = () => {};
+  private readonly watch = el('watch');
+  private watched: Watched | null = null;
+  private lastWatched = '';
 
   constructor() {
     this.result.addEventListener('click', (e) => {
       const act = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act;
       if (act) this.onCard(act as CardAction);
     });
+    this.watch.addEventListener('click', (e) => {
+      const command = (e.target as HTMLElement).closest<HTMLElement>('[data-watch]')?.dataset.watch;
+      if (command === 'toggle' || command === 'close') this.onWatch(command);
+    });
+    // The track: a click goes to that moment, and dragging along it.
+    const seek = (e: PointerEvent) => {
+      const w = this.watched;
+      const bar = this.watch.querySelector<HTMLElement>('.track');
+      if (!w || !bar) return;
+      const box = bar.getBoundingClientRect();
+      const k = Math.max(0, Math.min(1, (e.clientX - box.left) / Math.max(1, box.width)));
+      this.onWatch({ seek: w.start + k * (w.end - w.start) });
+    };
+    this.watch.addEventListener('pointerdown', (e) => {
+      const bar = (e.target as HTMLElement).closest<HTMLElement>('.track');
+      if (!bar) return;
+      bar.setPointerCapture(e.pointerId);
+      seek(e);
+    });
+    this.watch.addEventListener('pointermove', (e) => {
+      const bar = (e.target as HTMLElement).closest<HTMLElement>('.track');
+      if (bar?.hasPointerCapture(e.pointerId)) seek(e);
+    });
   }
 
-  /** Whether the end of the jump can be seen again; and walking about, the card out of the way. */
-  setCard(replayable: boolean, walking: boolean): void {
+  /**
+   * Whether the end of the jump can be seen again in slow motion, and all of
+   * it; walking about, the card out of the way.
+   */
+  setCard(replayable: boolean, walking: boolean, watchable: boolean): void {
     this.result.classList.toggle('noReplay', !replayable);
+    this.result.classList.toggle('noWatch', !watchable);
     this.result.classList.toggle('compact', walking);
+  }
+
+  /** A whole jump watched again, with its bar on screen; null for none. */
+  setWatching(w: Watched | null): void {
+    this.watched = w;
+    this.lastWatched = '';
+    this.root.classList.toggle('watching', w !== null);
+    if (!w) return;
+    const length = Math.max(1e-3, w.end - w.start);
+    const at = (t: number | null, kind: keyof TrackMarks): string =>
+      t === null ? '' : `<i class="mark ${kind}" style="left:${((100 * (t - w.start)) / length).toFixed(2)}%" title="${T.hud.marks[kind]}"></i>`;
+    this.watch.innerHTML = `
+      <div class="head"><b>${T.hud.watchTitle}</b><span class="what">${T.hud.watchWhat(w.n, w.dz)}</span><span class="cam"></span><span class="speed"></span></div>
+      <div class="track"><div class="fill"></div>${at(w.marks.exit, 'exit')}${at(w.marks.open, 'open')}${at(w.marks.landing, 'landing')}<div class="knob"></div></div>
+      <div class="foot"><span class="time"></span><span class="buttons"><button data-watch="toggle"></button><button data-watch="close" title="${T.hud.watchClose}">✕</button></span></div>`;
+  }
+
+  /** Where the replay is, how fast, whether it waits, and whether the camera is let loose. */
+  showWatched(time: number, speed: number, paused: boolean, done: boolean, free: boolean): void {
+    const w = this.watched;
+    if (!w) return;
+    const key = `${time.toFixed(1)}|${speed}|${paused}|${done}|${free}`;
+    if (key === this.lastWatched) return;
+    this.lastWatched = key;
+    const k = Math.max(0, Math.min(1, (time - w.start) / Math.max(1e-3, w.end - w.start)));
+    const q = <E extends HTMLElement>(s: string) => this.watch.querySelector<E>(s);
+    q('.fill')!.style.width = `${(k * 100).toFixed(2)}%`;
+    q('.knob')!.style.left = `${(k * 100).toFixed(2)}%`;
+    q('.time')!.textContent = `${clock(time - w.start)} / ${clock(w.end - w.start)}`;
+    q('.cam')!.textContent = free ? T.hud.freeCamera : '';
+    q('.speed')!.textContent = paused ? (done ? T.hud.watchEnd : T.hud.watchPaused) : speed === 1 ? '' : `×${speed}`;
+    const toggle = q<HTMLButtonElement>('[data-watch="toggle"]')!;
+    toggle.textContent = paused ? '▶' : '❚❚';
+    toggle.title = paused ? T.hud.watchPlay : T.hud.watchPause;
   }
 
   /** Whether the card at the end of the jump is up. */

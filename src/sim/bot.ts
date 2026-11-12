@@ -176,6 +176,15 @@ export function guideTo(us: Pick<Lead, 'pos'>, leader: Lead): Guide {
   };
 }
 
+/**
+ * Where in the plane a bot waits: the places at the door we left free first, then in the cabin,
+ * and all those past that in the cabin too, where one more behind another does not show.
+ */
+export function botSpot(index: number, ours: ExitSpot): ExitSpot {
+  const free = EXIT_SPOTS.filter((s) => s !== ours && s !== 'inside');
+  return free[index] ?? 'inside';
+}
+
 /** Where the lowest bot pulls and where they all break off, out of a plane this high, m above the ground. */
 export function botHeights(exitHeight: number): { pull: number; breakOff: number } {
   const pull = clamp(exitHeight - 600, PULL_FLOOR, PULL_HEIGHT);
@@ -230,8 +239,7 @@ export class Bot {
   ) {
     const random = plan.random ?? Math.random;
     this.model = new FlightModel(rig);
-    const others = EXIT_SPOTS.filter((s) => s !== plan.spot);
-    const spot = others[plan.index % others.length]!;
+    const spot = botSpot(plan.index, plan.spot);
     this.jump = new Jump(this.model, plan.run, env, plan.groundAt, random, { ...plan.options, malfunction: null, spot });
     const heights = botHeights(plan.run.height);
     this.pullAt = heights.pull + PULL_STEP * plan.index;

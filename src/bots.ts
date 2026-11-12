@@ -127,6 +127,11 @@ export class Bots implements Others {
     }
   }
 
+  /** The bot that leads, if one does: who to keep an eye on. */
+  get leader(): string | null {
+    return this.flown.find((f) => f.bot.leads)?.id ?? null;
+  }
+
   /** How far we are from our place behind the bot that leads, while it is there to follow; null with no leader. */
   guide(us: Lead): Guide | null {
     const leader = this.flown.find((f) => f.bot.leads)?.bot;
