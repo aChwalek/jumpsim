@@ -2,10 +2,15 @@ import type { ClientMessage, ServerMessage } from './protocol';
 
 /**
  * How browsers find a way to each other through home routers: a STUN server
- * tells each one its public address. Two peers behind strict NATs would also
- * need a TURN relay, which this does not have yet.
+ * tells each one its public address. When two are both behind strict NATs,
+ * a TURN server relays between them: the Worker hands out credentials for
+ * Cloudflare's. Until it has answered, or if it cannot, STUN alone.
  */
-const ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
+const STUN_ONLY: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
+/** TURN credentials last a day: new ones twice as often, for the peers still to come. */
+const ICE_REFRESH_MS = 12 * 3600 * 1000;
+/** Not waiting longer than this for them before connecting, ms. */
+const ICE_TIMEOUT_MS = 4000;
 /** Wait before calling the signalling server again after losing it, ms. */
 const RECONNECT_MS = 3000;
 
@@ -36,12 +41,19 @@ export class Mesh {
   private socket: WebSocket | null = null;
   private readonly peers = new Map<string, Peer>();
   private closed = false;
+  private iceServers = STUN_ONLY;
+  private readonly refresh: ReturnType<typeof setInterval>;
 
+  /** `url`: the room's signalling WebSocket; `iceUrl`: where to ask for the ICE servers. */
   constructor(
     private readonly url: string,
+    private readonly iceUrl: string,
     private readonly events: MeshEvents,
   ) {
-    this.connect();
+    void this.loadIceServers().then(() => {
+      if (!this.closed) this.connect();
+    });
+    this.refresh = setInterval(() => void this.loadIceServers(), ICE_REFRESH_MS);
   }
 
   /** The peers we can talk to now. */
@@ -66,12 +78,24 @@ export class Mesh {
 
   dispose(): void {
     this.closed = true;
+    clearInterval(this.refresh);
     this.socket?.close();
     for (const id of [...this.peers.keys()]) this.drop(id);
   }
 
   private sendControl(p: Peer, data: string): void {
     if (p.control.readyState === 'open') p.control.send(data);
+  }
+
+  private async loadIceServers(): Promise<void> {
+    try {
+      const response = await fetch(this.iceUrl, { method: 'POST', signal: AbortSignal.timeout(ICE_TIMEOUT_MS) });
+      if (!response.ok) return;
+      const { iceServers } = (await response.json()) as { iceServers?: RTCIceServer[] };
+      if (Array.isArray(iceServers) && iceServers.length > 0) this.iceServers = iceServers;
+    } catch {
+      // STUN alone, then.
+    }
   }
 
   private connect(): void {
@@ -117,7 +141,7 @@ export class Mesh {
   private peer(id: string): Peer {
     let p = this.peers.get(id);
     if (p) return p;
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({ iceServers: this.iceServers });
     // Negotiated: both sides make the same channels with the same ids, so
     // neither has to wait to be told of them.
     const state = pc.createDataChannel('state', { negotiated: true, id: 0, ordered: false, maxRetransmits: 0 });

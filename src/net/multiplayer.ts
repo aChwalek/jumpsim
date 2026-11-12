@@ -46,7 +46,7 @@ export class Multiplayer {
     private readonly light: () => Lighting,
   ) {
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-    this.mesh = new Mesh(`${scheme}://${location.host}/signal/${room}`, {
+    this.mesh = new Mesh(`${scheme}://${location.host}/signal/${room}`, '/turn', {
       open: (id) => {
         if (this.hello) this.mesh.sendControlTo(id, JSON.stringify(this.hello));
       },
