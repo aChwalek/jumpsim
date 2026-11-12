@@ -197,7 +197,6 @@ export const en: Strings = {
     trackPress: 'press: track / angle',
     diveFlare: 'dive / flare',
     wingsWideTight: 'wings wide / tight',
-    turnWings: 'turn, wings wide / tight',
     wingsuitRoll: 'barrel roll, back flying',
     fwdBackSlide: 'forward, back, slide',
     pull: 'pull',

@@ -157,8 +157,9 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
     case 'wingsuit':
       return [
         [['ls'], t.diveFlare],
-        [['rs'], t.turnWings],
-        [['lb'], t.lookHeld],
+        [['lt', 'rt'], t.turn],
+        [['lb', 'rb'], t.wingsWideTight],
+        [['rs'], t.look],
         [['left', 'right'], t.wingsuitRoll],
         [['a'], t.pullReserve],
         [['rs'], t.targetLockPad],

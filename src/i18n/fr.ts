@@ -201,7 +201,6 @@ export const fr = {
     trackPress: 'appui : track / trace',
     diveFlare: 'piquer / cabrer',
     wingsWideTight: 'ailes ouvertes / serrées',
-    turnWings: 'tourner, ailes ouvertes / serrées',
     wingsuitRoll: 'tonneau, vol sur le dos',
     fwdBackSlide: 'avancer, reculer, glisser',
     pull: 'ouvrir',

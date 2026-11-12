@@ -129,9 +129,11 @@ const PAD_CUTAWAY = 1;
  * What the gamepad is for at this moment of the jump. `exit`: in the door or
  * on the ledge, B, Y and X take the position to go out in. `freefall`: they
  * do the same, and the right stick flies (turns, up and down) unless LB is
- * held to look around.
+ * held to look around. `wings`: in a wingsuit the right stick looks around,
+ * as everywhere else: the eyes are on whoever is flown with, the triggers
+ * turn and the bumpers open and tighten the wings.
  */
-export type PadMode = 'default' | 'exit' | 'freefall';
+export type PadMode = 'default' | 'exit' | 'freefall' | 'wings';
 
 /** How long the cutaway key or button has to be held, ms: no cutaway by a slip of the finger. */
 export const CUTAWAY_HOLD = 350;
@@ -412,6 +414,8 @@ export class InputDevices {
       // The right stick pushed up spreads out (up on the others, the wings
       // wide), pulled down tucks in (down, the wings tight), as far as it goes.
       if (flies) b.fall = clamp(b.fall + rightY, -1, 1);
+      // In wings the bumpers do: LB wide, RB tight.
+      if (this.padMode === 'wings') b.fall = clamp(b.fall + btn(5) - btn(4), -1, 1);
       // The cross held: somersaults and rolls one after the other.
       b.flip = clamp((b.flip ?? 0) + btn(12) - btn(13), -1, 1);
       b.roll = clamp((b.roll ?? 0) + btn(15) - btn(14), -1, 1);
