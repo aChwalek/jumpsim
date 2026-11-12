@@ -171,6 +171,33 @@ export const TRACK_SHAPES: Record<BodyPosition, TrackShape> = {
   headDown: { area: vec3(1, 0.28, 1), tilt: 28 * DEG, dive: 20 * DEG, ease: 40 * DEG, dir: 1 },
 };
 
+/**
+ * What a suit does to the body's flight. A plain jumpsuit is the reference;
+ * a tracking suit, its fabric filled with air, makes a better wing of the
+ * track; a wingsuit, wings between the arms and the body and between the
+ * legs, is a wing outright, flown from the moment it fills.
+ */
+export interface SuitFit {
+  /** Drag area all round against a plain jumpsuit: fabric and wings show more to the air. */
+  size: number;
+  /** The track flat and the angle upright, in this suit; areas against its own belly. */
+  tracks: Record<BodyPosition, TrackShape>;
+  /** Time to stretch out into the track, or for the wings to fill, s. */
+  trackIn: number;
+  /** Turn rate in the track, as a fraction of the position's: a wing banks round slowly. */
+  trackTurn: number;
+}
+
+/** A plain jumpsuit. */
+export const JUMPSUIT_FIT: SuitFit = { size: 1, tracks: TRACK_SHAPES, trackIn: 0.6, trackTurn: 1 };
+
+/**
+ * The tilt to ask of a track for the body to settle `settled` off the
+ * airflow, rad. The body tilts towards where it leads, the airflow swings
+ * round with it: asked `tilt`, it ends up where tan θ = tan(tilt) · cos θ.
+ */
+export const tiltFor = (settled: number): number => Math.atan(Math.sin(settled) / Math.cos(settled) ** 2);
+
 /** Drag areas tucked in (falling faster) and spread out (slower), against neutral. */
 const TUCKED = 0.72;
 const SPREAD = 1.36;
@@ -199,14 +226,21 @@ export interface FreefallParams {
   turnLag: number;
   /** Time to stretch out into a track or come out of it, s. */
   trackIn: number;
+  /** The track and the angle, as the suit flies them. */
+  tracks: Record<BodyPosition, TrackShape>;
+  /** Turn rate in the track, as a fraction of the position's. */
+  trackTurn: number;
 }
 
-/** A body of this weight: bigger people are heavier and broader, and fall a little faster. */
-export function freefallParams(exitWeightKg: number): FreefallParams {
+/**
+ * A body of this weight, in this suit: bigger people are heavier and
+ * broader, and fall a little faster.
+ */
+export function freefallParams(exitWeightKg: number, suit: SuitFit = JUMPSUIT_FIT): FreefallParams {
   const size = (exitWeightKg / 90) ** (2 / 3);
   return {
     mass: exitWeightKg,
-    bellyArea: 0.5 * size,
+    bellyArea: 0.5 * size * suit.size,
     settle: 0.25,
     // A quarter turn, belly to sitting, in about three quarters of a second.
     swingRate: 150 * DEG,
@@ -217,7 +251,9 @@ export function freefallParams(exitWeightKg: number): FreefallParams {
     spinAccel: 2000 * DEG,
     reshape: 0.4,
     turnLag: 0.4,
-    trackIn: 0.6,
+    trackIn: suit.trackIn,
+    tracks: suit.tracks,
+    trackTurn: suit.trackTurn,
   };
 }
 
@@ -395,7 +431,7 @@ export class Freefall {
     const size = p.bellyArea * (fall > 0 ? 1 + (TUCKED - 1) * fall : 1 + (SPREAD - 1) * -fall);
     const reshape = 1 - Math.exp(-dt / p.reshape);
     // Into the track and out of it, the stretch taking its time.
-    const tr = TRACK_SHAPES[this.position];
+    const tr = p.tracks[this.position];
     const inTrack = (this.track += ((this.tracking ? 1 : 0) - this.track) * (1 - Math.exp(-dt / p.trackIn)));
     const area = this.area;
     area.x += ((shape.area.x + (tr.area.x - shape.area.x) * inTrack) * size - area.x) * reshape;
@@ -512,7 +548,7 @@ export class Freefall {
     // Turning: about the axis that is up for the eyes (the back belly to
     // earth, the head when upright, even upside down), so that a turn to the
     // right is always to the right of where they look.
-    const wanted = clamp(input.turn, -1, 1) * shape.turnRate * authority;
+    const wanted = clamp(input.turn, -1, 1) * shape.turnRate * (1 + (p.trackTurn - 1) * this.track) * authority;
     s.yawRate += (wanted - s.yawRate) * Math.min(1, dt / p.turnLag);
     const up = this.local;
     set(

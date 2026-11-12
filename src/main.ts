@@ -31,10 +31,14 @@ import {
   rigFor,
   runHeading,
   sameFlight,
+  sameSuit,
+  suitColor,
+  suitOf,
   type Setup,
   type Start,
 } from './setup';
 import { Arrival } from './sim/arrival';
+import { hasWings } from './sim/suit';
 import { J, JOINT_COUNT, PART, Ragdoll } from './sim/ragdoll';
 import { Recorder, type Replay, type ReplayFrame } from './crashReplay';
 import { airDensityAt } from './sim/atmosphere';
@@ -187,6 +191,14 @@ function newRigView(): void {
   rigView = new RigView(rig, CANOPY_COLORS[setup.gear.color].cells, light);
   scene.add(rigView.object);
   fitSmoke();
+  fitSuit();
+}
+
+/** The suit as the gear has it, its wings of the canopy's colour. */
+function fitSuit(): void {
+  const suit = suitOf(setup.gear);
+  rigView.body.setSuit(suit, suitColor(setup.gear.color));
+  posture.wings = hasWings(suit);
 }
 
 /** The canister on the ankle as the gear has it, and the colour of its smoke. */
@@ -283,8 +295,9 @@ function apply(next: Setup, withGear: boolean): boolean {
   applyWeather();
   if (withGear) applyGear(before.gear);
   fitSmoke();
+  fitSuit();
   showGear();
-  return setup.dz === before.dz && sameFlight(setup.gear, before.gear);
+  return setup.dz === before.dz && sameFlight(setup.gear, before.gear) && sameSuit(setup.gear, before.gear);
 }
 
 const resolution = new Resolution(renderer, QUALITY_LEVELS[settings.quality]!.ratio);
@@ -405,6 +418,7 @@ let jump: Jump | null = null;
 let impact = false;
 /** How the body is held, eased from one stance to the next. */
 const posture = new Posture();
+fitSuit();
 const still = noBodyInputs();
 /** Where the hands have the toggles: stowed brakes keep the canopy's short of them. */
 const hands = neutralControls();
@@ -467,10 +481,10 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
   });
 }
 
-/** What the jump gets from the gear: the container, and its reserve if it has one. */
+/** What the jump gets from the gear: the container, and its reserve if it has one; the suit. */
 function rigOptions(): JumpOptions {
   const { container, rsl } = setup.gear;
-  return { container, reserve: reserveRig, rsl: container === 'sport' && rsl, solidAt: solid };
+  return { container, reserve: reserveRig, rsl: container === 'sport' && rsl, solidAt: solid, suit: suitOf(setup.gear) };
 }
 
 /** One canopy and no reserve: a BASE container. */
@@ -1427,13 +1441,30 @@ function aimChase(): ChaseTarget {
   return t;
 }
 
+/**
+ * What the body does in freefall, as the cue names it: the position, the
+ * track or the wings (filling, then flown); and once stretched out, how far
+ * it goes for every metre down.
+ */
+function flying(j: Jump): { name: string; glide: string } {
+  const c = T.cue;
+  const b = j.body;
+  if (!b.tracking) return { name: c.positions[b.position], glide: '' };
+  if (j.wings && b.track < 0.8) return { name: c.wingsFilling, glide: '' };
+  const name = (j.wings ? c.wingsuit : c.tracks)[b.position];
+  if (b.track < 0.8) return { name, glide: '' };
+  const v = b.state.vel;
+  return { name, glide: c.glide(num(Math.hypot(v.x, v.z) / Math.max(1, -v.y), 1)) };
+}
+
 /** Which keys the side of the screen shows: what can be done right now. */
 function keysPhase(): KeysPhase | null {
   if (menu.isOpen) return null;
   if (touchdown || arrival || impact) return 'ground';
   if (!jump || jump.phase === 'canopy' || jump.phase === 'opening') return singleCanopy() ? 'baseCanopy' : 'canopy';
   if (jump.phase === 'standing') return 'ledge';
-  return jump.phase === 'plane' ? 'plane' : 'freefall';
+  if (jump.phase === 'plane') return 'plane';
+  return jump.wings && jump.cutawayAt === null ? 'wingsuit' : 'freefall';
 }
 
 /** What the HUD says to do next. */
@@ -1469,13 +1500,13 @@ function cue(): string {
     // Off a BASE object, the count is what matters.
     const delay = c.delay(num(jump.time, 1));
     if (jump.pullWhenFlat) return `${delay}<small>${c.flat} · ${c.toPull}</small>`;
-    const name = (jump.body.tracking ? c.tracks : c.positions)[jump.body.position];
-    return `${delay}<small>${name ? `${name} · ` : ''}${c.spaceToPull}</small>`;
+    const { name, glide } = flying(jump);
+    return `${delay}<small>${[name, glide, c.spaceToPull].filter(Boolean).join(' · ')}</small>`;
   }
   if (jump.phase === 'freefall') {
     if (jump.pullWhenFlat) return `${c.flat}<small>${c.toPull}</small>`;
-    const name = (jump.body.tracking ? c.tracks : c.positions)[jump.body.position];
-    if (jump.time > 1.5) return `${name}<small>${c.spaceToPull}</small>`;
+    const { name, glide } = flying(jump);
+    if (jump.time > 1.5) return `${name}<small>${[glide, c.spaceToPull].filter(Boolean).join(' · ')}</small>`;
     return name;
   }
   if (jump.stowed && !touchdown) {

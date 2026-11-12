@@ -50,10 +50,12 @@ import {
   SLIDER_KINDS,
   CONTAINERS,
   startsAt,
+  suitOf,
   type Setup,
   type Start,
 } from '../setup';
 import { AIRCRAFT } from '../sim/plane';
+import { SUIT_KINDS, SUIT_LEVELS, suitGlide, type SuitKind, type SuitLevel } from '../sim/suit';
 import { reserveSize, type CanopyKind } from '../sim/rig';
 import { trimSpeeds } from '../sim/telemetry';
 import {
@@ -894,7 +896,9 @@ export class Menu {
         return `
           <span class="big">${gear.canopyAreaFt2}<small class="unit">ft²</small> <small>${kindName(gear.kind)}</small>${swatch(gear.color)}</span>
           <span>${gear.exitWeightKg} kg · ${num(rig.wingLoading, 2)} lb/ft² · ${loadingLabel(rig.wingLoading)}</span>
-          <span class="dim">${g.containerLine[gear.container]} · ${g.altimeterLine[gear.altimeter]} · ${gear.audible ? g.audibleOn : g.audibleOff} · ${g.sliderLine[gear.slider]}${
+          <span class="dim">${gear.suit !== 'jumpsuit' ? `${g.suitLine[gear.suit](gear.suitLevel)} · ` : ''}${g.containerLine[gear.container]} · ${
+            g.altimeterLine[gear.altimeter]
+          } · ${gear.audible ? g.audibleOn : g.audibleOff} · ${g.sliderLine[gear.slider]}${
             gear.container === 'sport' && gear.rsl ? ' · RSL' : ''
           }${gear.smoke !== 'none' ? ` · ${g.smokeLine(g.smokes[gear.smoke])}` : ''}</span>`;
       }
@@ -989,6 +993,16 @@ export class Menu {
           },
         },
       ),
+      this.choice<SuitKind>(g.suit, options(SUIT_KINDS, (k) => g.suits[k]), () => gear().suit, (suit) => this.setGear({ suit }), {
+        note: () => {
+          const { glide, across, down } = suitGlide(suitOf(gear()), gear().exitWeightKg);
+          return g.suitNote[gear().suit](num(glide, 1), num(across), num(down), T.keys.shift);
+        },
+      }),
+      this.choice<SuitLevel>(g.suitLevel, options(SUIT_LEVELS, String), () => gear().suitLevel, (suitLevel) => this.setGear({ suitLevel }), {
+        hint: g.suitLevelHint,
+        disabled: () => gear().suit === 'jumpsuit',
+      }),
       this.choice<AltimeterKind>(
         g.altimeterRow,
         options(['none', 'analog', 'digital'] as const, (a) => g.altimeter[a]),

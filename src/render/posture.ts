@@ -163,6 +163,29 @@ function track(p: Pose, input: BodyInputs): void {
   p.elbowR.set(1, 0, 0.4);
 }
 
+function wingsuit(p: Pose, input: BodyInputs): void {
+  // Flying a wingsuit: arms out wide and nearly straight, swept back a
+  // little, the wings taut between them and the body; legs straight in a V
+  // for the wing between them.
+  const { forward, back, up, down } = drives(input);
+  p.lean = p.bow = 0;
+  // Diving, the shoulders roll forward and the arms come back; flaring, they go out ahead.
+  p.hipL = p.hipR = 0.04 - 0.04 * forward + 0.18 * back;
+  p.kneeL = p.kneeR = 0.05 + 0.1 * back;
+  // Wings closed a little to go down faster, spread wide to float.
+  p.spread = 0.24 + 0.05 * up - 0.12 * down;
+  const span = 0.5 + 0.03 * up - 0.2 * down - 0.04 * forward;
+  const height = -0.34 - 0.1 * forward + 0.1 * back - 0.08 * down;
+  const reach = 0.06 + 0.04 * forward - 0.06 * back;
+  // The low hand turns, the arms shift to slide.
+  const dip = 0.1 * input.turn;
+  const shift = 0.05 * input.slide;
+  p.handL.set(-0.19 - span + shift, height, reach + dip);
+  p.handR.set(0.19 + span + shift, height, reach - dip);
+  p.elbowL.set(-0.3, 0.2, 1);
+  p.elbowR.set(0.3, 0.2, 1);
+}
+
 function throwOut(p: Pose): void {
   // Right hand back to the handle at the foot of the container, left hand
   // forward over the head to stay level.
@@ -261,6 +284,8 @@ export class LegSwing {
 }
 
 export class Posture {
+  /** In a wingsuit: the track is the wings flown. */
+  wings = false;
   readonly pose = makePose();
   private readonly target = makePose();
   private readonly out = makePose();
@@ -297,7 +322,8 @@ export class Posture {
         headDown(t, input);
         break;
       case 'track':
-        track(t, input);
+        if (this.wings) wingsuit(t, input);
+        else track(t, input);
         break;
       case 'throw':
         throwOut(t);

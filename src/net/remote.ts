@@ -5,7 +5,8 @@ import { Posture } from '../render/posture';
 import { RigView, type RigFrame } from '../render/rigView';
 import { SMOKE_BURN, SmokeTrail } from '../render/smoke';
 import type { Lighting } from '../render/scene';
-import { reserveRigFor, rigFor, sameFlight, type Gear } from '../setup';
+import { reserveRigFor, rigFor, sameFlight, suitColor, suitOf, type Gear } from '../setup';
+import { hasWings } from '../sim/suit';
 import { FlightModel } from '../sim/flightModel';
 import { noBodyInputs } from '../sim/freefall';
 import { feetHeight } from '../sim/landing';
@@ -68,6 +69,7 @@ export class RemoteJumper {
     const before = this.gear;
     this.gear = gear;
     this.fitSmoke(light);
+    this.fitSuit();
     if (before && sameFlight(before, gear) && before.color === gear.color) return;
     if (!before || !sameFlight(before, gear)) {
       this.main = new FlightModel(rigFor(gear));
@@ -151,6 +153,15 @@ export class RemoteJumper {
     seenFromAfar(this.view.object);
     this.scene.add(this.view.object);
     this.view.body.setSmoke(this.gear.smoke);
+    this.fitSuit();
+  }
+
+  /** Their suit, its wings of their canopy's colour. */
+  private fitSuit(): void {
+    if (!this.gear) return;
+    const suit = suitOf(this.gear);
+    this.view?.body.setSuit(suit, suitColor(this.gear.color));
+    this.posture.wings = hasWings(suit);
   }
 
   /** A canister on their ankle, and a trail for it, as their gear has it. */

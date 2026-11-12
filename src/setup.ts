@@ -4,10 +4,11 @@
 
 import { T } from './i18n';
 import { HOUR_MAX, HOUR_MIN } from './render/daylight';
-import { isCanopyColor, type CanopyColorId } from './render/canopyColors';
+import { CANOPY_COLORS, isCanopyColor, type CanopyColorId } from './render/canopyColors';
 import { isSmoke, type SmokeKind } from './render/smoke';
 import type { Container } from './sim/jump';
 import { DEFAULT_RIG, deriveRig, reserveConfig, rigConfig, type CanopyKind, type RigParams } from './sim/rig';
+import { isSuitKind, isSuitLevel, type Suit, type SuitKind, type SuitLevel } from './sim/suit';
 import { WIND_MAX_KMH, type GustLevel, type SkyKind, type Weather } from './sim/weather';
 import { DZS, dzInfo, type DzId } from './world/dzs';
 
@@ -55,7 +56,21 @@ export interface Gear {
   rsl: boolean;
   /** A smoke canister on the right ankle, lit on leaving: its colour, or none. */
   smoke: SmokeKind;
+  /** A plain jumpsuit, a tracking suit or a wingsuit. */
+  suit: SuitKind;
+  /** Of the tracking suit or the wingsuit, 1 to 3. */
+  suitLevel: SuitLevel;
 }
+
+/** The suit as the jump flies it. */
+export const suitOf = (gear: Gear): Suit => ({ kind: gear.suit, level: gear.suitLevel });
+
+/** Whether two gears fall the same: same suit (a plain jumpsuit has no level). */
+export const sameSuit = (a: Gear, b: Gear): boolean =>
+  a.suit === b.suit && (a.suit === 'jumpsuit' || a.suitLevel === b.suitLevel);
+
+/** The wings of a suit match the canopy: its main colour. */
+export const suitColor = (color: CanopyColorId): number => CANOPY_COLORS[color].cells[1]!;
 
 /**
  * Where the jump starts: in the plane, already under canopy (on downwind or
@@ -144,6 +159,8 @@ export function defaultSetup(): Setup {
       container: 'sport',
       rsl: true,
       smoke: 'none',
+      suit: 'jumpsuit',
+      suitLevel: 1,
     },
     jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'none' },
   };
@@ -186,6 +203,8 @@ export function validSetup(saved: unknown): Setup {
   if (oneOf(g.container, CONTAINERS)) gear.container = g.container;
   if (typeof g.rsl === 'boolean') gear.rsl = g.rsl;
   if (isSmoke(g.smoke)) gear.smoke = g.smoke;
+  if (isSuitKind(g.suit)) gear.suit = g.suit;
+  if (isSuitLevel(g.suitLevel)) gear.suitLevel = g.suitLevel;
   const j = (s.jump ?? {}) as Partial<Record<keyof JumpPlan, unknown>>;
   if (oneOf(j.start, startsAt(setup.dz))) setup.jump.start = j.start;
   if (finite(j.exitHeight)) setup.jump.exitHeight = validExitHeight(j.exitHeight);
