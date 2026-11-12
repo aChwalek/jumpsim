@@ -183,6 +183,8 @@ export class CanopyView {
   private chamberWidth = 0;
   /** The bridle's attachment on top, canopy frame, as last drawn. */
   private readonly top = new THREE.Vector3();
+  private readonly liftLocal = new THREE.Vector3();
+  private readonly liftSkin = new THREE.Vector3();
 
   constructor(
     private readonly rig: RigParams,
@@ -491,6 +493,49 @@ export class CanopyView {
       }
     }
     return out;
+  }
+
+  /**
+   * Pushes a world point that has got under the top skin back out through
+   * it, to `clear` above the fabric, by `most` metres at the most: what keeps
+   * the bag, the bridle and the pilot chute lying on top of the canopy.
+   * Returns whether it moved the point. A canopy crumpled or lying down
+   * holds nothing up.
+   */
+  liftOut(p: THREE.Vector3, clear: number, most: number): boolean {
+    if (!this.object.visible || this.heap > 0 || this.crumple > 0.2) return false;
+    const rig = this.rig;
+    const local = this.liftLocal.copy(p).sub(this.object.position).applyQuaternion(this.inverse);
+    // Round the arc: which way out from the links, and how far.
+    const dy = local.y - rig.linksPos.y;
+    const r = Math.hypot(local.x, dy);
+    const s = (Math.atan2(local.x, dy) * 2 * rig.lineLength) / (this.spread * rig.span);
+    if (Math.abs(s) > 1) return false;
+    // Along the chord: a first guess from the plain section, then once more
+    // from where that put the skin.
+    const outer = Math.max(0, (Math.abs(s) - 0.7) / 0.3);
+    const scale = rig.chord * (1 - 0.3 * outer * outer) * this.chordScale * Math.cos(rig.config.riggingAngleDeg * DEG);
+    const u = this.chamberAt(s);
+    let c = 0.25 + local.z / scale;
+    if (c < -0.1 || c > 1.1) return false;
+    const skin = this.skin(this.liftSkin, s, Math.min(1, Math.max(0, c)), true, u);
+    c += (local.z - skin.z) / scale;
+    if (c < 0 || c > 1) return false;
+    this.skin(skin, s, c, true, u);
+    const under = Math.hypot(skin.x, skin.y - rig.linksPos.y) + clear - r;
+    if (under <= 0 || r < 1e-6) return false;
+    // Straight out from the links, back over the fabric.
+    const push = Math.min(under, most) / r;
+    local.x += local.x * push;
+    local.y += dy * push;
+    p.copy(local).applyQuaternion(this.object.quaternion).add(this.object.position);
+    return true;
+  }
+
+  /** Where a point across the span falls within its chamber: 0 on a rib, towards 1 at the next. */
+  private chamberAt(s: number): number {
+    const k = ((s + 1) / 2) * this.cells * this.chambers;
+    return k - Math.floor(k);
   }
 
   dispose(): void {
@@ -896,7 +941,7 @@ export class CanopyView {
     position.needsUpdate = true;
     this.fabric.computeVertexNormals();
     // The bridle is sewn on the top skin of the middle cell.
-    this.skin(this.top, 0, 0.42, true, 0.5);
+    this.skin(this.top, 0, 0.42, true, this.chamberAt(0));
     this.settle(this.top, 0, 0.42, true);
   }
 

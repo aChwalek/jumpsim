@@ -230,6 +230,7 @@ export class RigView {
       vel: this.vel,
       bagOut: this.bagOut,
       canopyTop: top,
+      canopy: frame.deploy === 'canopy' || frame.deploy === 'free' ? this.canopy : null,
       pilotChuteOpen: this.pilotChuteOpen,
       stageTime: frame.deployTime,
       risers: this.risers,

@@ -15,6 +15,13 @@
 
 import * as THREE from 'three';
 
+/** The canopy as the bridle lies on it: nothing goes through its top skin. */
+export interface CanopySurface {
+  readonly object: THREE.Object3D;
+  /** Pushes a world point that has got under the top skin back out, `clear` above it, by `most` m at the most. */
+  liftOut(p: THREE.Vector3, clear: number, most: number): boolean;
+}
+
 /** Where the deployment is: nothing out, in the hand, towing, lifting the bag, behind the canopy, or let go. */
 export type DeployStage = 'stowed' | 'hand' | 'tow' | 'bag' | 'canopy' | 'free';
 
@@ -37,6 +44,8 @@ export interface DeployFrame {
   bagOut: THREE.Vector3;
   /** Top of the canopy, where the bridle is sewn on, world frame. */
   canopyTop: THREE.Vector3;
+  /** The canopy, once it is out: the bag, the bridle and the pilot chute stay on top of it. */
+  canopy: CanopySurface | null;
   /** How far the pilot chute is open: 1 inflated, less once collapsed by its kill line. */
   pilotChuteOpen: number;
   /** Seconds since the start of the stage, for the throw. */
@@ -47,11 +56,15 @@ export interface DeployFrame {
   ground: number;
 }
 
+/** The bag: across, along the bridle, and thick, m. */
+const BAG = { x: 0.34, y: 0.3, z: 0.12 };
 /** Bridle from the canopy to the bag, and from the bag to the pilot chute, m. */
 const TO_BAG = 1.0;
 const TO_PILOT_CHUTE = 1.8;
 const BRIDLE_NODES = 4;
 const LEAD_NODES = 6;
+/** How fast the canopy can push something lying on it back out, m/s: about as fast as its top skin moves. */
+const LIFT_SPEED = 10;
 /** Time step for the rope, s. */
 const STEP = 1 / 240;
 const GRAVITY = 9.80665;
@@ -64,14 +77,17 @@ interface Node {
   area: number;
   /** Held where the stage puts it. */
   pinned: boolean;
+  /** How far its centre stays off the fabric, m. */
+  clear: number;
 }
 
-const node = (mass: number, area: number): Node => ({
+const node = (mass: number, area: number, clear: number): Node => ({
   pos: new THREE.Vector3(),
   vel: new THREE.Vector3(),
   mass,
   area,
   pinned: false,
+  clear,
 });
 
 export class Deployment {
@@ -95,6 +111,13 @@ export class Deployment {
   private readonly from: THREE.Vector3[] = [];
   private readonly target: THREE.Vector3[] = [];
   private readonly up = new THREE.Vector3(0, 1, 0);
+  private readonly side = new THREE.Vector3();
+  private readonly normal = new THREE.Vector3();
+  private readonly basis = new THREE.Matrix4();
+  /** How far the canopy moved this frame, and where its top was the frame before. */
+  private readonly shift = new THREE.Vector3();
+  private readonly lastTop = new THREE.Vector3();
+  private hadTop = false;
 
   /**
    * `reserve`: a spring pilot chute that stays open and a free bag. `colour`:
@@ -104,11 +127,11 @@ export class Deployment {
     private readonly reserve: boolean,
     colour: number,
   ) {
-    for (let i = 0; i < BRIDLE_NODES; i++) this.nodes.push(node(0.015, 0.004));
-    this.nodes.push(node(0.25, 0.05));
-    for (let i = 0; i < LEAD_NODES; i++) this.nodes.push(node(0.015, 0.004));
+    for (let i = 0; i < BRIDLE_NODES; i++) this.nodes.push(node(0.015, 0.004, 0.02));
+    this.nodes.push(node(0.25, 0.05, BAG.z / 2 + 0.01));
+    for (let i = 0; i < LEAD_NODES; i++) this.nodes.push(node(0.015, 0.004, 0.02));
     // The pilot chute itself is the last.
-    this.nodes.push(node(0.12, 0.3));
+    this.nodes.push(node(0.12, 0.3, 0.08));
     for (let i = 0; i < this.nodes.length; i++) {
       this.old.push(new THREE.Vector3());
       this.from.push(new THREE.Vector3());
@@ -128,9 +151,10 @@ export class Deployment {
     this.lines = new THREE.LineSegments(lines, new THREE.LineBasicMaterial({ color: 0x1c1c1c }));
     this.lines.frustumCulled = false;
 
-    // A d-bag, the size of the container it came out of.
+    // A d-bag, the size of the container it came out of, the bridle
+    // through the top of it; flattened once empty.
     this.bag = new THREE.Mesh(
-      new THREE.BoxGeometry(0.34, 0.14, 0.24),
+      new THREE.BoxGeometry(BAG.x, BAG.y, BAG.z),
       new THREE.MeshLambertMaterial({ color: reserve ? 0x3a3d42 : 0x2b2e33 }),
     );
 
@@ -190,6 +214,11 @@ export class Deployment {
       }
     }
     if (f.stage === 'free') this.freeFor += f.dt;
+    // The canopy moves on over the frame: the rope meets it where it is at each step.
+    if (f.canopy && this.hadTop && this.lastTop.distanceToSquared(f.canopyTop) < 25) this.shift.subVectors(f.canopyTop, this.lastTop);
+    else this.shift.set(0, 0, 0);
+    this.lastTop.copy(f.canopyTop);
+    this.hadTop = f.canopy !== null;
 
     // What is held where, this stage: those nodes are carried from where
     // they were to there over the frame.
@@ -226,6 +255,8 @@ export class Deployment {
       const ahead = nodes[this.bagIndex + 1]!.pos;
       const behind = bridleOut ? nodes[this.bagIndex - 1]!.pos : bag.pos;
       this.orient(this.bag, bag.pos, this.tmp.subVectors(ahead, behind));
+      // On the canopy it lies flat on the fabric.
+      if (f.canopy && f.stage === 'canopy') this.lieFlat(this.bag, this.tmp, this.normal.set(0, 1, 0).applyQuaternion(f.canopy.object.quaternion));
     }
     const lines = this.lines.geometry.getAttribute('position') as THREE.BufferAttribute;
     const carrying = f.stage === 'bag';
@@ -256,6 +287,16 @@ export class Deployment {
   private orient(object: THREE.Object3D, at: THREE.Vector3, along: THREE.Vector3): void {
     object.position.copy(at);
     if (along.lengthSq() > 1e-8) object.quaternion.setFromUnitVectors(this.up, along.normalize());
+  }
+
+  /** Turns an object about its +Y, already along `along`, so its +Z is as near `normal` as it goes. */
+  private lieFlat(object: THREE.Object3D, along: THREE.Vector3, normal: THREE.Vector3): void {
+    const y = along.normalize();
+    const z = normal.addScaledVector(y, -normal.dot(y));
+    if (z.lengthSq() < 1e-6) return;
+    z.normalize();
+    const x = this.side.crossVectors(y, z);
+    object.quaternion.setFromRotationMatrix(this.basis.makeBasis(x, y, z));
   }
 
   /**
@@ -295,6 +336,18 @@ export class Deployment {
         d.multiplyScalar((length - rest) / length / (wa + wb));
         if (wa) a.pos.addScaledVector(d, wa);
         if (wb) b.pos.addScaledVector(d, -wb);
+      }
+    }
+    // Nothing goes through the canopy: whatever has got under its top skin
+    // is pushed back out, against the canopy where it is at this step.
+    const canopy = f.canopy;
+    if (canopy) {
+      const back = 1 - along;
+      for (const n of nodes) {
+        if (n.pinned) continue;
+        n.pos.addScaledVector(this.shift, back);
+        canopy.liftOut(n.pos, n.clear, LIFT_SPEED * dt);
+        n.pos.addScaledVector(this.shift, -back);
       }
     }
     nodes.forEach((n, i) => n.vel.subVectors(n.pos, this.old[i]!).divideScalar(dt));

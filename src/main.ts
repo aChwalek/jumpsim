@@ -748,6 +748,7 @@ function drawReleased(dt: number): void {
     launch: releasedPos,
     bagOut: releasedTop,
     canopyTop: releasedTop,
+    canopy: releasedView,
     pilotChuteOpen: 0,
     stageTime: 10,
     risers: releasedRisers,
