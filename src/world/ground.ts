@@ -188,17 +188,51 @@ const PHOTO_GLSL = /* glsl */ `
     vec2 d = min(uv, 1.0 - uv);
     return smoothstep(0.0, 0.05, min(d.x, d.y));
   }
-  vec3 photoAt(vec2 p) {
+  // blur: a mip bias, each step averaging twice as far round.
+  vec3 photoAt(vec2 p, float blur) {
     vec2 uv2 = p / photoSize.z + 0.5;
     vec2 uv1 = p / photoSize.y + 0.5;
     vec2 uv0 = p / photoSize.x + 0.5;
-    vec3 c = mix(photoFallback, texture2D(photo2, uv2).rgb, photoReady.z * photoWeight(uv2));
-    c = mix(c, texture2D(photo1, uv1).rgb, photoReady.y * photoWeight(uv1));
-    c = mix(c, texture2D(photo0, uv0).rgb, photoReady.x * photoWeight(uv0));
+    vec3 c = mix(photoFallback, texture2D(photo2, uv2, blur).rgb, photoReady.z * photoWeight(uv2));
+    c = mix(c, texture2D(photo1, uv1, blur).rgb, photoReady.y * photoWeight(uv1));
+    c = mix(c, texture2D(photo0, uv0, blur).rgb, photoReady.x * photoWeight(uv0));
     return c * photoGain;
   }
+  vec3 photoAt(vec2 p) { return photoAt(p, 0.0); }
 `;
 
+
+/**
+ * GLSL for rock faces. A photo taken from above spends a pixel or two on a
+ * face hundreds of metres high, which comes out as streaks running down it:
+ * there the photo only gives the tint, averaged over a few tens of metres,
+ * and the texture is drawn on the face itself, seen from either side
+ * (triplanar): beds of rock lying flat, blocks, and grit.
+ */
+const ROCK_GLSL = /* glsl */ `
+  // q: along the face, up. The stretched samples are read blurred: the
+  // speckle of single texels would come out as threadlike lines.
+  float rockFace(vec2 q) {
+    float beds = texture2D(detailMap, vec2(q.x / 1700.0, q.y / 110.0), 3.0).r;
+    float thin = texture2D(detailMap, vec2(q.x / 300.0, q.y / 25.0), 3.0).r;
+    // Dark stains where water runs down.
+    float stains = texture2D(detailMap, vec2(q.x / 250.0, q.y / 1500.0), 3.0).r;
+    float blocks = texture2D(detailMap, q / 29.0).r;
+    float grit = texture2D(detailMap, q / 4.3).r;
+    return (0.6 + 0.8 * beds) * (0.8 + 0.4 * thin) * (0.7 + 0.6 * smoothstep(0.35, 0.65, stains))
+      * (0.6 + 0.8 * blocks) * (0.8 + 0.4 * grit);
+  }
+  vec3 rockAt(vec3 p, vec3 n) {
+    vec2 w = abs(n.xz) + 0.001;
+    w /= w.x + w.y;
+    float face = rockFace(vec2(p.z, p.y)) * w.x + rockFace(vec2(p.x, p.y)) * w.y;
+    vec3 tint = photoAt(p.xz, 4.5);
+    // Rock is greyer than the averaged photo, which takes in the ledges' grass.
+    float grey = dot(tint, vec3(0.3, 0.5, 0.2));
+    tint = mix(vec3(grey), tint, 0.55) * vec3(1.02, 1.0, 0.97);
+    return tint * face;
+  }
+`;
 
 /**
  * Lambert material whose colour carries world-space ground detail. With
@@ -222,27 +256,39 @@ export function groundMaterial(params: THREE.MeshLambertMaterialParameters, laye
     shader.uniforms.grainMap = { value: marks };
     if (photos) Object.assign(shader.uniforms, photos.uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 vGroundXZ;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGroundWorld;\nvarying vec3 vGroundNormal;')
       .replace(
         '#include <begin_vertex>',
-        '#include <begin_vertex>\nvGroundXZ = (modelMatrix * vec4(transformed, 1.0)).xz;',
+        `#include <begin_vertex>
+        vGroundWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vGroundNormal = mat3(modelMatrix) * objectNormal;`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        `#include <common>\nuniform sampler2D detailMap;\nuniform sampler2D grainMap;\nvarying vec2 vGroundXZ;\n${photos ? PHOTO_GLSL : ''}`,
+        `#include <common>
+        uniform sampler2D detailMap;
+        uniform sampler2D grainMap;
+        varying vec3 vGroundWorld;
+        varying vec3 vGroundNormal;
+        ${photos ? PHOTO_GLSL + ROCK_GLSL : ''}`,
       )
       .replace(
         '#include <color_fragment>',
         photos
           ? `#include <color_fragment>
+        vec2 vGroundXZ = vGroundWorld.xz;
         diffuseColor.rgb = photoAt(vGroundXZ);
         vec2 marks = texture2D(grainMap, vGroundXZ / ${GRAIN_TILE}).rg;
         float grassy = step(1.08 * max(diffuseColor.r, diffuseColor.b), diffuseColor.g);
         float d1 = mix(marks.g, marks.r, grassy);
         float d2 = texture2D(detailMap, vGroundXZ / 11.0).r;
-        diffuseColor.rgb *= (0.45 + 1.1 * d1) * (0.85 + 0.3 * d2);`
+        diffuseColor.rgb *= (0.45 + 1.1 * d1) * (0.85 + 0.3 * d2);
+        vec3 groundNormal = normalize(vGroundNormal);
+        float steep = smoothstep(0.8, 0.6, groundNormal.y);
+        if (steep > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, rockAt(vGroundWorld, groundNormal), steep);`
           : `#include <color_fragment>
+        vec2 vGroundXZ = vGroundWorld.xz;
         vec2 marks = texture2D(grainMap, vGroundXZ / ${GRAIN_TILE}).rg;
         // Grass wherever green leads.
         float grassy = step(1.15 * max(diffuseColor.r, diffuseColor.b), diffuseColor.g);
