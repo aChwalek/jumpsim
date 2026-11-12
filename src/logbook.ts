@@ -40,25 +40,14 @@ export interface LogEntry {
   wet?: boolean;
 }
 
-/** The outcomes, grouped as the logbook shows them. */
+/** The outcomes, grouped as the logbook shows them; named in T.logbook. */
 export const OUTCOME_GROUPS = [
-  { label: 'Debout', outcomes: ['standUp', 'firm', 'heavy'] },
-  { label: 'Couru', outcomes: ['run'] },
-  { label: 'Glissé', outcomes: ['slide'] },
-  { label: 'Dur', outcomes: ['hard'] },
-  { label: 'Crash', outcomes: ['crash', 'impact'] },
-] as const satisfies readonly { label: string; outcomes: readonly Outcome[] }[];
-
-export const OUTCOME_NAMES: Record<Outcome, string> = {
-  standUp: 'Posé debout',
-  firm: 'Posé debout, sec',
-  heavy: 'Posé debout, lourd',
-  run: 'Posé couru',
-  slide: 'Posé glissé',
-  hard: 'Atterrissage dur',
-  crash: 'Crash',
-  impact: 'Impact sans voile',
-};
+  { id: 'upright', outcomes: ['standUp', 'firm', 'heavy'] },
+  { id: 'run', outcomes: ['run'] },
+  { id: 'slide', outcomes: ['slide'] },
+  { id: 'hard', outcomes: ['hard'] },
+  { id: 'crash', outcomes: ['crash', 'impact'] },
+] as const satisfies readonly { id: string; outcomes: readonly Outcome[] }[];
 
 /** Keeps the browser's storage small: the oldest go first. */
 const MAX_ENTRIES = 1000;

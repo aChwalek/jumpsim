@@ -13,6 +13,8 @@ export interface World {
   setDaylight(light: Lighting): void;
   /** Call every frame with the eye position and the time in seconds. */
   update(eye: THREE.Vector3, seconds: number): void;
+  /** Whether the aerial photos, if any, have all come in. */
+  ready(): boolean;
   /** Frees what the world holds on the graphics card, once it has left the scene. */
   dispose(): void;
 }
@@ -71,6 +73,10 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
       grass.update(eye, seconds);
       water.update(seconds);
       flags.update(seconds);
+    },
+    ready() {
+      const done = photos?.uniforms.photoReady?.value as THREE.Vector3 | undefined;
+      return !done || done.x + done.y + done.z >= 3;
     },
     dispose() {
       photos?.dispose();
