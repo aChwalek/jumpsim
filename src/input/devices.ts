@@ -22,8 +22,9 @@ export type Action =
   | 'toggleKeys'
   | 'flyBelly'
   | 'flyBack'
-  | 'flySit'
-  | 'flyHeadDown'
+  /** Head up or down one step from the current position. */
+  | 'flyUp'
+  | 'flyDown'
   /** Held a moment: the cutaway handle. */
   | 'cutaway'
   /** Collapse or take off the slider. */
@@ -48,9 +49,9 @@ const ACTIONS: Record<string, Action> = {
   Digit3: 'spawnPlane',
   Space: 'jump',
   KeyV: 'openMenu',
-  // Positions in freefall: head up, head down, belly, back.
-  ArrowUp: 'flySit',
-  ArrowDown: 'flyHeadDown',
+  // Positions in freefall: head up / down a step from where the body is, belly, back.
+  ArrowUp: 'flyUp',
+  ArrowDown: 'flyDown',
   ArrowLeft: 'flyBelly',
   ArrowRight: 'flyBack',
 };
@@ -64,8 +65,8 @@ const PAD_ACTIONS: [number, Action][] = [
   [3, 'reset'], // Y
   [8, 'camera'], // View / Back / Share
   [9, 'padMenu'], // Start
-  [12, 'flySit'],
-  [13, 'flyHeadDown'],
+  [12, 'flyUp'],
+  [13, 'flyDown'],
   [14, 'flyBelly'],
   [15, 'flyBack'],
 ];

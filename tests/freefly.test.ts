@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'vitest';
 import { airDensityAt } from '../src/sim/atmosphere';
 import { FlightModel, type Environment } from '../src/sim/flightModel';
-import { BODY_SHAPES, Freefall, freefallParams, noBodyInputs, type BodyInputs, type BodyPosition } from '../src/sim/freefall';
+import { BODY_SHAPES, Freefall, freefallParams, noBodyInputs, stepPosition, type BodyInputs, type BodyPosition } from '../src/sim/freefall';
 import { Jump } from '../src/sim/jump';
 import { DEFAULT_RIG, deriveRig } from '../src/sim/rig';
 import { SIM_DT } from '../src/sim/telemetry';
@@ -235,5 +235,18 @@ describe('pulling out of freefly', () => {
     const feet = rotate(vec3(), jump.body.state.att, vec3(0, -1, 0));
     expect(feet.y).toBeGreaterThan(0.95);
     expect(jump.log.topSpeed * 3.6).toBeGreaterThan(270);
+  });
+});
+
+describe('stepPosition', () => {
+  test('walks the head up and down from where the body is', () => {
+    expect(stepPosition('sit', 'down')).toBe('back');
+    expect(stepPosition('back', 'down')).toBe('headDown');
+    expect(stepPosition('headDown', 'down')).toBe('headDown');
+    expect(stepPosition('headDown', 'up')).toBe('back');
+    expect(stepPosition('back', 'up')).toBe('sit');
+    expect(stepPosition('sit', 'up')).toBe('sit');
+    expect(stepPosition('belly', 'up')).toBe('sit');
+    expect(stepPosition('belly', 'down')).toBe('headDown');
   });
 });

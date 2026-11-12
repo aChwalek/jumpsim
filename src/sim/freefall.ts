@@ -34,6 +34,17 @@ import { DEG, clamp, quat, rotate, rotateInv, set, vec3, type Quat, type Vec3 } 
 
 export type BodyPosition = 'belly' | 'back' | 'sit' | 'headDown';
 
+/**
+ * ↑ / ↓ from where the pilot is: the head comes up or goes down one step,
+ * sit ↔ back ↔ head down. Out of belly to earth, up sits, down dives.
+ */
+export function stepPosition(from: BodyPosition, dir: 'up' | 'down'): BodyPosition {
+  if (from === 'belly') return dir === 'up' ? 'sit' : 'headDown';
+  const ladder: BodyPosition[] = ['sit', 'back', 'headDown'];
+  const i = ladder.indexOf(from) + (dir === 'up' ? -1 : 1);
+  return ladder[Math.max(0, Math.min(ladder.length - 1, i))]!;
+}
+
 /** What the pilot asks of the body, each from -1 to 1. */
 export interface BodyInputs {
   /** Left (-1) to right (1). */
