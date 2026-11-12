@@ -2,6 +2,7 @@
 // they are loaded the first time they are chosen.
 
 import { T } from '../i18n';
+import type { AircraftId } from '../sim/plane';
 import { createValbrise, type DzPack } from './dz';
 import { createPujaut } from './pujaut';
 import { createRealDz, type RealDzData, type RealDzLook } from './real';
@@ -29,6 +30,8 @@ export interface DzInfo {
   landingAxisDeg?: number;
   /** Heights of the three starts above the ground, m. */
   starts: { pattern: number; final: number; plane: number };
+  /** The plane that flies jump run there. */
+  aircraft: AircraftId;
   /** The pack, if it has been loaded. */
   loaded(): DzPack | undefined;
   /** Loads the pack, the first time only. */
@@ -71,6 +74,9 @@ function built(id: DzId & keyof typeof T.dz.notes, name: string, create: () => D
       const p = get();
       return { pattern: p.pattern.height, final: p.final.height, plane: p.jumpRun.height };
     },
+    get aircraft() {
+      return get().jumpRun.aircraft ?? 'pc6';
+    },
     loaded: get,
     load: async () => get(),
   };
@@ -100,6 +106,7 @@ function real(
     },
     landingAxisDeg: look.landingAxisDeg,
     starts: { pattern: look.pattern.height, final: look.final.height, plane: look.jumpRun.height },
+    aircraft: look.jumpRun.aircraft ?? 'pc6',
     lat: look.lat,
     lon: look.lon,
     utcOffsetH: look.utcOffsetH,

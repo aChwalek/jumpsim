@@ -408,7 +408,7 @@ export function createPujaut(): DzPack {
     // Left-hand circuit west of the landing area with the mistral, over the open field.
     pattern: { upwind: 180, side: 150, height: 300 },
     final: { downwind: 260, height: 90 },
-    // Into the wind, the same run as at Valbrise.
-    jumpRun: { downwind: 500, right: 60, height: 4000, indicatedAirspeed: 40 },
+    // Into the wind, the same run as at Valbrise, in the club's Dornier Do 28 G92.
+    jumpRun: { downwind: 500, offset: 60, height: 4000, indicatedAirspeed: 40, aircraft: 'do28' },
   };
 }

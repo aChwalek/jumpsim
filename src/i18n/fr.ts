@@ -308,8 +308,8 @@ export const fr = {
       intoWind: 'Face au vent',
       custom: 'Au choix',
       runHeading: 'CAP DE L\'AVION',
-      runNote: (how: string, height: string, kmh: string, from: string) =>
-        `${how} · vent à ${height} m : ${kmh} km/h du ${from} · la cible passe côté porte, à gauche`,
+      runNote: (how: string, height: string, kmh: string, from: string, plane: string, left: boolean) =>
+        `${how} · vent à ${height} m : ${kmh} km/h du ${from} · ${plane} : la cible passe côté porte, à ${left ? 'gauche' : 'droite'}`,
       malfunction: 'INCIDENT À L\'OUVERTURE',
       never: 'Jamais',
       oneIn: (n: string) => `1 sur ${n}`,

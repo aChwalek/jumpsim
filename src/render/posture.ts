@@ -6,7 +6,8 @@
 import type { BodyInputs, BodyPosition } from '../sim/freefall';
 import { blendPose, copyPose, makePose, type Pose } from './body';
 
-export type Stance = 'door' | BodyPosition | 'throw' | 'hanging' | 'ground' | 'cutaway' | 'reserve';
+/** In the door: `door` on the left of the plane, `doorRight` on its right. */
+export type Stance = 'door' | 'doorRight' | BodyPosition | 'throw' | 'hanging' | 'ground' | 'cutaway' | 'reserve';
 
 /** The stances that follow the freefall inputs. */
 export const FREEFALL_STANCES: ReadonlySet<Stance> = new Set(['belly', 'back', 'sit', 'headDown']);
@@ -17,6 +18,7 @@ const HANGING_HIPS = 0.21;
 /** Time to settle into each stance, s: the reach for the handle is quick. */
 const SETTLE: Record<Stance, number> = {
   door: 0.35,
+  doorRight: 0.35,
   belly: 0.3,
   back: 0.3,
   sit: 0.3,
@@ -39,19 +41,20 @@ function drives(input: BodyInputs) {
   };
 }
 
-function door(p: Pose): void {
+function door(p: Pose, side: -1 | 1): void {
   // Crouched on the sill facing the nose, bent forward, the head at the
-  // door line: left hand on the front of the door frame, right hand on the
-  // knee.
+  // door line: the outer hand on the front of the door frame, the inner one
+  // on the knee. Drawn for a door on the left, mirrored for one on the right.
   p.lean = 0;
   p.bow = 0.35;
   p.hipL = p.hipR = 1.8;
   p.kneeL = p.kneeR = 1.55;
   p.spread = 0.1;
-  p.handL.set(0.03, -0.03, -0.28);
-  p.elbowL.set(-1, -0.6, 0.1);
-  p.handR.set(0.13, -0.47, -0.13);
-  p.elbowR.set(1, 0, 0.4);
+  const [frame, frameElbow, knee, kneeElbow] = side < 0 ? [p.handL, p.elbowL, p.handR, p.elbowR] : [p.handR, p.elbowR, p.handL, p.elbowL];
+  frame.set(0.03 * -side, -0.03, -0.28);
+  frameElbow.set(side, -0.6, 0.1);
+  knee.set(0.13 * -side, -0.47, -0.13);
+  kneeElbow.set(-side, 0, 0.4);
 }
 
 function box(p: Pose, input: BodyInputs): void {
@@ -255,7 +258,8 @@ export class Posture {
     const t = this.target;
     switch (stance) {
       case 'door':
-        door(t);
+      case 'doorRight':
+        door(t, stance === 'door' ? -1 : 1);
         break;
       case 'belly':
         box(t, input);
