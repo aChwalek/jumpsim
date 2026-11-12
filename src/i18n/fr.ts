@@ -108,6 +108,7 @@ export const fr = {
 
   cue: {
     greenLight: 'FEU VERT',
+    exited: (who: string) => `${who} a sauté`,
     exitIn: { belly: '', back: 'sortie sur le dos', sit: 'sortie assis', headDown: 'sortie tête en bas' },
     spaceToExit: 'Espace pour sauter',
     flat: 'À PLAT',

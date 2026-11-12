@@ -113,6 +113,10 @@ export class InputDevices {
   zoom = 1;
   /** How long the cutaway has been held, 0 to 1 once it goes. */
   cutawayHeld = 0;
+  /** A mouse button held to look closer: the right one, or the left once the mouse is captured. */
+  magnify = false;
+  /** Multiplies how far the mouse turns the head: less while looking closer. */
+  lookScale = 1;
   onAction: (action: Action) => void = () => {};
 
   private readonly keys = new Set<string>();
@@ -135,9 +139,21 @@ export class InputDevices {
       if (action) this.onAction(action);
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => this.keys.clear());
+    window.addEventListener('blur', () => {
+      this.keys.clear();
+      this.magnify = false;
+    });
 
     surface.addEventListener('click', () => this.capture());
+    // Held, a mouse button zooms the eyes in. The left one only once the mouse
+    // is captured: before, its click is what captures it.
+    surface.addEventListener('mousedown', (e) => {
+      if (e.button === 2 || (e.button === 0 && this.mouseCaptured)) this.magnify = true;
+    });
+    window.addEventListener('mouseup', (e) => {
+      if (e.button === 0 || e.button === 2) this.magnify = false;
+    });
+    surface.addEventListener('contextmenu', (e) => e.preventDefault());
     surface.addEventListener(
       'wheel',
       (e) => {
@@ -147,7 +163,7 @@ export class InputDevices {
     );
     document.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement !== surface) return;
-      const speed = MOUSE_SENSITIVITY * this.sensitivity;
+      const speed = MOUSE_SENSITIVITY * this.sensitivity * this.lookScale;
       this.mouseYaw = clamp(this.mouseYaw + e.movementX * speed, -MAX_YAW, MAX_YAW);
       this.mousePitch = clamp(
         this.mousePitch - e.movementY * speed * (this.invertLook ? -1 : 1),

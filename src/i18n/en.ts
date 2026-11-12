@@ -104,6 +104,7 @@ export const en: Strings = {
 
   cue: {
     greenLight: 'GREEN LIGHT',
+    exited: (who: string) => `${who} is out`,
     exitIn: { belly: '', back: 'back exit', sit: 'sit exit', headDown: 'head-down exit' },
     spaceToExit: 'Space to exit',
     flat: 'BELLY TO EARTH',

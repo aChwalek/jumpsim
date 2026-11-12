@@ -63,10 +63,35 @@ export const emptySnapshot = (): Snapshot => ({
   pilotAtt: quat(),
 });
 
-// New phases go at the end: the index is what travels.
-const PHASES: readonly Phase[] = ['none', 'plane', 'freefall', 'opening', 'canopy', 'standing'];
-const STANCES: readonly Stance[] = ['door', 'belly', 'back', 'sit', 'headDown', 'throw', 'hanging', 'ground', 'cutaway', 'reserve'];
-const DEPLOYS: readonly DeployStage[] = ['stowed', 'hand', 'tow', 'bag', 'canopy', 'free'];
+/**
+ * The code each value goes as, one byte. A Record, so that a phase, stance
+ * or stage added elsewhere does not compile until it has a code here.
+ */
+const PHASE_CODES: Record<Phase, number> = { none: 0, plane: 1, freefall: 2, opening: 3, canopy: 4, standing: 5 };
+const STANCE_CODES: Record<Stance, number> = {
+  door: 0,
+  belly: 1,
+  back: 2,
+  sit: 3,
+  headDown: 4,
+  throw: 5,
+  hanging: 6,
+  ground: 7,
+  cutaway: 8,
+  reserve: 9,
+  doorRight: 10,
+};
+const DEPLOY_CODES: Record<DeployStage, number> = { stowed: 0, hand: 1, tow: 2, bag: 3, canopy: 4, free: 5 };
+
+/** Code to value, for reading. */
+function byCode<T extends string>(codes: Record<T, number>): (T | undefined)[] {
+  const out: (T | undefined)[] = [];
+  for (const [value, code] of Object.entries(codes) as [T, number][]) out[code] = value;
+  return out;
+}
+const PHASES = byCode(PHASE_CODES);
+const STANCES = byCode(STANCE_CODES);
+const DEPLOYS = byCode(DEPLOY_CODES);
 const CONTROLS = ['brakeL', 'brakeR', 'frontL', 'frontR'] as const;
 
 const VERSION = 1;
@@ -88,9 +113,9 @@ const byte = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255
 export function encodeSnapshot(s: Snapshot, buffer = new ArrayBuffer(SNAPSHOT_BYTES)): ArrayBuffer {
   const v = new DataView(buffer);
   v.setUint8(0, VERSION);
-  v.setUint8(1, PHASES.indexOf(s.phase));
-  v.setUint8(2, STANCES.indexOf(s.stance));
-  v.setUint8(3, DEPLOYS.indexOf(s.deploy));
+  v.setUint8(1, PHASE_CODES[s.phase]);
+  v.setUint8(2, STANCE_CODES[s.stance]);
+  v.setUint8(3, DEPLOY_CODES[s.deploy]);
   v.setUint8(
     4,
     (s.reserve ? Flag.Reserve : 0) |
