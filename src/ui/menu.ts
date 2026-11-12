@@ -1237,7 +1237,11 @@ export class Menu {
         note: () => {
           const info = dzInfo(this.setup.dz);
           const start = plan().start;
-          if (start === 'base') return (info.base?.standing ? j.startNote.bridge : j.startNote.base)(num(info.base?.height ?? 0));
+          if (start === 'base') {
+            const h = info.base?.height ?? 0;
+            // Off a bridge as high as Millau's, a longer delay than off a low one.
+            return info.base?.standing ? j.startNote.bridge(num(h), h > 200) : j.startNote.base(num(h));
+          }
           if (start === 'pattern') return j.startNote.pattern(num(info.starts.pattern));
           if (start === 'final') return j.startNote.final(num(info.starts.final));
           return j.startNote.plane;
