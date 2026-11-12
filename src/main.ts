@@ -14,7 +14,7 @@ import { ChaseCamera, type ChaseTarget } from './render/chaseCamera';
 import { FREEFALL_STANCES, LegSwing, Posture, type LegCues, type Stance } from './render/posture';
 import { RigView, type RigFrame } from './render/rigView';
 import { TopView } from './render/topView';
-import { GEAR_LAYER, OUTSIDE_LAYER, Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
+import { FIELD_OF_VIEW, GEAR_LAYER, OUTSIDE_LAYER, Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
 import { logJump, type Outcome } from './logbook';
 import { QUALITY_LEVELS, loadSettings, saveSettings } from './settings';
 import {
@@ -988,6 +988,25 @@ function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation
   net.send(elapsed);
 }
 
+/** How much closer the eyes look with a mouse button held. */
+const MAGNIFY = 3.5;
+/** Time for the zoom to come in or go out, s. */
+const MAGNIFY_LAG = 0.08;
+let magnification = 1;
+
+/** Zooms in while a mouse button is held: a narrower view, and a slower mouse to aim it. */
+function magnify(dt: number): void {
+  const wanted = devices.magnify && !menu.isOpen ? MAGNIFY : 1;
+  const next = magnification + (wanted - magnification) * (1 - Math.exp(-dt / MAGNIFY_LAG));
+  magnification = Math.abs(next - wanted) < 0.002 ? wanted : next;
+  const fov = (2 * Math.atan(Math.tan((FIELD_OF_VIEW * DEG) / 2) / magnification)) / DEG;
+  if (fov === camera.fov) return;
+  camera.fov = gearCamera.fov = fov;
+  camera.updateProjectionMatrix();
+  gearCamera.updateProjectionMatrix();
+  devices.lookScale = 1 / magnification;
+}
+
 let last = performance.now();
 let frameAverage = 1 / 60;
 
@@ -1055,6 +1074,7 @@ function frame(now: number): void {
   }
   if (jump) planeView.update(jump.plane);
   model.pilotPoint(eye, model.rig.eyePos);
+  magnify(Math.min(elapsed, 0.1));
   if (view === 'outside') {
     camera.layers.enable(GEAR_LAYER);
     camera.layers.enable(OUTSIDE_LAYER);
@@ -1065,6 +1085,7 @@ function frame(now: number): void {
     aimCamera(moving);
   }
   sky.position.copy(camera.position);
+  net?.drawMarkers(camera);
   // The windsock and the flags follow the gusts at their own height.
   if (live && setup.weather.gusts !== 'none') {
     const gust = windAt(air, setup.weather, 6, airTime);

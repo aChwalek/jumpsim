@@ -1,8 +1,9 @@
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import type { Lighting } from '../render/scene';
 import { isCanopyColor } from '../render/canopyColors';
 import { CANOPY_SIZES, nearestSize, validWeight, type Gear, type Start } from '../setup';
 import type { DzId } from '../world/dzs';
+import { Markers, type MarkerTarget } from './markers';
 import { Mesh } from './mesh';
 import { ROOM_NAME } from './protocol';
 import { RemoteJumper, type RemoteFrame } from './remote';
@@ -83,6 +84,8 @@ export class Multiplayer {
   /** What we jump with: what the room jumps with when we lead. */
   private shared: SharedSetup | null = null;
   private startedAt = Number.NEGATIVE_INFINITY;
+  private readonly markers = new Markers(document.getElementById('hud') ?? document.body);
+  private readonly targets: MarkerTarget[] = [];
 
   constructor(
     readonly room: string,
@@ -122,6 +125,7 @@ export class Multiplayer {
       close: (id) => {
         this.remotes.get(id)?.jumper.dispose();
         this.remotes.delete(id);
+        this.markers.remove(id);
       },
       state: (id, data) => {
         const s = decodeSnapshot(data, this.received);
@@ -194,7 +198,24 @@ export class Multiplayer {
     }
   }
 
+  /** Tags over the others in sight, arrows at the edge for the rest. After the camera has moved. */
+  drawMarkers(camera: THREE.PerspectiveCamera): void {
+    const targets = this.targets;
+    let n = 0;
+    for (const [id, { jumper }] of this.remotes) {
+      const target = (targets[n] ??= { id, name: '', pos: new THREE.Vector3(), color: '' });
+      if (!jumper.where(target.pos)) continue;
+      target.id = id;
+      target.name = this.state.players.get(id)?.name || '…';
+      target.color = jumper.color;
+      n++;
+    }
+    targets.length = n;
+    this.markers.update(camera, targets);
+  }
+
   dispose(): void {
+    this.markers.dispose();
     this.mesh.dispose();
     for (const { jumper } of this.remotes.values()) jumper.dispose();
     this.remotes.clear();

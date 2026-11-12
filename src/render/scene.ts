@@ -10,7 +10,7 @@ export function createRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
   return renderer;
 }
 
-const FIELD_OF_VIEW = 68;
+export const FIELD_OF_VIEW = 68;
 
 export function createCamera(): THREE.PerspectiveCamera {
   // Far plane beyond the haze; what is nearer than the near plane is drawn
