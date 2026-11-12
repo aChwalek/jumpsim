@@ -9,7 +9,7 @@ import { T } from '../i18n';
 import { keyLabel } from '../input/keyLabels';
 
 /** `ledge`: on top of a BASE object, before the exit; `baseCanopy`: under its one canopy, which cannot be cut away. */
-export type KeysPhase = 'ledge' | 'plane' | 'freefall' | 'canopy' | 'baseCanopy' | 'ground';
+export type KeysPhase = 'ledge' | 'plane' | 'freefall' | 'wingsuit' | 'canopy' | 'baseCanopy' | 'ground';
 export type InputKind = 'keyboard' | 'gamepad';
 export type PadKind = 'xbox' | 'playstation';
 
@@ -54,6 +54,17 @@ function keyboardRows(phase: KeysPhase): Row[] {
         [['↑', '↓'], t.sitHeadDown],
         [['←', '→'], t.bellyBack],
         [[t.shift], t.track],
+        [[t.space], t.pullReserve],
+        [[k('KeyT'), k('KeyL')], t.targetLock],
+        [[k('KeyB')], t.outsideCamera],
+      ];
+    case 'wingsuit':
+      return [
+        [[k('KeyW'), k('KeyS')], t.diveFlare],
+        [[k('KeyA'), k('KeyD')], t.turn],
+        [[k('KeyQ'), k('KeyE')], t.slide],
+        [[k('KeyR'), k('KeyF')], t.wingsWideTight],
+        [['←', '→'], t.wingsuitRoll],
         [[t.space], t.pullReserve],
         [[k('KeyT'), k('KeyL')], t.targetLock],
         [[k('KeyB')], t.outsideCamera],
@@ -117,6 +128,16 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
         [['up', 'down'], t.sitHeadDown],
         [['left', 'right'], t.bellyBack],
         [['ls'], t.trackPress],
+        [['a'], t.pullReserve],
+        [['rs'], t.targetLockPad],
+        [['view'], t.camera],
+      ];
+    case 'wingsuit':
+      return [
+        [['ls'], t.diveFlare],
+        [['lt', 'rt'], t.turn],
+        [['lb', 'rb'], t.wingsWideTight],
+        [['left', 'right'], t.wingsuitRoll],
         [['a'], t.pullReserve],
         [['rs'], t.targetLockPad],
         [['view'], t.camera],

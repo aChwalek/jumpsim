@@ -31,7 +31,7 @@ await page.waitForFunction(() => window.sim?.menu, null, { timeout: 180000 });
 
 for (const id of IDS) {
   await page.evaluate((id) => {
-    window.sim.menu.debugSetDz(id);
+    window.sim.menu.chooseDz(id);
     window.sim.menu.debugShow('dz');
   }, id);
   // Loaded, photos in, and the map drawn again with them.

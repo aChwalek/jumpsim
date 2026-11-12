@@ -14,6 +14,7 @@ import { EXIT_SPOTS, Plane, type ExitSpot, type JumpRun } from './plane';
 import { ReleasedCanopy } from './released';
 import type { RigParams } from './rig';
 import { RunUp } from './runUp';
+import { hasWings, suitFit, type Suit } from './suit';
 import { DEG, copy, quat, quatFromYaw, quatMultiply, rotate, set, vec3, type Vec3 } from './vec';
 
 /** `standing`: on top of a BASE object, before the exit. */
@@ -64,6 +65,8 @@ export interface JumpOptions {
   malfunction?: Malfunction | null;
   /** Where in the plane the jumper starts: crouched on the sill if not given. */
   spot?: ExitSpot;
+  /** What the jumper wears: a plain jumpsuit if not given. */
+  suit?: Suit;
 }
 
 /**
@@ -96,6 +99,9 @@ const BASE_OFF_HEADING = 30;
 const SIDE_HIT = 0.5;
 /** Coming back down on top slower than this is a hop, not a fall, m/s. */
 const HOP_SINK = 6;
+
+/** Belly down or on the back: all a wingsuit flies. */
+const flat = (p: BodyPosition): boolean => p === 'belly' || p === 'back';
 
 const ease = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
@@ -135,6 +141,11 @@ export class Jump {
   /** One canopy and nothing else: a BASE container. */
   readonly single: boolean;
   readonly body: Freefall;
+  /**
+   * In a wingsuit: flown as a wing from the door to the pull, belly down or
+   * on the back, never upright.
+   */
+  readonly wings: boolean;
   opening: Opening | null = null;
   /** Seconds since leaving the door. */
   time = 0;
@@ -187,7 +198,8 @@ export class Jump {
     private readonly options: JumpOptions = {},
   ) {
     this.solidAt = options.solidAt ?? groundAt;
-    this.body = new Freefall(freefallParams(model.rig.gravMass));
+    this.body = new Freefall(freefallParams(model.rig.gravMass, suitFit(options.suit)));
+    this.wings = hasWings(options.suit);
     this.base = isLedge(from);
     this.exitHeight = isLedge(from) ? from.height : undefined;
     this.single = options.container === 'base';
@@ -247,16 +259,18 @@ export class Jump {
    * way a half turn goes (-1 to the left or backwards, 1 to the right or forwards).
    */
   fly(position: BodyPosition, roll = 1): void {
-    if (this.pullWhenFlat) return;
+    if (this.pullWhenFlat || (this.wings && !flat(position))) return;
     if (this.phase === 'plane' || this.phase === 'standing' || this.phase === 'freefall') this.body.setPosition(position, roll);
   }
 
   /**
    * Stretched out into a track, an angle upright, or out of it: asked every
-   * step. Only in freefall, and not on the way to the pull.
+   * step. Only in freefall, and not on the way to the pull. A wingsuit flies
+   * whatever is asked, until the pull or a cutaway.
    */
   trackIt(on: boolean): void {
-    this.body.tracking = on && this.phase === 'freefall' && !this.pullWhenFlat;
+    const wings = this.wings && this.cutawayAt === null;
+    this.body.tracking = (on || wings) && this.phase === 'freefall' && !this.pullWhenFlat;
   }
 
   /**
@@ -293,7 +307,7 @@ export class Jump {
    * backwards into the next position round the loop.
    */
   flip(dir: -1 | 1): void {
-    if (this.pullWhenFlat || this.phase !== 'freefall') return;
+    if (this.pullWhenFlat || this.phase !== 'freefall' || this.wings) return;
     this.body.flip(dir);
   }
 
@@ -377,6 +391,8 @@ export class Jump {
     if (this.phase === 'freefall') {
       // On the way to the pull, the arrows held carry on with nothing.
       if (this.pullWhenFlat) input = Object.assign(this.calm, input, { flip: 0, roll: 0 });
+      // The wings fly by themselves once out of the door.
+      else if (this.wings && this.cutawayAt === null) this.body.tracking = true;
       this.body.step(dt, input, env);
       this.follow();
       const b = this.body.state;

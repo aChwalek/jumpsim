@@ -118,6 +118,8 @@ export const fr = {
   cue: {
     greenLight: 'FEU VERT',
     exited: (who: string) => `${who} a sauté`,
+    loadIn: (s: number) => `PROCHAINE ROTATION DANS ${s} s`,
+    loadAboard: 'tu es à bord',
     exitIn: { belly: '', back: 'sortie sur le dos', sit: 'sortie assis', headDown: 'sortie tête en bas' },
     spots: { inside: 'intérieur', high: 'haut de porte', low: 'bas de porte', step: 'step' },
     spaceToExit: 'Espace pour sauter',
@@ -126,6 +128,9 @@ export const fr = {
     spaceToPull: 'Espace pour ouvrir',
     positions: { belly: '', back: 'SUR LE DOS', sit: 'ASSIS', headDown: 'TÊTE EN BAS' },
     tracks: { belly: 'TRACK', back: 'TRACK DOS', sit: 'TRACE ASSIS', headDown: 'TRACE TÊTE EN BAS' },
+    wingsuit: { belly: 'WINGSUIT', back: 'WINGSUIT SUR LE DOS', sit: 'WINGSUIT', headDown: 'WINGSUIT' },
+    wingsFilling: 'LES AILES SE GONFLENT',
+    glide: (g: string) => `finesse ${g}`,
     stowedBoth: 'FREINS ENCORE CALÉS',
     stowedLeft: 'FREIN GAUCHE ENCORE CALÉ',
     stowedRight: 'FREIN DROIT ENCORE CALÉ',
@@ -174,6 +179,9 @@ export const fr = {
     bellyBack: 'tonneau / demi-tour (maintenu : à la suite)',
     track: 'track / trace (maintenu)',
     trackPress: 'appui : track / trace',
+    diveFlare: 'piquer / cabrer',
+    wingsWideTight: 'ailes ouvertes / serrées',
+    wingsuitRoll: 'tonneau, vol sur le dos',
     fwdBackSlide: 'avancer, reculer, glisser',
     pull: 'ouvrir',
     toggles: 'commande gauche / droite',
@@ -233,6 +241,23 @@ export const fr = {
       create: 'Créer une salle',
       createNote: 'Un lien à partager : ceux qui l\'ouvrent sautent avec toi, avec les mêmes réglages.',
       name: (room: string) => `Salle ${room}`,
+      publicJoin: (dz: string) => `Salle publique · ${dz}`,
+      publicNote: (dz: string, players: number | null, max: number) =>
+        players === null
+          ? `Saute avec ceux qui sont à ${dz} en ce moment.`
+          : players === 0
+            ? `Personne à ${dz} en ce moment : sois le premier.`
+            : players >= max
+              ? `Complète : ${players} à ${dz}.`
+              : `${players} à ${dz} en ce moment.`,
+      publicName: (dz: string) => `Publique · ${dz}`,
+      publicHostSets: (name: string) => `Météo et saut réglés par ${name}. Une autre DZ t'emmène dans sa salle publique.`,
+      publicYouSet: 'Tu règles la météo et le saut pour tout le monde. Une autre DZ t\'emmène dans sa salle publique.',
+      hudPublic: 'publique',
+      board: 'Monter à bord',
+      aboard: 'À bord',
+      loadSub: (time: string) => `départ dans ${time}`,
+      nextLoad: (time: string, aboard: number) => `Prochaine rotation dans ${time} · ${aboard} à bord`,
       copy: 'Copier le lien',
       copied: 'Lien copié ✓',
       rename: 'Mon nom',
@@ -321,6 +346,19 @@ export const fr = {
       smokeLine: (color: string) => `fumigène ${color.toLowerCase()}`,
       smokeNote: (on: boolean, s: string) =>
         on ? `Allumé à la sortie (ou dès le départ sous voile), il fume ${s} s : la traînée suit le vent.` : 'Pas de fumigène.',
+      suit: 'COMBINAISON',
+      suits: { jumpsuit: 'Normale', track: 'Tracking', wingsuit: 'Wingsuit' },
+      suitLine: { jumpsuit: '', track: (level: number) => `combi de track niv. ${level}`, wingsuit: (level: number) => `wingsuit niv. ${level}` },
+      suitLevel: 'NIVEAU',
+      suitLevelHint: '1 débutant · 2 confirmé · 3 expert',
+      suitNote: {
+        jumpsuit: (_glide: string, _across: string, _down: string, k: string) =>
+          `Combinaison de chute classique. En track (${k} maintenu) : environ un mètre en avant pour un mètre de chute.`,
+        track: (glide: string, across: string, down: string, k: string) =>
+          `Tissu gonflé d'air, petites ailes sous les bras sur les plus grandes : le track (${k} maintenu) devient une aile. Finesse ${glide}, ${across} km/h en avant, ${down} km/h de chute.`,
+        wingsuit: (glide: string, across: string, down: string, _k: string) =>
+          `Ailes entre les bras et le corps et entre les jambes : vol à plat dès qu'elles sont gonflées, sur le ventre ou le dos (← / →), jamais debout. Finesse ${glide}, ${across} km/h en avant, ${down} km/h de chute. Espace : lâcher les ailes et ouvrir.`,
+      },
     },
 
     dz: {
@@ -471,6 +509,7 @@ export const fr = {
         ['En chute : monter / descendre', `${k('KeyR')} / ${k('KeyF')}`, 'LB / RB'],
         ['En chute : quart de salto avant / arrière vers la position suivante (deux fois : ventre → dos par la tête en bas, 4 fois : salto complet, maintenu : à la suite)', '↑ / ↓', 'croix haut / bas'],
         ['En chute : track à plat, trace debout (maintenu · un appui, puis un autre)', 'Maj', 'appui stick gauche'],
+        ['En wingsuit : piquer / cabrer, ailes ouvertes / serrées (plus lent / plus rapide)', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyR')} / ${k('KeyF')}`, 'stick gauche · LB / RB'],
         ['En chute : demi-tonneau à plat (deux fois : tonneau), demi-tour vertical (maintenu : à la suite)', '← / →', 'croix gauche / droite'],
         ['Recommencer (pas en chute)', k('KeyR'), 'Y'],
         ['Partir en circuit / finale / avion', '1 / 2 / 3', '—'],

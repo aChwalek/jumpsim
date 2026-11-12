@@ -3,12 +3,13 @@ import * as THREE from 'three';
 import type { Lighting } from '../render/scene';
 import { isCanopyColor } from '../render/canopyColors';
 import { CANOPY_SIZES, nearestSize, validWeight, type Gear, type Start } from '../setup';
+import { isSuitKind, isSuitLevel } from '../sim/suit';
 import type { DzId } from '../world/dzs';
 import { Markers, type MarkerTarget } from './markers';
 import { Mesh } from './mesh';
 import { ROOM_NAME } from './protocol';
 import { RemoteJumper, type RemoteFrame } from './remote';
-import { RoomState, cleanName, readRoomMessage, sharedPart, type RoomMessage, type SharedSetup } from './room';
+import { RoomState, cleanName, nextLoad, publicDz, readRoomMessage, sharedPart, type RoomMessage, type SharedSetup } from './room';
 import { SNAPSHOT_BYTES, decodeSnapshot, emptySnapshot, encodeSnapshot, type Snapshot } from './snapshot';
 
 /** Snapshots sent a second. */
@@ -17,6 +18,8 @@ const SEND_RATE = 15;
 const SILENT_MS = 3000;
 /** After a start, not another on its own for this long, ms: the ready flags have to settle. */
 const START_SETTLE_MS = 3000;
+/** How often a public room looks whether its load has left, ms. */
+const LOAD_CHECK_MS = 250;
 
 /** What the room tells the sim. */
 export interface RoomEvents {
@@ -60,6 +63,18 @@ export function roomLink(room: string): string {
   return url.toString();
 }
 
+/** How many are in a public room now; null if the server cannot say. */
+export async function playersIn(room: string): Promise<number | null> {
+  try {
+    const response = await fetch(`/players/${room}`, { cache: 'no-store' });
+    if (!response.ok) return null;
+    const { players } = (await response.json()) as { players?: unknown };
+    return typeof players === 'number' ? players : null;
+  } catch {
+    return null;
+  }
+}
+
 /** A new room's name: hard to guess, easy to read out. */
 export function newRoomName(): string {
   const letters = 'abcdefghjkmnpqrstuvwxyz23456789';
@@ -89,6 +104,13 @@ export class Multiplayer {
   private startedAt = Number.NEGATIVE_INFINITY;
   private readonly markers = new Markers(document.getElementById('hud') ?? document.body);
   private readonly targets: MarkerTarget[] = [];
+  /** A drop zone's public room: nobody leads the start, loads leave on the clock. */
+  readonly isPublic: boolean;
+  /** The server's clock minus ours, ms: what the loads go by. */
+  private clockOffset = 0;
+  /** When the load we wait for leaves (our clock, ms). */
+  private loadAt = 0;
+  private loadTimer = 0;
 
   constructor(
     readonly room: string,
@@ -98,9 +120,17 @@ export class Multiplayer {
     private readonly events: RoomEvents,
   ) {
     this.name = cleanName(name);
+    this.isPublic = publicDz(room) !== null;
+    if (this.isPublic) {
+      this.loadAt = this.nextLoadAt;
+      this.loadTimer = window.setInterval(() => this.rotate(), LOAD_CHECK_MS);
+    }
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
     this.mesh = new Mesh(`${scheme}://${location.host}/signal/${room}`, '/turn', {
       welcome: (you, peers) => {
+        // Told when we came in by the server's clock: near enough, the trip there and back is short.
+        this.clockOffset = you.joined - Date.now();
+        this.loadAt = this.nextLoadAt;
         this.state.welcome(you, peers, this.name, this.ready);
         this.sayHello();
         this.leading();
@@ -147,6 +177,11 @@ export class Multiplayer {
     return this.ready;
   }
 
+  /** In a public room, when the next load leaves (our clock, ms). */
+  get nextLoadAt(): number {
+    return nextLoad(Date.now() + this.clockOffset) - this.clockOffset;
+  }
+
   /** Ready for the next jump, or no longer. When everyone is, it starts. */
   setReady(ready: boolean): void {
     if (ready === this.ready) return;
@@ -168,9 +203,9 @@ export class Multiplayer {
     if (this.state.isHost) this.sendSetup();
   }
 
-  /** Leading: everyone goes now, ready or not. */
+  /** Leading: everyone goes now, ready or not. A public room goes by the clock only. */
   startNow(): void {
-    if (!this.state.isHost || !this.shared) return;
+    if (this.isPublic || !this.state.isHost || !this.shared) return;
     const message: RoomMessage = { kind: 'start', start: this.shared.jump.start, setup: this.shared };
     this.mesh.broadcastRoom(message);
     this.started(message.start, this.shared);
@@ -246,6 +281,7 @@ export class Multiplayer {
   }
 
   dispose(): void {
+    window.clearInterval(this.loadTimer);
     this.markers.dispose();
     this.mesh.dispose();
     for (const { jumper } of this.remotes.values()) jumper.dispose();
@@ -274,7 +310,17 @@ export class Multiplayer {
 
   /** Leading, with everyone ready: go. */
   private maybeStart(): void {
-    if (this.state.isHost && this.state.allReady && performance.now() - this.startedAt > START_SETTLE_MS) this.startNow();
+    if (!this.isPublic && this.state.isHost && this.state.allReady && performance.now() - this.startedAt > START_SETTLE_MS) this.startNow();
+  }
+
+  /** A public room's load left: those aboard go, each on their own, the others wait for the next. */
+  private rotate(): void {
+    const next = this.nextLoadAt;
+    if (next === this.loadAt) return;
+    this.loadAt = next;
+    if (this.ready && this.shared) return this.started(this.shared.jump.start, this.shared);
+    this.state.started();
+    this.events.changed();
   }
 
   private started(start: Start, shared: SharedSetup): void {
@@ -297,7 +343,7 @@ export class Multiplayer {
     } else if (m.kind === 'setup' && fromHost) {
       this.shared = m.setup;
       this.events.setup(m.setup);
-    } else if (m.kind === 'start' && fromHost) {
+    } else if (m.kind === 'start' && fromHost && !this.isPublic) {
       this.shared = m.setup;
       this.started(m.start, m.setup);
     }
@@ -346,6 +392,9 @@ export function readHello(m: unknown): Hello | null {
       color,
       // Someone on an older version has no smoke.
       smoke: isSmoke(g.smoke) ? g.smoke : 'none',
+      // Nor a suit: a plain jumpsuit.
+      suit: isSuitKind(g.suit) ? g.suit : 'jumpsuit',
+      suitLevel: isSuitLevel(g.suitLevel) ? g.suitLevel : 1,
       canopyAreaFt2: nearestSize(kind, canopyAreaFt2),
       exitWeightKg: validWeight(exitWeightKg),
     },

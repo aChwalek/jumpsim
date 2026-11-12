@@ -50,10 +50,12 @@ import {
   SLIDER_KINDS,
   CONTAINERS,
   startsAt,
+  suitOf,
   type Setup,
   type Start,
 } from '../setup';
 import { AIRCRAFT, EXIT_SPOTS, type ExitSpot } from '../sim/plane';
+import { SUIT_KINDS, SUIT_LEVELS, suitGlide, type SuitKind, type SuitLevel } from '../sim/suit';
 import { reserveSize, type CanopyKind } from '../sim/rig';
 import { trimSpeeds } from '../sim/telemetry';
 import {
@@ -84,6 +86,7 @@ import {
   LOGO,
 } from './icons';
 import { Nav } from './nav';
+import { MAX_PEERS } from '../net/protocol';
 import type { SharedSetup } from '../net/room';
 
 export type { Start } from '../setup';
@@ -253,6 +256,10 @@ export interface RoomView {
   hostName: string;
   ready: boolean;
   players: { name: string; ready: boolean; self: boolean; host: boolean }[];
+  /** The drop zone whose public room this is; null for a room of one's own. */
+  publicDz: DzId | null;
+  /** In a public room, when the next load leaves (Date.now() clock, ms). */
+  loadAt: number | null;
 }
 
 /** What the DZ, weather and jump cards are: set by whoever leads a room. */
@@ -261,6 +268,14 @@ const ICON_PEOPLE_EL = (): Element => html(ICON_PEOPLE);
 const SHARED: ReadonlySet<ScreenId> = new Set<ScreenId>(['dz', 'weather', 'jump']);
 /** Time to click again to start without everyone ready, ms. */
 const ARM_MS = 4000;
+/** How often the time to the next load is redrawn, ms. */
+const TICK_MS = 250;
+
+/** The time left until `at` (Date.now() clock, ms), as m:ss. */
+function timeTo(at: number): string {
+  const s = Math.max(0, Math.ceil((at - Date.now()) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
 
 export class Menu {
   isOpen = false;
@@ -275,6 +290,8 @@ export class Menu {
   /** Called when anything the room shares changes (drop zone, hour, weather, jump). */
   onSetupChange: (setup: Setup) => void = () => {};
   onCreateRoom: () => void = () => {};
+  /** Into the public room of the drop zone on the menu. */
+  onJoinPublic: () => void = () => {};
   onLeaveRoom: () => void = () => {};
   onRename: () => void = () => {};
   /** In a room, the jump button: ready for the next jump, or no longer. */
@@ -290,6 +307,8 @@ export class Menu {
   private readonly screens = new Map<ScreenId, HTMLElement>();
   private readonly cards = new Map<Category, HTMLButtonElement>();
   private updaters: (() => void)[] = [];
+  /** What shows the time to the next load: redrawn while it counts down. */
+  private ticking: (() => void)[] = [];
   private screen: ScreenId = 'home';
   private canCancel = false;
   private panel!: HTMLElement;
@@ -301,6 +320,8 @@ export class Menu {
   private logbookBody!: HTMLElement;
   private clearArmed = 0;
   private room: RoomView | null = null;
+  /** How many are in the public room of the drop zone on the menu; null when not known. */
+  private publicCount: number | null = null;
   private startArmed = 0;
 
   constructor(
@@ -324,6 +345,9 @@ export class Menu {
     this.nav.onPadChange = (pad) => this.root.classList.toggle('pad', pad);
     this.build();
     window.addEventListener('keydown', (e) => this.key(e));
+    window.setInterval(() => {
+      if (this.isOpen && this.room?.loadAt) for (const tick of this.ticking) tick();
+    }, TICK_MS);
     this.show('home');
   }
 
@@ -372,8 +396,15 @@ export class Menu {
   setRoom(room: RoomView | null): void {
     this.room = room;
     // Not leading: the screens for what the room shares are not ours to open.
-    if (this.locked && SHARED.has(this.screen)) this.show('home');
+    if (this.isShut(this.screen)) this.show('home');
     else this.refresh();
+  }
+
+  /** How many are in the public room of the drop zone on the menu; null when not known. */
+  setPublicCount(players: number | null): void {
+    if (players === this.publicCount) return;
+    this.publicCount = players;
+    this.refresh();
   }
 
   /** What whoever leads the room set: taken as if chosen here, the gear apart. */
@@ -397,13 +428,21 @@ export class Menu {
     return this.room !== null && !this.room.isHost;
   }
 
+  /**
+   * Set by whoever leads the room, so not ours to open. A public room's drop
+   * zone stays open: choosing another goes to that one's public room.
+   */
+  private isShut(id: ScreenId): boolean {
+    return this.locked && SHARED.has(id) && !(id === 'dz' && this.room?.publicDz);
+  }
+
   /** For the screenshots: straight to a screen. */
   debugShow(id: ScreenId): void {
     this.show(id);
   }
 
-  /** For the screenshots: picks a drop zone as the DZ screen does. */
-  debugSetDz(id: DzId): void {
+  /** Picks a drop zone as the DZ screen does. */
+  chooseDz(id: DzId): void {
     this.setDz(id);
   }
 
@@ -414,6 +453,7 @@ export class Menu {
     this.screens.clear();
     this.cards.clear();
     this.updaters = [];
+    this.ticking = [];
     this.panel = h('div', 'panel');
     this.resume = button('resume', T.menu.resume);
     this.jump = button('jump');
@@ -461,7 +501,7 @@ export class Menu {
   // ------------------------------------------------------------ moving around
 
   private show(id: ScreenId, focus?: HTMLElement | null): void {
-    if (this.locked && SHARED.has(id)) return;
+    if (this.isShut(id)) return;
     const from = this.screen;
     this.screen = id;
     for (const [key, el] of this.screens) el.hidden = key !== id;
@@ -755,18 +795,26 @@ export class Menu {
       this.updaters.push(() => {
         sum.innerHTML = this.summary(c.id);
         // In a room, whoever leads sets these.
-        const locked = this.locked && SHARED.has(c.id);
+        const locked = this.isShut(c.id);
         card.classList.toggle('locked', locked);
         more.innerHTML = locked ? `${ICON_LOCK}${T.menu.room.locked}` : `${T.menu.edit}${ICON_MORE}`;
       });
     }
     this.resume.addEventListener('click', () => this.cancel());
     this.jump.addEventListener('click', () => this.go());
-    this.updaters.push(() => {
+    const showJump = (): void => {
       const { start, exitHeight } = this.setup.jump;
       const info = dzInfo(this.setup.dz);
       const room = this.room;
       this.jump.classList.toggle('ready', !!room?.ready);
+      if (room?.loadAt) {
+        // A public room: aboard the next load, or not.
+        const r = T.menu.room;
+        this.jump.innerHTML = `<span class="go-icon">${ICON_PLANE}</span><span class="go-label">${
+          room.ready ? r.aboard : r.board
+        }</span><span class="go-sub">${r.loadSub(timeTo(room.loadAt))}</span><i class="btn pad">Start</i>`;
+        return;
+      }
       if (room) {
         const r = T.menu.room;
         const count = r.readyCount(room.players.filter((p) => p.ready).length, Math.max(1, room.players.length));
@@ -787,7 +835,9 @@ export class Menu {
       this.jump.innerHTML = `<span class="go-icon">${start === 'plane' ? ICON_PLANE : ICON_CANOPY}</span><span class="go-label">${
         jumping ? T.menu.jumpButton : T.menu.go
       }</span><span class="go-sub">${sub}</span><i class="btn pad">Start</i>`;
-    });
+    };
+    this.updaters.push(showJump);
+    this.ticking.push(showJump);
     const go = h('div', 'go', this.nav.add(this.resume), this.nav.add(this.jump));
     const m = T.menu.hints;
     screen.append(
@@ -811,6 +861,15 @@ export class Menu {
     const create = button('room-create');
     create.innerHTML = `${ICON_PEOPLE}<span class="label">${r.create}</span><span class="note">${r.createNote}</span>`;
     create.addEventListener('click', () => this.onCreateRoom());
+    const pub = button('room-create room-public');
+    const pubLabel = h('span', 'label');
+    const pubNote = h('span', 'note');
+    pub.append(html(ICON_DZ), pubLabel, pubNote);
+    const full = (): boolean => (this.publicCount ?? 0) >= MAX_PEERS;
+    pub.addEventListener('click', () => {
+      if (!full()) this.onJoinPublic();
+    });
+    const choices = h('div', 'room-choices', this.nav.add(create), this.nav.add(pub, { disabled: full }));
 
     const title = h('b', 'room-name');
     const copy = button('room-btn', r.copy);
@@ -831,6 +890,7 @@ export class Menu {
     const top = h('div', 'room-top', ICON_PEOPLE_EL(), title, this.nav.add(copy), this.nav.add(rename), this.nav.add(leave));
     const link = h('div', 'room-link');
     const players = h('ul', 'room-players');
+    const load = h('p', 'room-load');
     const note = h('p', 'room-note');
     const startNow = button('room-btn room-start', r.startNow);
     const warn = h('p', 'room-warn');
@@ -848,15 +908,28 @@ export class Menu {
       this.startArmed = 0;
       this.onStartNow();
     });
-    const inRoom = h('div', 'room-in', top, link, players, note, this.nav.add(startNow, { disabled: () => !this.canStartNow() }), warn);
-    box.append(this.nav.add(create), inRoom);
+    const inRoom = h('div', 'room-in', top, link, players, load, note, this.nav.add(startNow, { disabled: () => !this.canStartNow() }), warn);
+    box.append(choices, inRoom);
+
+    const showLoad = (): void => {
+      const room = this.room;
+      load.hidden = !room?.loadAt;
+      if (room?.loadAt) load.textContent = r.nextLoad(timeTo(room.loadAt), room.players.filter((p) => p.ready).length);
+    };
+    this.updaters.push(showLoad);
+    this.ticking.push(showLoad);
 
     this.updaters.push(() => {
       const room = this.room;
-      create.hidden = room !== null;
+      choices.hidden = room !== null;
       inRoom.hidden = room === null;
-      if (!room) return;
-      title.textContent = r.name(room.room);
+      if (!room) {
+        const dz = dzInfo(this.setup.dz).name;
+        pubLabel.textContent = r.publicJoin(dz);
+        pubNote.textContent = r.publicNote(dz, this.publicCount, MAX_PEERS);
+        return;
+      }
+      title.textContent = room.publicDz ? r.publicName(dzInfo(room.publicDz).name) : r.name(room.room);
       link.textContent = room.link;
       copy.textContent = performance.now() < copiedUntil ? r.copied : r.copy;
       players.replaceChildren(
@@ -868,7 +941,16 @@ export class Menu {
           return li;
         }),
       );
-      note.textContent = !room.online ? r.connecting : room.isHost ? r.youSet : r.hostSets(room.hostName || '…');
+      const host = room.hostName || '…';
+      note.textContent = !room.online
+        ? r.connecting
+        : room.publicDz
+          ? room.isHost
+            ? r.publicYouSet
+            : r.publicHostSets(host)
+          : room.isHost
+            ? r.youSet
+            : r.hostSets(host);
       startNow.hidden = !this.canStartNow();
       const waiting = room.players.filter((p) => !p.ready).map((p) => p.name || '…');
       warn.textContent = performance.now() < this.startArmed && waiting.length > 0 ? r.startNowWarn(waiting.join(', ')) : '';
@@ -880,7 +962,7 @@ export class Menu {
   /** Leading a room of more than one where not everyone is ready. */
   private canStartNow(): boolean {
     const room = this.room;
-    return !!room?.isHost && room.online && room.players.length > 1 && room.players.some((p) => !p.ready);
+    return !!room?.isHost && !room.publicDz && room.online && room.players.length > 1 && room.players.some((p) => !p.ready);
   }
 
   /** What a home card says. */
@@ -894,7 +976,9 @@ export class Menu {
         return `
           <span class="big">${gear.canopyAreaFt2}<small class="unit">ft²</small> <small>${kindName(gear.kind)}</small>${swatch(gear.color)}</span>
           <span>${gear.exitWeightKg} kg · ${num(rig.wingLoading, 2)} lb/ft² · ${loadingLabel(rig.wingLoading)}</span>
-          <span class="dim">${g.containerLine[gear.container]} · ${g.altimeterLine[gear.altimeter]} · ${gear.audible ? g.audibleOn : g.audibleOff} · ${g.sliderLine[gear.slider]}${
+          <span class="dim">${gear.suit !== 'jumpsuit' ? `${g.suitLine[gear.suit](gear.suitLevel)} · ` : ''}${g.containerLine[gear.container]} · ${
+            g.altimeterLine[gear.altimeter]
+          } · ${gear.audible ? g.audibleOn : g.audibleOff} · ${g.sliderLine[gear.slider]}${
             gear.container === 'sport' && gear.rsl ? ' · RSL' : ''
           }${gear.smoke !== 'none' ? ` · ${g.smokeLine(g.smokes[gear.smoke])}` : ''}</span>`;
       }
@@ -989,6 +1073,16 @@ export class Menu {
           },
         },
       ),
+      this.choice<SuitKind>(g.suit, options(SUIT_KINDS, (k) => g.suits[k]), () => gear().suit, (suit) => this.setGear({ suit }), {
+        note: () => {
+          const { glide, across, down } = suitGlide(suitOf(gear()), gear().exitWeightKg);
+          return g.suitNote[gear().suit](num(glide, 1), num(across), num(down), T.keys.shift);
+        },
+      }),
+      this.choice<SuitLevel>(g.suitLevel, options(SUIT_LEVELS, String), () => gear().suitLevel, (suitLevel) => this.setGear({ suitLevel }), {
+        hint: g.suitLevelHint,
+        disabled: () => gear().suit === 'jumpsuit',
+      }),
       this.choice<AltimeterKind>(
         g.altimeterRow,
         options(['none', 'analog', 'digital'] as const, (a) => g.altimeter[a]),
