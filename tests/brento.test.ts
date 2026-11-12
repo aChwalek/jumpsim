@@ -30,7 +30,7 @@ describe('the wall', () => {
     expect(Math.abs(dz.groundAt(dz.target.x - 40, dz.target.z + 20))).toBeLessThan(1);
   });
 
-  test("the Becco stands some 1175 m above the field, a short run back from a sheer drop", () => {
+  test("the Becco stands some 1185 m above the field, a short run back from a sheer drop", () => {
     const top = dz.groundAt(b.x, b.z);
     expect(top).toBeGreaterThan(1150);
     expect(top).toBeLessThan(1200);
