@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import type { Lighting } from '../render/scene';
 import { isCanopyColor } from '../render/canopyColors';
 import { CANOPY_SIZES, nearestSize, validWeight, type Gear, type Start } from '../setup';
+import { isSuitKind, isSuitLevel } from '../sim/suit';
 import type { DzId } from '../world/dzs';
 import { Markers, type MarkerTarget } from './markers';
 import { Mesh } from './mesh';
@@ -346,6 +347,9 @@ export function readHello(m: unknown): Hello | null {
       color,
       // Someone on an older version has no smoke.
       smoke: isSmoke(g.smoke) ? g.smoke : 'none',
+      // Nor a suit: a plain jumpsuit.
+      suit: isSuitKind(g.suit) ? g.suit : 'jumpsuit',
+      suitLevel: isSuitLevel(g.suitLevel) ? g.suitLevel : 1,
       canopyAreaFt2: nearestSize(kind, canopyAreaFt2),
       exitWeightKg: validWeight(exitWeightKg),
     },

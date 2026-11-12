@@ -121,6 +121,9 @@ export const en: Strings = {
     spaceToPull: 'Space to pull',
     positions: { belly: '', back: 'ON YOUR BACK', sit: 'SIT', headDown: 'HEAD DOWN' },
     tracks: { belly: 'TRACK', back: 'BACK TRACK', sit: 'HEAD-UP ANGLE', headDown: 'HEAD-DOWN ANGLE' },
+    wingsuit: { belly: 'WINGSUIT', back: 'WINGSUIT ON YOUR BACK', sit: 'WINGSUIT', headDown: 'WINGSUIT' },
+    wingsFilling: 'WINGS FILLING',
+    glide: (g: string) => `glide ${g}`,
     stowedBoth: 'BRAKES STILL STOWED',
     stowedLeft: 'LEFT BRAKE STILL STOWED',
     stowedRight: 'RIGHT BRAKE STILL STOWED',
@@ -168,6 +171,9 @@ export const en: Strings = {
     bellyBack: 'roll / half turn (held: in a row)',
     track: 'track / angle (held)',
     trackPress: 'press: track / angle',
+    diveFlare: 'dive / flare',
+    wingsWideTight: 'wings wide / tight',
+    wingsuitRoll: 'barrel roll, back flying',
     fwdBackSlide: 'forward, back, slide',
     pull: 'pull',
     toggles: 'left / right toggle',
@@ -315,6 +321,19 @@ export const en: Strings = {
       smokeLine: (color: string) => `${color.toLowerCase()} smoke`,
       smokeNote: (on: boolean, s: string) =>
         on ? `Lit on exit (or from the start under canopy), it burns for ${s} s: the trail drifts with the wind.` : 'No smoke.',
+      suit: 'SUIT',
+      suits: { jumpsuit: 'Jumpsuit', track: 'Tracking', wingsuit: 'Wingsuit' },
+      suitLine: { jumpsuit: '', track: (level: number) => `level ${level} tracking suit`, wingsuit: (level: number) => `level ${level} wingsuit` },
+      suitLevel: 'LEVEL',
+      suitLevelHint: '1 first suit · 2 intermediate · 3 expert',
+      suitNote: {
+        jumpsuit: (_glide: string, _across: string, _down: string, k: string) =>
+          `A plain freefall jumpsuit. Tracking (${k} held): about a metre forward for every metre down.`,
+        track: (glide: string, across: string, down: string, k: string) =>
+          `Air-filled fabric, small wings under the arms on the bigger ones: the track (${k} held) becomes a wing. Glide ${glide}, ${across} km/h forward, ${down} km/h down.`,
+        wingsuit: (glide: string, across: string, down: string, _k: string) =>
+          `Wings between the arms and the body and between the legs: flown flat once they fill, belly down or on the back (← / →), never upright. Glide ${glide}, ${across} km/h forward, ${down} km/h down. Space: let go of the wings and pull.`,
+      },
     },
 
     dz: {
@@ -456,6 +475,7 @@ export const en: Strings = {
         ['Freefall: up / down', `${k('KeyR')} / ${k('KeyF')}`, 'LB / RB'],
         ['Freefall: quarter somersault forwards / backwards into the next position (twice: belly to back via head down, 4 times: full somersault, held: in a row)', '↑ / ↓', 'D-pad up / down'],
         ['Freefall: track flat, angle upright (held · pressed on, pressed off)', 'Shift', 'left stick pressed'],
+        ['Wingsuit: dive / flare, wings wide / tight (slower / faster)', `${k('KeyW')} / ${k('KeyS')} · ${k('KeyR')} / ${k('KeyF')}`, 'left stick · LB / RB'],
         ['Freefall: half roll flat (twice: barrel roll), half turn upright (held: in a row)', '← / →', 'D-pad left / right'],
         ['Go again (not in freefall)', k('KeyR'), 'Y'],
         ['Start on downwind / final / plane', '1 / 2 / 3', '—'],

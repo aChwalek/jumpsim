@@ -12,6 +12,7 @@ import type { RigParams } from '../sim/rig';
 import { GEAR_LAYER, OUTSIDE_LAYER } from './scene';
 import { JOINTS, type Joint } from '../sim/ragdoll';
 import { SMOKE_COLORS, type SmokeKind } from './smoke';
+import type { Suit } from '../sim/suit';
 
 const UPPER_ARM = 0.3;
 const FOREARM = 0.28;
@@ -130,6 +131,52 @@ interface Arm {
   hand: THREE.Mesh;
   /** The elbow and the wrist, pilot frame, after the last pose. */
   elbow: THREE.Vector3;
+  /** The wing under the arm, on a suit that has one. */
+  wing: Membrane;
+}
+
+/** A sheet of fabric stretched between points of the body, moved with it each pose. */
+class Membrane {
+  readonly mesh: THREE.Mesh;
+  private readonly position: THREE.BufferAttribute;
+
+  /** `triangles`: corners as indices into the points given to `set`. */
+  constructor(material: THREE.Material, points: number, triangles: number[]) {
+    const geometry = new THREE.BufferGeometry();
+    this.position = new THREE.BufferAttribute(new Float32Array(points * 3), 3);
+    this.position.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('position', this.position);
+    geometry.setIndex(triangles);
+    this.mesh = new THREE.Mesh(geometry, material);
+    // Its bounds move with every pose: always drawn when the body is.
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+  }
+
+  set(points: THREE.Vector3[]): void {
+    points.forEach((p, i) => this.position.setXYZ(i, p.x, p.y, p.z));
+    this.position.needsUpdate = true;
+    this.mesh.geometry.computeVertexNormals();
+  }
+}
+
+/**
+ * How a suit is cut: how much bigger than a plain jumpsuit its arms and legs
+ * look, how far down the arm its wing goes (0 none, 1 to the wrist, along
+ * the arm from the shoulder), down to where on the side (0 the ribs, 1 the
+ * hip), and whether it has a wing between the legs.
+ */
+interface SuitCut {
+  bag: number;
+  armWing: number;
+  wingRoot: number;
+  legWing: boolean;
+}
+
+function suitCut(suit: Suit): SuitCut {
+  if (suit.kind === 'jumpsuit') return { bag: 1, armWing: 0, wingRoot: 0, legWing: false };
+  if (suit.kind === 'track') return { bag: [1.15, 1.25, 1.35][suit.level - 1]!, armWing: [0, 0.4, 0.62][suit.level - 1]!, wingRoot: 0.3, legWing: false };
+  return { bag: 1.3 + 0.1 * suit.level, armWing: 1, wingRoot: 1, legWing: true };
 }
 
 /** The face of a metric skydiving altimeter: 0 to 4 thousand metres, red under 1000, yellow to 1500. */
@@ -210,6 +257,15 @@ export class Body {
   private readonly basis = new THREE.Matrix4();
   /** A point at each joint, for the ragdoll to start from (see `joints`). */
   private readonly marks: Record<Joint, THREE.Object3D>;
+  /** The wings' fabric: of the canopy's colour. */
+  private readonly wingMaterial = new THREE.MeshLambertMaterial({ color: 0x2a6fd0, side: THREE.DoubleSide });
+  /** Between the legs, from the crotch to the ankles. */
+  private readonly legWing = new Membrane(this.wingMaterial, 5, [0, 1, 4, 1, 2, 3, 1, 3, 4]);
+  /** The jumpsuit's thighs and shins, made baggier by a suit. */
+  private readonly legCloth: THREE.Mesh[] = [];
+  private cut: SuitCut = { bag: 1, armWing: 0, wingRoot: 0, legWing: false };
+  private armsShown = true;
+  private readonly wingPoints = Array.from({ length: 5 }, () => new THREE.Vector3());
 
   constructor(rig: RigParams) {
     this.eye = new THREE.Vector3(rig.eyePos.x, rig.eyePos.y, rig.eyePos.z);
@@ -300,14 +356,17 @@ export class Body {
       thigh.position.set(side * HIP_APART, pilotY - HIP_DROP, HIP_BACK);
       const shin = new THREE.Group();
       shin.position.y = -THIGH;
+      const thighCloth = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, THIGH - 0.12, 4, 10).translate(0, -THIGH / 2 + 0.02, 0), suit);
+      const shinCloth = new THREE.Mesh(new THREE.CapsuleGeometry(0.062, shinLength - 0.1, 4, 10).translate(0, -shinLength / 2 + 0.02, 0), suit);
+      this.legCloth.push(thighCloth, shinCloth);
       thigh.add(
-        new THREE.Mesh(new THREE.CapsuleGeometry(0.08, THIGH - 0.12, 4, 10).translate(0, -THIGH / 2 + 0.02, 0), suit),
+        thighCloth,
         // A leg strap round the top of the thigh.
         new THREE.Mesh(new THREE.CylinderGeometry(0.086, 0.086, 0.045, 12).translate(0, -0.1, 0), webbing),
         shin,
       );
       shin.add(
-        new THREE.Mesh(new THREE.CapsuleGeometry(0.062, shinLength - 0.1, 4, 10).translate(0, -shinLength / 2 + 0.02, 0), suit),
+        shinCloth,
         new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.09, 0.28).translate(0, -shinLength, -0.07), shoe),
       );
       this.trunk.add(thigh);
@@ -340,10 +399,14 @@ export class Body {
         fore: limb(0.034),
         hand: near(new THREE.Mesh(new THREE.IcosahedronGeometry(0.046, 2).scale(0.85, 1.15, 0.9), glove)),
         elbow: new THREE.Vector3(),
+        // Shoulder, elbow, the end of the wing on the arm, halfway down its trailing edge, its root on the side.
+        wing: new Membrane(this.wingMaterial, 5, [0, 1, 4, 1, 3, 4, 1, 2, 3]),
       };
-      this.group.add(arm.upper, arm.fore, arm.hand);
+      near(arm.wing.mesh);
+      this.group.add(arm.upper, arm.fore, arm.hand, arm.wing.mesh);
       this.arms.push(arm);
     }
+    this.group.add(this.legWing.mesh);
 
     // The altimeter on the left wrist, turned to the eyes to be read.
     const face = near(
@@ -402,10 +465,32 @@ export class Body {
     return JOINTS.map((joint) => this.marks[joint].getWorldPosition(new THREE.Vector3()).applyMatrix4(inverse));
   }
 
-  /** Shows or hides the free arms (and the altimeter on them). */
+  /** Shows or hides the free arms (and the altimeter and the wings on them). */
   showArms(visible: boolean): void {
-    for (const arm of this.arms) arm.upper.visible = arm.fore.visible = arm.hand.visible = visible;
+    for (const arm of this.arms) {
+      arm.upper.visible = arm.fore.visible = arm.hand.visible = visible;
+      // Unzipped from the arms under canopy, the wings hang out of sight.
+      arm.wing.mesh.visible = visible && this.cut.armWing > 0;
+    }
     this.altimeter.visible = visible;
+    this.armsShown = visible;
+  }
+
+  /**
+   * The suit worn: a tracking suit baggier, with little wings under the arms
+   * on the bigger ones; a wingsuit with wings to the wrists and between the
+   * legs, of `color`.
+   */
+  setSuit(suit: Suit, color: number): void {
+    const cut = (this.cut = suitCut(suit));
+    this.wingMaterial.color.setHex(color);
+    for (const mesh of this.legCloth) mesh.scale.set(cut.bag, 1, cut.bag);
+    for (const arm of this.arms) {
+      arm.upper.scale.x = arm.upper.scale.z = cut.bag;
+      arm.fore.scale.x = arm.fore.scale.z = cut.bag;
+    }
+    this.legWing.mesh.visible = cut.legWing;
+    this.showArms(this.armsShown);
   }
 
   /** What the altimeter reads, m above the ground it was zeroed on. */
@@ -431,6 +516,61 @@ export class Body {
       this.reach(arm, left ? p.handL : p.handR, left ? p.elbowL : p.elbowR);
     }
     this.placeAltimeter();
+    this.stretchWings();
+  }
+
+  /** The wings follow the arms and legs. */
+  private stretchWings(): void {
+    const cut = this.cut;
+    const pts = this.wingPoints;
+    const trunk = this.trunk;
+    trunk.updateMatrix();
+    const hipY = this.marks.hipL.position.y;
+    if (cut.armWing > 0 && this.armsShown) {
+      for (const arm of this.arms) {
+        const s = arm.sign;
+        const [shoulder, elbow, tip, trailing, root] = pts as [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3];
+        shoulder.set(s * (SHOULDER.x - 0.03), SHOULDER.y - 0.02, SHOULDER.z).applyMatrix4(trunk.matrix);
+        // Along the arm, shoulder to wrist: the elbow is about halfway.
+        const along = cut.armWing * (UPPER_ARM + FOREARM - 0.04);
+        if (along <= UPPER_ARM) {
+          tip.lerpVectors(shoulder, arm.elbow, along / UPPER_ARM);
+          elbow.lerpVectors(shoulder, tip, 0.5);
+        } else {
+          elbow.copy(arm.elbow);
+          tip.lerpVectors(arm.elbow, arm.hand.position, (along - UPPER_ARM) / FOREARM);
+        }
+        root.set(s * 0.15, TORSO_TOP - 0.2 + (hipY - TORSO_TOP + 0.2) * cut.wingRoot, TORSO_BACK - 0.02).applyMatrix4(trunk.matrix);
+        // The trailing edge curves in towards the body, the fabric lifted a little by the air under it.
+        trailing.lerpVectors(tip, root, 0.5).lerp(shoulder, 0.12);
+        trailing.z += 0.03;
+        arm.wing.set(pts);
+      }
+    }
+    if (cut.legWing) {
+      const [crotch, kneeL, footL, footR, kneeR] = pts as [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3];
+      crotch.set(0, hipY - 0.06, HIP_BACK).applyMatrix4(trunk.matrix);
+      this.inGroup(kneeL, this.marks.kneeL);
+      this.inGroup(kneeR, this.marks.kneeR);
+      this.inGroup(footL, this.marks.footL);
+      this.inGroup(footR, this.marks.footR);
+      // From the inside of each leg, down to just above the shoes.
+      kneeL.x += 0.04;
+      kneeR.x -= 0.04;
+      footL.lerp(kneeL, 0.08).x += 0.03;
+      footR.lerp(kneeR, 0.08).x -= 0.03;
+      this.legWing.set(pts);
+    }
+  }
+
+  /** Where a mark on the legs is, pilot frame, after the pose just set. */
+  private inGroup(out: THREE.Vector3, mark: THREE.Object3D): THREE.Vector3 {
+    out.copy(mark.position);
+    for (let o = mark.parent; o && o !== this.group; o = o.parent) {
+      o.updateMatrix();
+      out.applyMatrix4(o.matrix);
+    }
+    return out;
   }
 
   /** Shoulder, elbow, hand: two bones of fixed length, the elbow pointing the given way. */
