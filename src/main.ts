@@ -260,6 +260,7 @@ function joinRoom(name: string): void {
     },
     start: (start, shared) => menu.startShared(shared, start),
     changed: showRoom,
+    exited: showExit,
   });
   net.setShared(sharedPart(menu.current));
   showRoom();
@@ -273,6 +274,15 @@ function leaveRoom(fromUrl = true): void {
   if (fromUrl) setRoomInUrl(null);
   showRoom();
   showGear();
+}
+
+/** Who has just left the plane, said over the HUD's cue a moment. */
+let exits: string[] = [];
+function showExit(name: string): void {
+  const now = performance.now();
+  if (!flash || now >= flash.until) exits = [];
+  exits.push(name.replace(/[<>&"]/g, ''));
+  flash = { text: T.cue.exited(exits.join(', ')), until: now + 3000 };
 }
 
 /** The room on the menu's home screen. */

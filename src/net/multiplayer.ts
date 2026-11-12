@@ -25,6 +25,8 @@ export interface RoomEvents {
   start(start: Start, shared: SharedSetup): void;
   /** Who is in, who leads, who is ready: something changed. */
   changed(): void;
+  /** Someone at our drop zone left their plane. */
+  exited(name: string): void;
 }
 
 /** Who a player is, sent once on connecting and again when it changes. */
@@ -195,6 +197,9 @@ export class Multiplayer {
     for (const { jumper, hello } of this.remotes.values()) {
       const heard = now - jumper.buffer.lastHeard < SILENT_MS;
       jumper.update(frame, heard && hello !== null && hello.dz === dz);
+    }
+    for (const [id, { jumper }] of this.remotes) {
+      if (jumper.exited) this.events.exited(this.state.players.get(id)?.name || '…');
     }
   }
 

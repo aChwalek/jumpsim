@@ -34,6 +34,10 @@ export class RemoteJumper {
   readonly buffer = new SnapshotBuffer();
   private readonly now = emptySnapshot();
   private readonly posture = new Posture();
+  /** Where they were in their jump at the last frame drawn. */
+  private phase: string | null = null;
+  /** They left their plane at this frame. */
+  exited = false;
   private readonly att = new THREE.Quaternion();
   private readonly at = new THREE.Vector3();
   private gear: Gear | null = null;
@@ -68,8 +72,13 @@ export class RemoteJumper {
     const view = this.view;
     const s = this.now;
     if (!view || !this.main || !this.reserve) return;
+    const sampled = visible && this.buffer.sample(f.now, s);
+    // Into freefall from anything but freefall, and not by a cutaway: out of the plane,
+    // even if the snapshots from the door were missed.
+    this.exited = sampled && this.phase !== null && this.phase !== 'freefall' && s.phase === 'freefall' && !s.cutaway;
+    if (sampled) this.phase = s.phase;
     // In their plane, which is not drawn here yet: not shown either.
-    view.object.visible = visible && this.buffer.sample(f.now, s) && s.phase !== 'plane';
+    view.object.visible = sampled && s.phase !== 'plane';
     if (!view.object.visible) return;
 
     // A new jump after a reserve ride or a cutaway: a fresh rig.
