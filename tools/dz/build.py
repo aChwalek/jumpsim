@@ -26,6 +26,7 @@ import math
 import os
 import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -94,14 +95,22 @@ def cached(url, ext, data=None):
         return path
     os.makedirs(os.path.dirname(path), exist_ok=True)
     req = urllib.request.Request(url, data=data.encode() if data else None, headers={'User-Agent': UA})
-    try:
-        with urllib.request.urlopen(req, timeout=180) as r:
-            body = r.read()
-    except urllib.error.HTTPError as e:
-        if e.code in (400, 404):
-            body = b''
-        else:
-            raise
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=180) as r:
+                body = r.read()
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in (400, 404):
+                body = b''
+                break
+            if e.code < 500 or attempt == 3:
+                raise
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            # A connection dropped by a busy server: once more, a little later.
+            if attempt == 3:
+                raise
+        time.sleep(2 ** attempt)
     tmp = path + '.part'
     with open(tmp, 'wb') as f:
         f.write(body)
@@ -141,6 +150,7 @@ SOURCES = {
             '&STYLE=default&TILEMATRIXSET=GoogleMapsCompatible&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/jpeg',
     'sentinel': 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2023_3857/default/g/{z}/{y}/{x}.jpg',
     'terrarium': 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+    'swissimage': 'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg',
 }
 
 
@@ -359,8 +369,9 @@ def overpass(query, label):
     print(f'  osm {label}', flush=True)
     body = 'data=' + urllib.parse.quote(query)
     for attempt in range(3):
-        for server in ('https://overpass-api.de/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-                       'https://overpass.private.coffee/api/interpreter'):
+        # A drop zone can name its own servers first, such as a national mirror.
+        for server in (*CONF.get('overpass', []), 'https://overpass-api.de/api/interpreter',
+                       'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.private.coffee/api/interpreter'):
             try:
                 path = cached(server, '.json', body)
                 with open(path) as f:
@@ -674,6 +685,79 @@ if ONLY is None or 'relief' in ONLY:
     far = relief_grid(FAR['size'], FAR['spacing'], 10, 'far')
     state['relief'] = {'plain': plain, 'near': near, 'far': far}
     print(f'  plain at {plain:.1f} m', flush=True)
+
+# --- Fine relief, for cliffs -----------------------------------------------------------
+# The terrain tiles round off a cliff over a hundred metres. Where there is one
+# to jump from, a square of finer relief is laid over the near grid, from a
+# national survey. Its sides fall on the 100 m lines of the near grid.
+FINE = CONF.get('fineRelief')
+
+
+def lv95(lat, lon):
+    """Swiss LV95 east and north of a WGS84 point, m: swisstopo's approximate formulas, to a metre or so."""
+    p = (lat * 3600 - 169028.66) / 10000
+    l = (lon * 3600 - 26782.5) / 10000
+    e = 2600072.37 + 211455.93 * l - 10938.51 * l * p - 0.36 * l * p * p - 44.54 * l ** 3
+    n = 1200147.07 + 308807.95 * p + 3745.25 * l * l + 76.63 * p * p - 194.56 * l * l * p + 119.79 * p ** 3
+    return e, n
+
+
+def swissalti3d(points):
+    """Heights of WGS84 points from swissALTI3D at 2 m, a 1 km tile at a time."""
+    import numpy as np  # noqa: PLC0415  Only this survey needs them.
+    from PIL import Image  # noqa: PLC0415
+    lv = [lv95(lat, lon) for lat, lon in points]
+    keys = sorted({(int(e // 1000), int(n // 1000)) for e, n in lv})
+    stac = 'https://data.geo.admin.ch/api/stac/v0.9/collections/ch.swisstopo.swissalti3d/items'
+    print(f'  fine relief: swissALTI3D, {len(keys)} tiles', flush=True)
+
+    def tile(key):
+        with open(cached(f'{stac}?bbox={",".join(str(v) for v in key_bbox(key))}', '.json')) as f:
+            items = json.load(f)['features']
+        name = f'{key[0]}-{key[1]}'
+        item = max((i for i in items if i['id'].endswith(name)), key=lambda i: i['id'])
+        href = next(a['href'] for a in item['assets'].values() if a['href'].endswith('.tif') and a.get('eo:gsd') == 2)
+        return np.array(Image.open(cached(href, '.tif')), dtype=np.float32)
+
+    def key_bbox(key):
+        lat0, lon0 = wgs84(key[0] * 1000 + 500, key[1] * 1000 + 500)
+        return [round(lon0 - 0.001, 5), round(lat0 - 0.001, 5), round(lon0 + 0.001, 5), round(lat0 + 0.001, 5)]
+
+    with concurrent.futures.ThreadPoolExecutor(8) as pool:
+        tiles = dict(zip(keys, pool.map(tile, keys)))
+    out = []
+    for e, n in lv:
+        # Pixel centres every 2 m, rows from the north edge of the tile.
+        key = (int(e // 1000), int(n // 1000))
+        t = tiles[key]
+        c = min(498.999, max(0.0, (e - key[0] * 1000) / 2 - 0.5))
+        r = min(498.999, max(0.0, ((key[1] + 1) * 1000 - n) / 2 - 0.5))
+        c0, r0 = int(c), int(r)
+        fc, fr = c - c0, r - r0
+        out.append(float((t[r0, c0] * (1 - fc) + t[r0, c0 + 1] * fc) * (1 - fr) + (t[r0 + 1, c0] * (1 - fc) + t[r0 + 1, c0 + 1] * fc) * fr))
+    return out
+
+
+def wgs84(e, n):
+    """The other way, to WGS84 latitude and longitude."""
+    y = (e - 2600000) / 1e6
+    x = (n - 1200000) / 1e6
+    l = 2.6779094 + 4.728982 * y + 0.791484 * y * x + 0.1306 * y * x * x - 0.0436 * y ** 3
+    p = 16.9023892 + 3.238272 * x - 0.270978 * y * y - 0.002528 * x * x - 0.0447 * y * y * x - 0.0140 * x ** 3
+    return p * 100 / 36, l * 100 / 36
+
+
+if FINE and (ONLY is None or 'relief' in ONLY):
+    cx, cz = local(*FINE['centre'])
+    cx, cz = round(cx / 100) * 100, round(cz / 100) * 100
+    size = int(FINE['size_m'] / FINE['spacing_m']) + 1
+    half = FINE['size_m'] / 2
+    grid = [latlon(cx - half + c * FINE['spacing_m'], cz - half + r * FINE['spacing_m']) for r in range(size) for c in range(size)]
+    heights = swissalti3d(grid + [(LAT0, LON0)])
+    # The landing area is the plain: this survey says best how high it is.
+    state['relief']['plain'] = heights.pop()
+    state['fine'] = {'x': cx, 'z': cz, 'size': size, 'spacing': FINE['spacing_m'], 'heights': heights}
+    print(f'  fine relief {size}x{size} at {FINE["spacing_m"]} m about ({cx}, {cz}), plain at {state["relief"]["plain"]:.1f} m', flush=True)
 PLAIN = state['relief']['plain']
 
 # --- Imagery -------------------------------------------------------------------------
@@ -996,6 +1080,11 @@ dz = {
     'windsocks': [pt(w) for w in CONF.get('windsocks', [])],
     'flags': [pt(f) + [f.get('height_m', 4)] for f in CONF.get('flags', [])],
 }
+if CONF.get('base'):
+    # The exit: where the jumper stands, the way to the edge, and how far it is.
+    b = CONF['base']
+    dz['base'] = {**dict(zip(('x', 'z'), pt(b))), 'headingDeg': b['heading_deg'], 'runUp': b['runUp_m'], 'width': b['width_m'],
+                  'height': b['altitudeToLanding_m'], 'name': b['name']}
 
 
 def rel(h):
@@ -1009,13 +1098,21 @@ out = {
     'far': {'size': FAR['size'], 'spacing': FAR['spacing'], 'heights': [round(h - PLAIN) for h in relief['far']]},
     'imagery': [{'url': f'dz/{DZ_ID}/{name}.jpg', 'size': size_m} for name, size_m, _, _ in reversed(LEVELS)],
 }
+if FINE:
+    import base64  # noqa: PLC0415
+    import struct  # noqa: PLC0415
+    fine = state['fine']
+    # Decimetres above the plain, as little-endian 16-bit integers in base64: a quarter of the size of a list.
+    dm = [max(-32768, min(32767, round((h - PLAIN) * 10))) for h in fine['heights']]
+    out['fine'] = {'x': fine['x'], 'z': fine['z'], 'size': fine['size'], 'spacing': fine['spacing'],
+                   'heights': base64.b64encode(struct.pack(f'<{len(dm)}h', *dm)).decode()}
 
 with open(data_out, 'w') as f:
     f.write(f'// Generated by tools/dz/build.py from tools/dz/{DZ_ID}.json: do not edit by hand.\n')
     f.write(f'// {CONF["aerodrome"]["name"]} ({CONF["aerodrome"]["icao"]}), local metres about the centre of the\n')
     f.write('// main landing area: x east, z south (web mercator scaled to true size there).\n')
     f.write('// Data (c) OpenStreetMap contributors, ODbL; relief from Mapzen Terrain Tiles\n')
-    f.write('// (SRTM, EU-DEM, GMTED, ETOPO1); imagery in public/dz: see tools/dz/README.md.\n\n')
+    f.write('// (SRTM, EU-DEM, GMTED, ETOPO1)' + (f' and {FINE["source"]}' if FINE else '') + '; imagery in public/dz: see tools/dz/README.md.\n\n')
     f.write('/* eslint-disable */\n')
     f.write("import type { RealDzData } from '../real';\n\n")
     f.write('export const DATA: RealDzData = {\n')
@@ -1024,6 +1121,9 @@ with open(data_out, 'w') as f:
     f.write('  /** Ground above the plain, m, rows north to south: 12 km at 100 m, then 80 km at 500 m. */\n')
     f.write(f'  near: {json.dumps(out["near"], separators=(",", ":"))},\n')
     f.write(f'  far: {json.dumps(out["far"], separators=(",", ":"))},\n')
+    if FINE:
+        f.write(f'  /** Fine relief about a cliff, {FINE["source"]}: decimetres above the plain, int16 little-endian in base64, rows north to south. */\n')
+        f.write(f'  fine: {json.dumps(out["fine"], separators=(",", ":"))},\n')
     f.write(f'  imagery: {json.dumps(out["imagery"])},\n')
     f.write('  /** x, z, length, width, heading of the long side, height, roof colour (-1: none), wall colour (-1), flat roof, hangar door, greenhouse. */\n')
     f.write(f'  buildings: {json.dumps(buildings, separators=(",", ":"))},\n')

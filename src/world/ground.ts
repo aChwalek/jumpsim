@@ -188,17 +188,51 @@ const PHOTO_GLSL = /* glsl */ `
     vec2 d = min(uv, 1.0 - uv);
     return smoothstep(0.0, 0.05, min(d.x, d.y));
   }
-  vec3 photoAt(vec2 p) {
+  // blur: a mip bias, each step averaging twice as far round.
+  vec3 photoAt(vec2 p, float blur) {
     vec2 uv2 = p / photoSize.z + 0.5;
     vec2 uv1 = p / photoSize.y + 0.5;
     vec2 uv0 = p / photoSize.x + 0.5;
-    vec3 c = mix(photoFallback, texture2D(photo2, uv2).rgb, photoReady.z * photoWeight(uv2));
-    c = mix(c, texture2D(photo1, uv1).rgb, photoReady.y * photoWeight(uv1));
-    c = mix(c, texture2D(photo0, uv0).rgb, photoReady.x * photoWeight(uv0));
+    vec3 c = mix(photoFallback, texture2D(photo2, uv2, blur).rgb, photoReady.z * photoWeight(uv2));
+    c = mix(c, texture2D(photo1, uv1, blur).rgb, photoReady.y * photoWeight(uv1));
+    c = mix(c, texture2D(photo0, uv0, blur).rgb, photoReady.x * photoWeight(uv0));
     return c * photoGain;
   }
+  vec3 photoAt(vec2 p) { return photoAt(p, 0.0); }
 `;
 
+
+/**
+ * GLSL for rock faces. A photo taken from above spends a pixel or two on a
+ * face hundreds of metres high, which comes out as streaks running down it:
+ * there the photo only gives the tint, averaged over a few tens of metres,
+ * and the texture is drawn on the face itself, seen from either side
+ * (triplanar): beds of rock lying flat, blocks, and grit.
+ */
+const ROCK_GLSL = /* glsl */ `
+  // q: along the face, up. The stretched samples are read blurred: the
+  // speckle of single texels would come out as threadlike lines.
+  float rockFace(vec2 q) {
+    float beds = texture2D(detailMap, vec2(q.x / 1700.0, q.y / 110.0), 3.0).r;
+    float thin = texture2D(detailMap, vec2(q.x / 300.0, q.y / 25.0), 3.0).r;
+    // Dark stains where water runs down.
+    float stains = texture2D(detailMap, vec2(q.x / 250.0, q.y / 1500.0), 3.0).r;
+    float blocks = texture2D(detailMap, q / 29.0).r;
+    float grit = texture2D(detailMap, q / 4.3).r;
+    return (0.6 + 0.8 * beds) * (0.8 + 0.4 * thin) * (0.7 + 0.6 * smoothstep(0.35, 0.65, stains))
+      * (0.6 + 0.8 * blocks) * (0.8 + 0.4 * grit);
+  }
+  vec3 rockAt(vec3 p, vec3 n) {
+    vec2 w = abs(n.xz) + 0.001;
+    w /= w.x + w.y;
+    float face = rockFace(vec2(p.z, p.y)) * w.x + rockFace(vec2(p.x, p.y)) * w.y;
+    vec3 tint = photoAt(p.xz, 4.5);
+    // Rock is greyer than the averaged photo, which takes in the ledges' grass.
+    float grey = dot(tint, vec3(0.3, 0.5, 0.2));
+    tint = mix(vec3(grey), tint, 0.55) * vec3(1.02, 1.0, 0.97);
+    return tint * face;
+  }
+`;
 
 /**
  * Lambert material whose colour carries world-space ground detail. With
@@ -222,27 +256,39 @@ export function groundMaterial(params: THREE.MeshLambertMaterialParameters, laye
     shader.uniforms.grainMap = { value: marks };
     if (photos) Object.assign(shader.uniforms, photos.uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 vGroundXZ;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGroundWorld;\nvarying vec3 vGroundNormal;')
       .replace(
         '#include <begin_vertex>',
-        '#include <begin_vertex>\nvGroundXZ = (modelMatrix * vec4(transformed, 1.0)).xz;',
+        `#include <begin_vertex>
+        vGroundWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vGroundNormal = mat3(modelMatrix) * objectNormal;`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        `#include <common>\nuniform sampler2D detailMap;\nuniform sampler2D grainMap;\nvarying vec2 vGroundXZ;\n${photos ? PHOTO_GLSL : ''}`,
+        `#include <common>
+        uniform sampler2D detailMap;
+        uniform sampler2D grainMap;
+        varying vec3 vGroundWorld;
+        varying vec3 vGroundNormal;
+        ${photos ? PHOTO_GLSL + ROCK_GLSL : ''}`,
       )
       .replace(
         '#include <color_fragment>',
         photos
           ? `#include <color_fragment>
+        vec2 vGroundXZ = vGroundWorld.xz;
         diffuseColor.rgb = photoAt(vGroundXZ);
         vec2 marks = texture2D(grainMap, vGroundXZ / ${GRAIN_TILE}).rg;
         float grassy = step(1.08 * max(diffuseColor.r, diffuseColor.b), diffuseColor.g);
         float d1 = mix(marks.g, marks.r, grassy);
         float d2 = texture2D(detailMap, vGroundXZ / 11.0).r;
-        diffuseColor.rgb *= (0.45 + 1.1 * d1) * (0.85 + 0.3 * d2);`
+        diffuseColor.rgb *= (0.45 + 1.1 * d1) * (0.85 + 0.3 * d2);
+        vec3 groundNormal = normalize(vGroundNormal);
+        float steep = smoothstep(0.8, 0.6, groundNormal.y);
+        if (steep > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, rockAt(vGroundWorld, groundNormal), steep);`
           : `#include <color_fragment>
+        vec2 vGroundXZ = vGroundWorld.xz;
         vec2 marks = texture2D(grainMap, vGroundXZ / ${GRAIN_TILE}).rg;
         // Grass wherever green leads.
         float grassy = step(1.15 * max(diffuseColor.r, diffuseColor.b), diffuseColor.g);
@@ -270,17 +316,31 @@ function terrainLines(): number[] {
   return lines;
 }
 
+/** A square of terrain drawn finer, centred on (x, z): its sides on the 100 m lines. */
+export interface TerrainDetail {
+  x: number;
+  z: number;
+  size: number;
+  spacing: number;
+}
+
 /**
  * The base terrain reaching the horizon: flat, or shaped by `groundAt`, in
- * one colour or coloured point by point by `colorAt`.
+ * one colour or coloured point by point by `colorAt`. Inside `detail` it is
+ * drawn finer, for a cliff.
  */
 export function buildTerrain(
   color: number,
   groundAt: (x: number, z: number) => number = () => 0,
   colorAt?: (x: number, z: number) => number,
   photos?: Photos,
+  detail?: TerrainDetail,
 ): THREE.Mesh {
   const lines = terrainLines();
+  const half = detail ? detail.size / 2 : 0;
+  // Cells of the coarse mesh the fine square covers are left out.
+  const covered = (x0: number, z0: number, x1: number, z1: number): boolean =>
+    !!detail && x0 >= detail.x - half && x1 <= detail.x + half && z0 >= detail.z - half && z1 <= detail.z + half;
   const n = lines.length;
   const positions = new Float32Array(n * n * 3);
   const colors = colorAt && !photos ? new Float32Array(n * n * 3) : null;
@@ -302,18 +362,88 @@ export function buildTerrain(
   const index: number[] = [];
   for (let j = 0; j < n - 1; j++) {
     for (let i = 0; i < n - 1; i++) {
+      if (covered(lines[i]!, lines[j]!, lines[i + 1]!, lines[j + 1]!)) continue;
       const a = j * n + i;
       index.push(a, a + n, a + 1, a + 1, a + n, a + n + 1);
+    }
+  }
+  let geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  if (colors) geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geometry.setIndex(index);
+  if (detail) geometry = mergeGeometries([geometry, fineTerrain(detail, lines, groundAt, colorAt, !!colors)]);
+  geometry.computeVertexNormals();
+  const mesh = new THREE.Mesh(geometry, groundMaterial(colors ? { vertexColors: true } : { color }, 0, photos));
+  mesh.renderOrder = 0;
+  return mesh;
+}
+
+/**
+ * The fine square of terrain. Along its sides the points follow the straight
+ * edges of the coarse cells next to it, so that no crack opens between them.
+ */
+function fineTerrain(
+  d: TerrainDetail,
+  lines: number[],
+  groundAt: (x: number, z: number) => number,
+  colorAt: ((x: number, z: number) => number) | undefined,
+  colored: boolean,
+): THREE.BufferGeometry {
+  const n = Math.round(d.size / d.spacing) + 1;
+  const x0 = d.x - d.size / 2;
+  const z0 = d.z - d.size / 2;
+  /** Height along a coarse edge: straight between the coarse points either side. */
+  const along = (fixed: number, t: number, horizontal: boolean): number => {
+    let k = 0;
+    while (k < lines.length - 2 && lines[k + 1]! <= t) k++;
+    const a = lines[k]!;
+    const b = lines[k + 1]!;
+    const f = (t - a) / (b - a);
+    const ha = horizontal ? groundAt(a, fixed) : groundAt(fixed, a);
+    const hb = horizontal ? groundAt(b, fixed) : groundAt(fixed, b);
+    return ha + (hb - ha) * f;
+  };
+  const positions = new Float32Array(n * n * 3);
+  const colors = colored ? new Float32Array(n * n * 3) : null;
+  const tint = new THREE.Color();
+  let o = 0;
+  for (let j = 0; j < n; j++) {
+    const z = z0 + j * d.spacing;
+    for (let i = 0; i < n; i++) {
+      const x = x0 + i * d.spacing;
+      let y: number;
+      if (j === 0 || j === n - 1) y = along(z, x, true);
+      else if (i === 0 || i === n - 1) y = along(x, z, false);
+      else y = groundAt(x, z);
+      if (colors) {
+        tint.setHex(colorAt!(x, z));
+        colors[o] = tint.r;
+        colors[o + 1] = tint.g;
+        colors[o + 2] = tint.b;
+      }
+      positions[o++] = x;
+      positions[o++] = y;
+      positions[o++] = z;
+    }
+  }
+  const index = new Uint32Array((n - 1) * (n - 1) * 6);
+  let k = 0;
+  for (let j = 0; j < n - 1; j++) {
+    for (let i = 0; i < n - 1; i++) {
+      const a = j * n + i;
+      index[k++] = a;
+      index[k++] = a + n;
+      index[k++] = a + 1;
+      index[k++] = a + 1;
+      index[k++] = a + n;
+      index[k++] = a + n + 1;
     }
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   if (colors) geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geometry.setIndex(index);
-  geometry.computeVertexNormals();
-  const mesh = new THREE.Mesh(geometry, groundMaterial(colors ? { vertexColors: true } : { color }, 0, photos));
-  mesh.renderOrder = 0;
-  return mesh;
+  geometry.setIndex(new THREE.BufferAttribute(index, 1));
+  return geometry;
 }
 
 /** The rectangles as triangles lying on the ground, each in its own colour. */

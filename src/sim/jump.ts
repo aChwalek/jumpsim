@@ -8,7 +8,7 @@
 // without knowing where the pilot is in the jump.
 
 import type { Controls, Environment, FlightModel } from './flightModel';
-import { Freefall, freefallParams, type BodyInputs, type BodyPosition } from './freefall';
+import { Freefall, freefallParams, noBodyInputs, type BodyInputs, type BodyPosition } from './freefall';
 import { BASE_OPENING, MAIN_OPENING, Opening, RESERVE_HANDLE_OPENING, RESERVE_OPENING, STOWED_BRAKE, type Malfunction } from './opening';
 import { Plane, type JumpRun } from './plane';
 import { ReleasedCanopy } from './released';
@@ -30,6 +30,11 @@ export interface Ledge {
   z: number;
   /** Compass heading towards the edge, degrees. */
   headingDeg: number;
+  /**
+   * How high the exit is, m, where the ground under the edge does not say:
+   * down to the landing area from a cliff, whose foot is a slope.
+   */
+  height?: number;
 }
 
 const isLedge = (from: JumpRun | Ledge): from is Ledge => (from as Ledge).kind === 'ledge';
@@ -118,6 +123,8 @@ export class Jump {
   readonly runUp: RunUp | null;
   /** A BASE jump, off an object: the AAD is off, as for any BASE jump. */
   readonly base: boolean;
+  /** The ledge's own height, when it has one. */
+  private readonly exitHeight: number | undefined;
   /** One canopy and nothing else: a BASE container. */
   readonly single: boolean;
   readonly body: Freefall;
@@ -166,6 +173,7 @@ export class Jump {
     this.solidAt = options.solidAt ?? groundAt;
     this.body = new Freefall(freefallParams(model.rig.gravMass));
     this.base = isLedge(from);
+    this.exitHeight = isLedge(from) ? from.height : undefined;
     this.single = options.container === 'base';
     if (isLedge(from)) {
       this.phase = 'standing';
@@ -177,7 +185,7 @@ export class Jump {
       this.runUp = null;
     }
     this.log = {
-      exitHeight: isLedge(from) ? this.solidAt(from.x, from.z) - groundAt(from.x, from.z) : from.height,
+      exitHeight: isLedge(from) ? (from.height ?? this.solidAt(from.x, from.z) - groundAt(from.x, from.z)) : from.height,
       pullHeight: null,
       openHeight: 0,
       freefallSeconds: 0,
@@ -243,6 +251,15 @@ export class Jump {
     else if (this.phase === 'freefall') this.body.rollOver(dir);
   }
 
+  /**
+   * ↑ / ↓ in freefall (`dir` 1 / -1): a quarter somersault forwards or
+   * backwards into the next position round the loop.
+   */
+  flip(dir: -1 | 1): void {
+    if (this.pullWhenFlat || this.phase !== 'freefall') return;
+    this.body.flip(dir);
+  }
+
   /** Feet above the ground, m. */
   height(): number {
     const m = this.model;
@@ -296,6 +313,8 @@ export class Jump {
     if (this.options.rsl) this.rslAt = this.time + RSL_DELAY;
   }
 
+  private readonly calm: BodyInputs = noBodyInputs();
+
   /** Advances whatever is under way before the canopy flies. */
   step(dt: number, input: BodyInputs, env: Environment): void {
     this.plane?.step(dt);
@@ -315,6 +334,8 @@ export class Jump {
     const s = this.model.state;
     set(this.prev, s.pos.x, s.pos.y, s.pos.z);
     if (this.phase === 'freefall') {
+      // On the way to the pull, the arrows held carry on with nothing.
+      if (this.pullWhenFlat) input = Object.assign(this.calm, input, { flip: 0, roll: 0 });
       this.body.step(dt, input, env);
       this.follow();
       const b = this.body.state;
@@ -452,7 +473,7 @@ export class Jump {
     b.yawRate = 0;
     this.phase = 'freefall';
     this.time = 0;
-    this.log.exitHeight = this.height();
+    this.log.exitHeight = this.exitHeight ?? this.height();
   }
 
   /**
