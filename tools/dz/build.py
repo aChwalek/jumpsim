@@ -7,7 +7,8 @@ landing areas, target, buildings of the DZ, pattern, wind; WGS84 lat/lon)
 and downloads, once, into the cache:
   - relief: Mapzen/AWS Terrain Tiles (Terrarium PNG; SRTM, EU-DEM, GEBCO...);
   - imagery: orthophotos (IGN BD ORTHO in France and overseas, PNOA in Spain,
-    SWISSIMAGE in Switzerland, DGU DOF5 in Croatia) near the field,
+    SWISSIMAGE in Switzerland, DGU DOF5 in Croatia, the Province of Trento's
+    2015 flight in Trentino) near the field,
     Sentinel-2 cloudless (EOX) out to the horizon;
   - OpenStreetMap through Overpass: buildings, trees, woods, water, coastline.
 
@@ -100,6 +101,13 @@ def cached(url, ext, data=None):
         try:
             with urllib.request.urlopen(req, timeout=180) as r:
                 body = r.read()
+            # A map server in trouble can still answer 200, with an XML report
+            # where the picture should be: once more, then a blank tile.
+            if ext in ('.jpg', '.png', '.tif') and body[:1] == b'<':
+                if attempt == 3:
+                    body = b''
+                    break
+                raise ConnectionError('service exception')
             break
         except urllib.error.HTTPError as e:
             if e.code in (400, 404):
@@ -157,6 +165,9 @@ SOURCES = {
     # anonymous users; this INSPIRE service does not.
     'dgu': 'https://geoportal.dgu.hr/services/inspire/orthophoto_2019_2020/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap'
            '&LAYERS=OI.OrthoimageCoverage&STYLES=&CRS=EPSG:3857&BBOX={bbox}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg',
+    # Trentino: the Province of Trento's orthophoto of 2015 (20 cm), a WMS too.
+    'pat': 'https://siat.provincia.tn.it/geoserver/stem/ecw-rgb-2015/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap'
+           '&LAYERS=ecw-rgb-2015&STYLES=&CRS=EPSG:3857&BBOX={bbox}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg',
 }
 
 
@@ -774,6 +785,7 @@ if ONLY is None or 'relief' in ONLY:
 # where one is open (`survey`: swissalti3d), else from the terrain tiles at
 # their finest (terrarium), which follow a valley floor better than the grid
 # does but know no more than the tiles do. Its sides fall on the 100 m lines.
+# Open surveys: swissALTI3D (swissalti3d) and the Province of Trento's LiDAR (pat).
 FINE = CONF.get('fineRelief')
 
 
@@ -836,6 +848,74 @@ def terrarium(points):
     return [elevation(lat, lon, zoom) for lat, lon in points]
 
 
+def utm32(lat, lon):
+    """UTM zone 32 north east and north of a WGS84 point, m: Krüger's series to the fourth order, well under a millimetre."""
+    f = 1 / 298.257223563
+    n = f / (2 - f)
+    a = 6378137.0 / (1 + n) * (1 + n ** 2 / 4 + n ** 4 / 64)
+    alpha = [n / 2 - 2 * n ** 2 / 3 + 5 * n ** 3 / 16 + 41 * n ** 4 / 180,
+             13 * n ** 2 / 48 - 3 * n ** 3 / 5 + 557 * n ** 4 / 1440,
+             61 * n ** 3 / 240 - 103 * n ** 4 / 140,
+             49561 * n ** 4 / 161280]
+    e = math.sqrt(f * (2 - f))
+    phi, lam = math.radians(lat), math.radians(lon - 9)
+    t = math.sinh(math.atanh(math.sin(phi)) - e * math.atanh(e * math.sin(phi)))
+    xi, eta = math.atan2(t, math.cos(lam)), math.atanh(math.sin(lam) / math.sqrt(1 + t * t))
+    x = eta + sum(alpha[j] * math.cos(2 * (j + 1) * xi) * math.sinh(2 * (j + 1) * eta) for j in range(4))
+    y = xi + sum(alpha[j] * math.sin(2 * (j + 1) * xi) * math.cosh(2 * (j + 1) * eta) for j in range(4))
+    return 500000 + 0.9996 * a * x, 0.9996 * a * y
+
+
+# The Province of Trento's LiDAR of 2006-2009: a DTM in 2 km tiles, GeoTIFFs at
+# 1 m where people live and in the valleys, at 2 m elsewhere, in UTM 32N. Its
+# index, a WFS layer, names the tiles over a box.
+PAT_INDEX = ('https://siat.provincia.tn.it/geoserver/wfs?service=WFS&version=1.1.0&request=GetFeature'
+             '&typeName=stem:inqlid2009_dtm_asc&outputFormat=application/json&bbox={},{},{},{},EPSG:32632')
+PAT_DTM = 'https://siatservices.provincia.tn.it/idt/raster/lidar_2009_pat_dtm_{}/{}.tif'
+
+
+def pat(points):
+    """Heights of WGS84 points from the Province of Trento's LiDAR DTM, a 2 km tile at a time."""
+    import numpy as np  # noqa: PLC0415  Only the surveys need them.
+    from PIL import Image  # noqa: PLC0415
+    utm = [utm32(lat, lon) for lat, lon in points]
+    box = [math.floor(min(e for e, _ in utm)), math.floor(min(n for _, n in utm)),
+           math.ceil(max(e for e, _ in utm)), math.ceil(max(n for _, n in utm))]
+    with open(cached(PAT_INDEX.format(*box), '.json')) as f:
+        names = sorted({os.path.basename(t['properties']['location']).split('.')[0] for t in json.load(f)['features']})
+    print(f'  fine relief: PAT LiDAR, {len(names)} tiles', flush=True)
+
+    def tile(name):
+        # At 1 m if flown so, else at 2 m.
+        path = cached(PAT_DTM.format('1mX1m', name), '.tif')
+        if os.path.getsize(path) == 0:
+            path = cached(PAT_DTM.format('2mX2m', name), '.tif')
+        im = Image.open(path)
+        x0, y0 = im.tag_v2[33922][3:5]
+        return np.array(im, dtype=np.float32), x0, y0, im.tag_v2[33550][0]
+
+    with concurrent.futures.ThreadPoolExecutor(4) as pool:
+        tiles = list(pool.map(tile, names))
+    out = []
+    for e, n in utm:
+        for t, x0, y0, step in tiles:
+            # Pixel centres every `step` metres, rows from the north edge of the tile.
+            c = (e - x0) / step - 0.5
+            r = (y0 - n) / step - 0.5
+            if not (0 <= c < t.shape[1] - 1 and 0 <= r < t.shape[0] - 1):
+                continue
+            c0, r0 = int(c), int(r)
+            corners = t[r0:r0 + 2, c0:c0 + 2]
+            if corners.min() < -1000:
+                continue  # No data there: the next tile overlapping it may have some.
+            fc, fr = c - c0, r - r0
+            out.append(float((corners[0, 0] * (1 - fc) + corners[0, 1] * fc) * (1 - fr) + (corners[1, 0] * (1 - fc) + corners[1, 1] * fc) * fr))
+            break
+        else:
+            raise RuntimeError(f'no LiDAR at {e:.0f} E, {n:.0f} N')
+    return out
+
+
 def wgs84(e, n):
     """The other way, to WGS84 latitude and longitude."""
     y = (e - 2600000) / 1e6
@@ -851,7 +931,7 @@ if FINE and (ONLY is None or 'relief' in ONLY):
     size = int(FINE['size_m'] / FINE['spacing_m']) + 1
     half = FINE['size_m'] / 2
     grid = [latlon(cx - half + c * FINE['spacing_m'], cz - half + r * FINE['spacing_m']) for r in range(size) for c in range(size)]
-    survey = {'swissalti3d': swissalti3d, 'terrarium': terrarium}[FINE.get('survey', 'swissalti3d')]
+    survey = {'swissalti3d': swissalti3d, 'terrarium': terrarium, 'pat': pat}[FINE.get('survey', 'swissalti3d')]
     heights = survey(grid + [(LAT0, LON0)])
     # The landing area is the plain: this survey says best how high it is.
     state['relief']['plain'] = heights.pop()
