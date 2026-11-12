@@ -49,9 +49,15 @@ export interface Gear {
   rsl: boolean;
 }
 
-/** Where the jump starts: in the plane, or already under canopy, on downwind or on final. */
-export type Start = 'plane' | 'pattern' | 'final';
-export const STARTS: readonly Start[] = ['plane', 'pattern', 'final'];
+/**
+ * Where the jump starts: in the plane, already under canopy (on downwind or
+ * on final), or on top of a BASE object, where the drop zone has one.
+ */
+export type Start = 'plane' | 'pattern' | 'final' | 'base';
+export const STARTS: readonly Start[] = ['plane', 'pattern', 'final', 'base'];
+
+/** The starts on offer at a drop zone. */
+export const startsAt = (dz: DzId): Start[] => STARTS.filter((s) => s !== 'base' || !!dzInfo(dz).base);
 
 /** Exit heights on offer, above the drop zone, m: from a hop and pop to a high one. */
 export const EXIT_HEIGHT_MIN = 1000;
@@ -169,7 +175,7 @@ export function validSetup(saved: unknown): Setup {
   if (oneOf(g.slider, SLIDER_KINDS)) gear.slider = g.slider;
   if (typeof g.rsl === 'boolean') gear.rsl = g.rsl;
   const j = (s.jump ?? {}) as Partial<Record<keyof JumpPlan, unknown>>;
-  if (oneOf(j.start, STARTS)) setup.jump.start = j.start;
+  if (oneOf(j.start, startsAt(setup.dz))) setup.jump.start = j.start;
   if (finite(j.exitHeight)) setup.jump.exitHeight = validExitHeight(j.exitHeight);
   if (finite(j.runDeg)) setup.jump.runDeg = validHeading(j.runDeg);
   if (oneOf(j.malfunction, MALFUNCTION_RATES)) setup.jump.malfunction = j.malfunction;

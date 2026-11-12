@@ -30,6 +30,7 @@ export const en: Strings = {
   dz: {
     notes: {
       valbrise: 'Made up, flat as a board, with a swoop pond',
+      tower: 'Valbrise with a 300 m tower to train for BASE',
       pujaut: 'An old dried-up lake near Avignon',
       chambery: 'At the end of Lac du Bourget, among the mountains',
       empuriabrava: 'Between the canal town and the sea',
@@ -85,10 +86,16 @@ export const en: Strings = {
     noPullTitle: 'No pull',
     lowText: 'The canopy had no time to open.',
     noPullText: 'Impact in freefall.',
+    strikeTitle: 'Object strike',
+    strikeFreefall: 'Too close to the wall: take a run-up to get away from it.',
+    strikeOpening: 'The canopy opened facing the wall.',
+    strikeCanopy: 'The canopy flew into the wall.',
+    offHeading: 'off-heading opening',
+    offHeadingRow: 'the canopy opened facing the wall',
     atImpact: 'at impact',
     freefallOnly: 'of freefall',
     again: (k: K) =>
-      `${k('KeyR')} or Y to go again · 1 pattern · 2 final · 3 plane · ${k('KeyV')}, Esc or Start for the menu`,
+      `${k('KeyR')} or Y to go again · 1 pattern · 2 final · 3 plane · 4 BASE · ${k('KeyV')}, Esc or Start for the menu`,
     fps: (fps: string, scale: string) => `${fps} fps · render ${scale}%`,
     muted: 'muted',
     wind: (hdg: string, from: string, kmh: string, gust: string | null) =>
@@ -116,6 +123,9 @@ export const en: Strings = {
     holdToCutaway: (k: string) => `hold ${k}: cut away the main`,
     sliderFixed: 'FIXED SLIDER',
     sliderStays: 'it stays down on the links',
+    onTop: 'ON THE ROOF',
+    runAndJump: (fwd: string) => `${fwd} to run up · Space to jump`,
+    delay: (s: string) => `${s} s`,
   },
 
   keys: {
@@ -141,6 +151,9 @@ export const en: Strings = {
     hold: 'hold the toggles',
     restart: 'go again',
     starts: 'pattern / final / plane',
+    run: 'run / back up',
+    sidestep: 'step sideways',
+    leap: 'jump',
     menu: 'menu',
     hide: 'hide',
     psCross: 'cross',
@@ -298,12 +311,14 @@ export const en: Strings = {
     },
 
     jump: {
-      starts: { plane: 'Plane', pattern: 'Pattern', final: 'Final' },
+      starts: { plane: 'Plane', pattern: 'Pattern', final: 'Final', base: 'BASE' },
       underCanopy: {
         pattern: 'Start under canopy, at the top of downwind',
         final: 'Start under canopy, on final',
       },
       noPlane: 'No plane, no freefall',
+      baseLine: (run: string) => `A ${run} m run-up to the edge`,
+      baseNote: 'One canopy: no reserve, no AAD',
       runLine: (hdg: string, how: string) => `Jump run ${hdg}, ${how}`,
       aloftLine: (kmh: string, seconds: string) => `Winds aloft ${kmh} km/h · about ${seconds} s of freefall`,
       windOnRun: {
@@ -318,6 +333,7 @@ export const en: Strings = {
         plane: 'Exit, freefall, deployment, then the canopy flight.',
         pattern: (h: string) => `Under canopy at ${h} m, at the top of downwind.`,
         final: (h: string) => `Under canopy at ${h} m, on final.`,
+        base: (h: string) => `On the roof at ${h} m: run up, jump, a few seconds of freefall, one canopy.`,
       },
       exitHeight: 'EXIT ALTITUDE',
       exitHint: 'above the DZ',
@@ -335,6 +351,7 @@ export const en: Strings = {
       everyJump: 'Every jump',
       malfunctionOff: 'The main always opens fine.',
       malfunctionOn: (k: string) => `The main may streamer: hold ${k} to cut it away, then the reserve.`,
+      malfunctionBase: 'BASE: the canopy may open the other way, facing the wall: turn at once.',
     },
 
     map: {
@@ -413,6 +430,7 @@ export const en: Strings = {
       clear: 'Clear the logbook',
       clearConfirm: 'Sure? Once more to clear everything',
       fromPlaneAt: (h: string) => `Plane ${h} m`,
+      fromBaseAt: (h: string) => `BASE ${h} m`,
       aad: ' · AAD',
       pulledAt: (h: string) => ` · pulled at ${h} m`,
       fromTarget: (d: string) => `${d} m from the target · `,

@@ -51,6 +51,7 @@ function jumpRows(log: JumpLog): string {
     rows.push(`<tr><td>${metres(log.pullHeight)} m</td><td>${what}</td></tr>`);
   }
   if (log.malfunction === 'streamer') rows.push(`<tr><td>${t.streamer}</td><td>${t.streamerRow}</td></tr>`);
+  if (log.malfunction === 'offHeading') rows.push(`<tr><td>${t.offHeading}</td><td>${t.offHeadingRow}</td></tr>`);
   if (log.cutawayHeight !== null) rows.push(`<tr><td>${metres(log.cutawayHeight)} m</td><td>${t.cutawayRow}</td></tr>`);
   if (log.reserveBy !== null && log.reserveHeight !== null) {
     rows.push(`<tr><td>${metres(log.reserveHeight)} m</td><td>${t.reserveRow(log.reserveBy, metres(log.openHeight))}</td></tr>`);
@@ -149,6 +150,24 @@ export class Hud {
       <table>
         <tr><td>${(speed * 3.6).toFixed(0)} km/h</td><td>${T.hud.atImpact}</td></tr>
         <tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>${T.hud.freefallOnly}</td></tr>
+      </table>
+      ${hint()}`;
+    this.result.style.display = 'block';
+  }
+
+  /**
+   * Hit the side of a BASE object: in freefall, as the canopy opened, or
+   * flying it. `log`: the jump, if it started from the top.
+   */
+  showStrike(when: 'freefall' | 'opening' | 'canopy', speed: number, log: JumpLog | null): void {
+    const t = T.hud;
+    const text = { freefall: t.strikeFreefall, opening: t.strikeOpening, canopy: t.strikeCanopy }[when];
+    this.result.innerHTML = `
+      <h1>${t.strikeTitle}</h1>
+      <p>${text}</p>
+      <table>
+        <tr><td>${(speed * 3.6).toFixed(0)} km/h</td><td>${t.atImpact}</td></tr>
+        ${log ? jumpRows(log) : ''}
       </table>
       ${hint()}`;
     this.result.style.display = 'block';

@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { Building, Flag, Placed, Tree } from './dz';
+import type { BaseExit, Building, Flag, Placed, Tree } from './dz';
 
 const DEG = Math.PI / 180;
 
@@ -65,6 +65,12 @@ export function buildBuildings(buildings: Building[], groundAt = flat): THREE.Me
     for (let z = -b.length / 2 + 5; z < b.length / 2 - 1.5; z += 4) {
       parts.push(box(0.1, 1.1, 1.4, b.width / 2, 1.65, z, 0x24323f));
     }
+    if (b.floors) {
+      // Bands of glass all round, floor after floor: what the eye reads the height and the distance off.
+      for (let y = b.floors * 0.6; y < walls - 1; y += b.floors) {
+        parts.push(box(b.width + 0.1, 1.6, b.length + 0.1, 0, y, 0, 0x3a4652));
+      }
+    }
     if (b.hangar ?? b.height > 6) {
       // Hangar door on the other side.
       parts.push(box(0.12, walls * 0.85, b.length * 0.62, -b.width / 2, (walls * 0.85) / 2, 0, 0x596068));
@@ -78,6 +84,30 @@ export function buildBuildings(buildings: Building[], groundAt = flat): THREE.Me
   // One mesh for the lot: a village is thousands of boxes.
   const geometry = placed.length ? mergeGeometries(placed) : new THREE.BufferGeometry();
   return new THREE.Mesh(geometry, material);
+}
+
+/**
+ * The run painted on top of a BASE object: its two sides, a line where the
+ * jumper starts and a yellow one along the edge.
+ */
+export function buildLedgeMarks(base: BaseExit, top: number): THREE.Mesh {
+  const y = top + 0.01;
+  const len = base.runUp;
+  const half = base.width / 2;
+  // Along the run, -Z towards the edge, then turned to its heading.
+  const parts = [
+    box(0.15, 0.02, len, -half, y, -len / 2, 0xe8e8e8),
+    box(0.15, 0.02, len, half, y, -len / 2, 0xe8e8e8),
+    box(base.width, 0.02, 0.2, 0, y, 0, 0xe8e8e8),
+    box(base.width + 4, 0.02, 0.4, 0, y, -len + 0.25, 0xf2c21a),
+  ];
+  const m = new THREE.Matrix4().compose(
+    new THREE.Vector3(base.x, 0, base.z),
+    new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -base.headingDeg * DEG),
+    new THREE.Vector3(1, 1, 1),
+  );
+  for (const p of parts) p.applyMatrix4(m);
+  return new THREE.Mesh(mergeGeometries(parts), new THREE.MeshLambertMaterial({ vertexColors: true }));
 }
 
 /** Lowest ground within `radius` of a point, so that nothing floats on a slope. */

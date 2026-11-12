@@ -8,7 +8,8 @@
 import { T } from '../i18n';
 import { keyLabel } from '../input/keyLabels';
 
-export type KeysPhase = 'plane' | 'freefall' | 'canopy' | 'ground';
+/** `ledge`: on top of a BASE object, before the exit. */
+export type KeysPhase = 'ledge' | 'plane' | 'freefall' | 'canopy' | 'ground';
 export type InputKind = 'keyboard' | 'gamepad';
 export type PadKind = 'xbox' | 'playstation';
 
@@ -22,6 +23,16 @@ function keyboardRows(phase: KeysPhase): Row[] {
   const k = keyLabel;
   const t = T.keys;
   switch (phase) {
+    case 'ledge':
+      return [
+        [[k('KeyW'), k('KeyS')], t.run],
+        [[k('KeyA'), k('KeyD')], t.turn],
+        [[k('KeyQ'), k('KeyE')], t.sidestep],
+        [[t.space], t.leap],
+        [['↑', '↓', '←', '→'], t.exitPosition],
+        [[t.mouse], t.look],
+        [[k('KeyB')], t.outsideCamera],
+      ];
     case 'plane':
       return [
         [[t.space], t.exit],
@@ -64,6 +75,15 @@ function keyboardRows(phase: KeysPhase): Row[] {
 function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
   const t = T.keys;
   switch (phase) {
+    case 'ledge':
+      return [
+        [['ls'], t.run],
+        [['lt', 'rt'], t.turn],
+        [['a'], t.leap],
+        [['cross'], t.exitPosition],
+        [['rs'], t.look],
+        [['view'], t.camera],
+      ];
     case 'plane':
       return [
         [['a'], t.exit],

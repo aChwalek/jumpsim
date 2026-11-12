@@ -63,7 +63,8 @@ export const emptySnapshot = (): Snapshot => ({
   pilotAtt: quat(),
 });
 
-const PHASES: readonly Phase[] = ['none', 'plane', 'freefall', 'opening', 'canopy'];
+// New phases go at the end: the index is what travels.
+const PHASES: readonly Phase[] = ['none', 'plane', 'freefall', 'opening', 'canopy', 'standing'];
 const STANCES: readonly Stance[] = ['door', 'belly', 'back', 'sit', 'headDown', 'throw', 'hanging', 'ground', 'cutaway', 'reserve'];
 const DEPLOYS: readonly DeployStage[] = ['stowed', 'hand', 'tow', 'bag', 'canopy', 'free'];
 const CONTROLS = ['brakeL', 'brakeR', 'frontL', 'frontR'] as const;

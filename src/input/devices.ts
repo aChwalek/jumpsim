@@ -14,6 +14,7 @@ export type Action =
   | 'spawnPattern'
   | 'spawnFinal'
   | 'spawnPlane'
+  | 'spawnBase'
   | 'jump'
   | 'openMenu'
   /** Start on the gamepad: opens the menu, which then takes the gamepad over. */
@@ -48,6 +49,7 @@ const ACTIONS: Record<string, Action> = {
   Digit1: 'spawnPattern',
   Digit2: 'spawnFinal',
   Digit3: 'spawnPlane',
+  Digit4: 'spawnBase',
   Space: 'jump',
   KeyV: 'openMenu',
   // Positions in freefall: head up / down a step from where the body is, roll or turn round.

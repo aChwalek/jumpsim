@@ -34,6 +34,7 @@ export const fr = {
   dz: {
     notes: {
       valbrise: 'Imaginaire, toute plate, avec un pond',
+      tower: 'Valbrise et sa tour de 300 m pour s\'entraîner au BASE',
       pujaut: 'Un ancien lac asséché près d\'Avignon',
       chambery: 'Au bout du lac du Bourget, entre les montagnes',
       empuriabrava: 'Entre la ville des canaux et la mer',
@@ -89,10 +90,16 @@ export const fr = {
     noPullTitle: 'Pas d\'ouverture',
     lowText: 'La voile n\'a pas eu le temps de s\'ouvrir.',
     noPullText: 'Impact en chute libre.',
+    strikeTitle: 'Impact contre l\'immeuble',
+    strikeFreefall: 'Trop près de la paroi : prends de l\'élan pour t\'en écarter.',
+    strikeOpening: 'La voile s\'est ouverte face à la paroi.',
+    strikeCanopy: 'La voile est rentrée dans la paroi.',
+    offHeading: 'ouverture à 180°',
+    offHeadingRow: 'la voile est partie face à la paroi',
     atImpact: 'à l\'impact',
     freefallOnly: 'de chute libre',
     again: (k: K) =>
-      `${k('KeyR')} ou Y pour recommencer · 1 circuit · 2 finale · 3 avion · ${k('KeyV')}, Échap ou Start pour le menu`,
+      `${k('KeyR')} ou Y pour recommencer · 1 circuit · 2 finale · 3 avion · 4 BASE · ${k('KeyV')}, Échap ou Start pour le menu`,
     fps: (fps: string, scale: string) => `${fps} i/s · rendu ${scale} %`,
     muted: 'son coupé',
     wind: (hdg: string, from: string, kmh: string, gust: string | null) =>
@@ -120,6 +127,9 @@ export const fr = {
     holdToCutaway: (k: string) => `${k} maintenu : libérer la principale`,
     sliderFixed: 'GLISSEUR FIXE',
     sliderStays: 'il reste sur les maillons',
+    onTop: 'SUR LE TOIT',
+    runAndJump: (fwd: string) => `${fwd} pour prendre de l'élan · Espace pour sauter`,
+    delay: (s: string) => `${s} s`,
   },
 
   keys: {
@@ -145,6 +155,9 @@ export const fr = {
     hold: 'maintenir les commandes',
     restart: 'recommencer',
     starts: 'circuit / finale / avion',
+    run: 'courir / reculer',
+    sidestep: 'pas de côté',
+    leap: 'sauter',
     menu: 'menu',
     hide: 'masquer',
     psCross: 'croix',
@@ -302,12 +315,14 @@ export const fr = {
     },
 
     jump: {
-      starts: { plane: 'Avion', pattern: 'Circuit', final: 'Finale' },
+      starts: { plane: 'Avion', pattern: 'Circuit', final: 'Finale', base: 'BASE' },
       underCanopy: {
         pattern: 'Départ sous voile, au début de la vent arrière',
         final: 'Départ sous voile, en finale',
       },
       noPlane: 'Pas d\'avion ni de chute',
+      baseLine: (run: string) => `Course d'élan de ${run} m jusqu'au bord`,
+      baseNote: 'Une seule voile : pas de secours ni de déclencheur',
       runLine: (hdg: string, how: string) => `Axe ${hdg}, ${how}`,
       aloftLine: (kmh: string, seconds: string) => `Vent en altitude ${kmh} km/h · environ ${seconds} s de chute`,
       windOnRun: {
@@ -322,6 +337,7 @@ export const fr = {
         plane: 'Sortie d\'avion, chute libre, ouverture, puis le vol sous voile.',
         pattern: (h: string) => `Sous voile à ${h} m, au début de la vent arrière.`,
         final: (h: string) => `Sous voile à ${h} m, en finale.`,
+        base: (h: string) => `Sur le toit à ${h} m : élan, saut, quelques secondes de chute, une seule voile.`,
       },
       exitHeight: 'ALTITUDE DE LARGAGE',
       exitHint: 'au-dessus de la DZ',
@@ -339,6 +355,7 @@ export const fr = {
       everyJump: 'À chaque saut',
       malfunctionOff: 'La principale s\'ouvre toujours bien.',
       malfunctionOn: (k: string) => `La principale peut partir en torche : ${k} maintenu pour libérer, puis le secours.`,
+      malfunctionBase: 'En BASE, la voile peut s\'ouvrir à 180°, face à la paroi : tourne tout de suite.',
     },
 
     map: {
@@ -417,6 +434,7 @@ export const fr = {
       clear: 'Effacer le carnet',
       clearConfirm: 'Sûr ? Encore une fois pour tout effacer',
       fromPlaneAt: (h: string) => `Avion ${h} m`,
+      fromBaseAt: (h: string) => `BASE ${h} m`,
       aad: ' · déclencheur',
       pulledAt: (h: string) => ` · ouvert à ${h} m`,
       fromTarget: (d: string) => `${d} m de la cible · `,

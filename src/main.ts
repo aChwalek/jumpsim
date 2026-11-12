@@ -46,7 +46,7 @@ import { Menu } from './ui/menu';
 import { Multiplayer, newRoomName, roomFromUrl, roomLink, setRoomInUrl } from './net/multiplayer';
 import { cleanName, sameShared, sharedPart } from './net/room';
 import { buildWorld, type World } from './world/build';
-import { isWet, spawnsFor, type DzPack } from './world/dz';
+import { isWet, solidOf, spawnsFor, type DzPack } from './world/dz';
 import { dzInfo } from './world/dzs';
 import { MAP_HALF } from './ui/dzMap';
 
@@ -68,6 +68,8 @@ setLanguage(settings.language);
 // The help names keys the way the keyboard in use prints them.
 await readKeyboardLayout();
 let dz: DzPack = await dzInfo(setup.dz).load();
+/** What the feet can stand on or hit: the ground, and roofs and walls where there are some. */
+let solid = solidOf(dz);
 let world: World = buildWorld(dz, light);
 scene.add(world.object);
 
@@ -128,6 +130,7 @@ function applyDz(): void {
   const next = dzInfo(setup.dz).loaded();
   if (!next || next === dz) return;
   dz = next;
+  solid = solidOf(dz);
   scene.remove(world.object);
   world.dispose();
   world = buildWorld(dz, light);
@@ -345,7 +348,7 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
         ? { malfunction: log.malfunction, cutawayHeight: log.cutawayHeight, reserveHeight: log.reserveHeight, reserveBy: log.reserveBy }
         : undefined,
     freefall:
-      jump && log && jump.phase !== 'plane'
+      jump && log && jump.phase !== 'plane' && jump.phase !== 'standing'
         ? {
             exitHeight: log.exitHeight,
             pullHeight: log.pullHeight,
@@ -365,15 +368,23 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
 }
 
 function spawn(kind: Start): void {
+  // No BASE object here: from the plane instead.
+  if (kind === 'base' && !dz.base) kind = 'plane';
   scenario = kind;
   airTime = 0;
   resetCanopies();
   const spots = spawnsFor(dz, setup.weather.windFromDeg, { headingDeg: runHeading(setup), height: setup.jump.exitHeight });
+  const rate = setup.jump.malfunction;
+  const unlucky = rate === 'always' || (rate === 'sometimes' && Math.random() < 1 / MALFUNCTION_ODDS);
   if (kind === 'plane') {
     windAt(env.wind, setup.weather, spots.plane.height, airTime);
-    const rate = setup.jump.malfunction;
-    const malfunction = rate === 'always' || (rate === 'sometimes' && Math.random() < 1 / MALFUNCTION_ODDS) ? 'streamer' : null;
-    jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, { reserve: reserveRig, rsl: setup.gear.rsl, malfunction });
+    const malfunction = unlucky ? 'streamer' : null;
+    jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, { reserve: reserveRig, rsl: setup.gear.rsl, malfunction, solidAt: solid });
+  } else if (kind === 'base') {
+    const b = dz.base!;
+    windAt(env.wind, setup.weather, b.height, airTime);
+    const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg: b.headingDeg } as const;
+    jump = new Jump(model, ledge, env, dz.groundAt, Math.random, { malfunction: unlucky ? 'offHeading' : null, solidAt: solid });
   } else {
     jump = null;
     const s = spots[kind];
@@ -382,7 +393,7 @@ function spawn(kind: Start): void {
     windAt(env.wind, setup.weather, s.height + canopyAboveFeet(), airTime);
     initTrimmed(model, vec3(s.x, y, s.z), s.headingDeg, env);
   }
-  planeView.object.visible = jump !== null;
+  planeView.object.visible = jump?.plane != null;
   impact = false;
   Object.assign(ramped, neutralControls());
   Object.assign(applied, ramped);
@@ -427,6 +438,7 @@ const actions: Record<Action, () => void> = {
   spawnPattern: () => spawn('pattern'),
   spawnFinal: () => spawn('final'),
   spawnPlane: () => spawn('plane'),
+  spawnBase: () => spawn('base'),
   jump: () => {
     if (!paused) jump?.act();
   },
@@ -571,9 +583,17 @@ function simulate(seconds: number): void {
     applied.frontR = ramped.frontR;
     Object.assign(hands, applied);
     jump?.holdStows(applied);
+    const s = model.state;
+    beforeStep.x = s.pos.x;
+    beforeStep.y = s.pos.y;
+    beforeStep.z = s.pos.z;
     model.step(dt, applied, env);
     canopyTime += dt;
-    touchdown = detectTouchdown(model, dz.groundAt);
+    touchdown = detectTouchdown(model, solid);
+    if (touchdown && hitSide()) {
+      touchdown = null;
+      return;
+    }
     if (touchdown) {
       const landed = touchdown;
       const feet = model.pilotPoint(vec3(), rig.feetPos);
@@ -582,7 +602,7 @@ function simulate(seconds: number): void {
       const log = jump?.log ?? null;
       // On the ground the canopy is blown by the wind at its own height.
       windAt(env.wind, setup.weather, canopyAboveFeet(), airTime);
-      arrival = new Arrival(model, landed, { groundAt: dz.groundAt, wet, wind: vec3(env.wind.x, env.wind.y, env.wind.z) });
+      arrival = new Arrival(model, landed, { groundAt: solid, wet, wind: vec3(env.wind.x, env.wind.y, env.wind.z) });
       verdict = () => hud.showResult(landed, distance, wet, log);
       logThisJump(landed.rating, landed.sink, landed.groundSpeed, distance, wet);
       sound.land({ sink: landed.sink, groundSpeed: landed.groundSpeed, wet });
@@ -592,15 +612,40 @@ function simulate(seconds: number): void {
   }
 }
 
-/** The ground came first. The pilot stays where they hit, no lower than it. */
+/** Where the pilot was before the last step under canopy. */
+const beforeStep = vec3();
+const feetNow = vec3();
+
+/**
+ * Under canopy, the feet have come in through the side of what they met (a
+ * tower's wall) rather than down onto it: the pilot stops against it.
+ */
+function hitSide(): boolean {
+  const s = model.state;
+  const feet = model.pilotPoint(feetNow, rig.feetPos);
+  const top = solid(feet.x, feet.z);
+  if (top - (feet.y - (s.pos.y - beforeStep.y)) <= 0.5) return false;
+  impact = true;
+  const speed = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
+  s.pos.x = beforeStep.x;
+  s.pos.z = beforeStep.z;
+  s.vel.x = s.vel.y = s.vel.z = 0;
+  sound.land({ sink: speed, groundSpeed: 0, wet: false });
+  hud.showStrike('canopy', speed, jump?.log ?? null);
+  logThisJump('impact', speed, 0);
+  return true;
+}
+
+/** The ground came first, or a wall. The pilot stays where they hit, no lower than it. */
 function hitWithoutCanopy(j: Jump): void {
   impact = true;
   const s = model.state;
   const speed = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
-  s.pos.y -= Math.min(0, j.height()) - 0.05;
+  s.pos.y -= Math.min(0, j.clearance()) - 0.05;
   s.vel.x = s.vel.y = s.vel.z = 0;
   sound.land({ sink: speed, groundSpeed: 0, wet: false });
-  hud.showImpact(j.log, j.phase === 'opening', speed, j.opening?.malfunction ?? null);
+  if (j.struck) hud.showStrike(j.phase === 'opening' ? 'opening' : 'freefall', speed, j.log);
+  else hud.showImpact(j.log, j.phase === 'opening', speed, j.opening?.malfunction ?? null);
   logThisJump('impact', speed, 0);
 }
 
@@ -705,9 +750,11 @@ function aimCamera(dt: number): void {
     // horizon in front of the chest.
     face.set(0, 0, -1).applyQuaternion(look);
     crown.set(0, 1, 0).applyQuaternion(look);
-    const position = jump && jump.phase !== 'plane' ? jump.body.position : 'belly';
+    // In the door or on top of the object, the eyes are out ahead and down.
+    const aboard = !jump || jump.phase === 'plane' || jump.phase === 'standing';
+    const position = jump && !aboard ? jump.body.position : 'belly';
     const n = NECKS[position];
-    const out = jump && jump.phase !== 'plane' ? Math.min(1, jump.time / 1.5) : 0;
+    const out = jump && !aboard ? Math.min(1, jump.time / 1.5) : 0;
     const gaze = position === 'belly' ? DOOR_GAZE + (FREEFALL_GAZE - DOOR_GAZE) * out : n.gaze;
     const wanted = neckFor(face.y, crown.y, gaze, n.prefer, n.lo, n.hi);
     neck = neck === null ? wanted : neck + (wanted - neck) * (1 - Math.exp(-dt / NECK_LAG));
@@ -724,8 +771,10 @@ function stance(): Stance {
   if (arrival) return 'ground';
   if (!jump) return 'hanging';
   switch (jump.phase) {
+    case 'standing':
+      return 'ground';
     case 'plane':
-      return jump.plane.type.doorSide < 0 ? 'door' : 'doorRight';
+      return jump.plane!.type.doorSide < 0 ? 'door' : 'doorRight';
     case 'freefall':
       // Just cut away: the hands are still on the handles.
       if (jump.cutawayAt !== null && jump.time - jump.cutawayAt < 0.45) return 'cutaway';
@@ -815,7 +864,7 @@ function drawReleased(dt: number): void {
     fallTo.set(free.fallTo.x, 0, free.fallTo.z);
     releasedView.setHeap(ease(free.landedFor / 1.8), releasedPos, fallTo);
   }
-  const ground = dz.groundAt(free.pos.x, free.pos.z);
+  const ground = solid(free.pos.x, free.pos.z);
   releasedView.update(
     releasedPos,
     releasedAtt,
@@ -858,7 +907,7 @@ function updateLegs(dt: number, hanging: boolean): void {
     lastVel.y = s.vel.y;
     lastVel.z = s.vel.z;
   }
-  const height = feetHeight(model, dz.groundAt);
+  const height = feetHeight(model, solid);
   legCues.prep = hanging ? ease((6 - height) / 4) : 0;
   legCues.fore = legSwing.fore;
   legCues.side = legSwing.side;
@@ -873,9 +922,14 @@ function aimChase(): ChaseTarget {
   const falling = jump !== null && (jump.phase === 'freefall' || (jump.phase === 'opening' && inflation === null));
   if (jump && jump.phase === 'plane') {
     // From behind the wing on the door's side, to see the jumper in it.
-    t.heading = (runHeading(setup) - 38 * jump.plane.type.doorSide) * DEG;
+    t.heading = (runHeading(setup) - 38 * jump.plane!.type.doorSide) * DEG;
     t.distance = 9;
     t.above = 0.1;
+  } else if (jump && jump.phase === 'standing') {
+    // Behind, a little above: the run and the edge ahead.
+    t.heading = jump.headingDeg() * DEG;
+    t.distance = 5;
+    t.above = 0.3;
   } else if (falling && jump) {
     t.heading = jump.body.headingDeg() * DEG;
     t.distance = 5.5;
@@ -902,6 +956,7 @@ function keysPhase(): KeysPhase | null {
   if (menu.isOpen) return null;
   if (touchdown || arrival || impact) return 'ground';
   if (!jump || jump.phase === 'canopy' || jump.phase === 'opening') return 'canopy';
+  if (jump.phase === 'standing') return 'ledge';
   return jump.phase === 'plane' ? 'plane' : 'freefall';
 }
 
@@ -924,6 +979,17 @@ function cue(): string {
   if (jump.phase === 'plane') {
     const exit = c.exitIn[jump.body.position];
     return `${c.greenLight}<small>${exit ? `${exit} · ` : ''}${c.spaceToExit}</small>`;
+  }
+  if (jump.phase === 'standing') {
+    const exit = c.exitIn[jump.body.position];
+    return `${c.onTop}<small>${exit ? `${exit} · ` : ''}${c.runAndJump(keyLabel('KeyW'))}</small>`;
+  }
+  if (jump.phase === 'freefall' && jump.base) {
+    // Off a BASE object, the count is what matters.
+    const delay = c.delay(num(jump.time, 1));
+    if (jump.pullWhenFlat) return `${delay}<small>${c.flat} · ${c.toPull}</small>`;
+    const name = c.positions[jump.body.position];
+    return `${delay}<small>${name ? `${name} · ` : ''}${c.spaceToPull}</small>`;
   }
   if (jump.phase === 'freefall') {
     if (jump.pullWhenFlat) return `${c.flat}<small>${c.toPull}</small>`;
@@ -988,6 +1054,13 @@ function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation
   net.send(elapsed);
 }
 
+/** How the altimeter warns in freefall: from 1500 m, then 1000 m; off a BASE object, the last 150 m. */
+function heightAlert(height: number): 'none' | 'warn' | 'danger' {
+  if (!jump || jump.phase === 'canopy' || jump.phase === 'plane' || jump.phase === 'standing') return 'none';
+  const [warn, danger] = jump.base ? [150, 100] : [1500, 1000];
+  return height < danger ? 'danger' : height < warn ? 'warn' : 'none';
+}
+
 let last = performance.now();
 let frameAverage = 1 / 60;
 
@@ -1029,11 +1102,12 @@ function frame(now: number): void {
   rigView.setArms(onRisers);
   const pose = stance();
   const moving = live ? Math.min(elapsed, 0.1) : 0;
-  const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : undefined;
+  const run = jump?.phase === 'standing' ? jump.runUp : null;
+  const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : run ? [run.legL, run.legR] : undefined;
   updateLegs(moving, pose === 'hanging' && !touchdown);
   rigView.body.setPose(posture.update(moving, pose, FREEFALL_STANCES.has(pose) ? devices.body : still, legs, legCues));
   rigView.body.showArms(!onRisers);
-  rigView.body.setHeight(feetHeight(model, dz.groundAt));
+  rigView.body.setHeight(feetHeight(model, solid));
   if (jump) rigView.body.setHandles(jump.cutawayAt === null, !(jump.canopy === 'reserve' && jump.log.reserveBy === 'hand'));
   // On the ground the canopy empties and goes down in a heap.
   if (arrival && !rigView.detached) {
@@ -1046,19 +1120,19 @@ function frame(now: number): void {
   rigFrame.wind.set(env.wind.x, env.wind.y, env.wind.z);
   rigFrame.airDensity = env.airDensity;
   deployStage(rigFrame);
-  rigView.update(model, applied, dz.groundAt, light, hands, rigFrame);
+  rigView.update(model, applied, solid, light, hands, rigFrame);
   drawReleased(moving);
   if (net) {
     sendJumper(net, pose, onRisers, inflation, elapsed);
-    net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: dz.groundAt }, setup.dz);
+    net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, setup.dz);
     if (net.players !== playersShown) showGear();
   }
-  if (jump) planeView.update(jump.plane);
+  if (jump?.plane) planeView.update(jump.plane);
   model.pilotPoint(eye, model.rig.eyePos);
   if (view === 'outside') {
     camera.layers.enable(GEAR_LAYER);
     camera.layers.enable(OUTSIDE_LAYER);
-    chase.update(camera, aimChase(), Math.min(elapsed, 0.1), devices.lookYaw, devices.lookPitch, devices.zoom, dz.groundAt);
+    chase.update(camera, aimChase(), Math.min(elapsed, 0.1), devices.lookYaw, devices.lookPitch, devices.zoom, solid);
   } else {
     camera.layers.set(0);
     camera.position.set(eye.x, eye.y, eye.z);
@@ -1099,7 +1173,7 @@ function frame(now: number): void {
     live,
     canopy: streamer ? 1 : (inflation ?? 0) * flapping,
   });
-  if (jump) {
+  if (jump?.plane) {
     // The plane: how far, which way, and how fast it is going away, heard
     // from its nearest propeller.
     const plane = jump.plane;
@@ -1139,7 +1213,7 @@ function frame(now: number): void {
       altitude: reading,
       verticalSpeed: telemetry.verticalSpeed,
       groundSpeed: telemetry.groundSpeed,
-      headingDeg: jump && falling && jump.phase !== 'plane' ? jump.body.headingDeg() : telemetry.headingDeg,
+      headingDeg: jump && falling && jump.phase !== 'plane' ? jump.headingDeg() : telemetry.headingDeg,
       controls: applied,
       held: devices.pulls.hold,
       fps: 1 / frameAverage,
@@ -1150,7 +1224,7 @@ function frame(now: number): void {
       muted: sound.muted,
       freefall: falling,
       cue: cue(),
-      heightAlert: !jump || !falling || jump.phase === 'plane' ? 'none' : height < 1000 ? 'danger' : height < 1500 ? 'warn' : 'none',
+      heightAlert: heightAlert(height),
     },
     elapsed,
   );

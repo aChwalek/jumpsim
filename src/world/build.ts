@@ -3,7 +3,7 @@ import type { Lighting } from '../render/scene';
 import type { DzPack } from './dz';
 import { buildGrass } from './grass';
 import { buildDisc, buildSurfaces, buildTerrain, buildWater, loadPhotos } from './ground';
-import { buildBuildings, buildCars, buildFlags, buildPeople, buildTrees, buildWindsock } from './objects';
+import { buildBuildings, buildCars, buildFlags, buildLedgeMarks, buildPeople, buildTrees, buildWindsock } from './objects';
 
 export interface World {
   object: THREE.Group;
@@ -44,6 +44,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     water.object,
     flags.object,
   );
+  if (dz.base) object.add(buildLedgeMarks(dz.base, (dz.topAt ?? groundAt)(dz.base.x, dz.base.z)));
   if (dz.targetShown !== false) {
     object.add(buildDisc(dz.target.x, dz.target.z, dz.target.radius, dz.targetColor ?? 0xcdbf9a, dz.targetLayer ?? 4));
     if (dz.targetCentre !== false) object.add(buildDisc(dz.target.x, dz.target.z, 0.6, 0xe0452a, (dz.targetLayer ?? 4) + 1));

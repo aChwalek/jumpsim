@@ -38,14 +38,21 @@ export const MAIN_OPENING: OpeningTiming = { throwOut: 0.6, lineStretch: 1.9, sw
 export const RESERVE_OPENING: OpeningTiming = { throwOut: 0, lineStretch: 0.8, swing: 0.6, inflation: 1.6 };
 /** A reserve pulled by hand: the time to peel the handle out, then the same spring. */
 export const RESERVE_HANDLE_OPENING: OpeningTiming = { throwOut: 0.25, lineStretch: 1.05, swing: 0.6, inflation: 1.6 };
+/**
+ * A BASE canopy: the pilot chute held in the hand and thrown at once, a big
+ * one; a canopy packed to open fast and the bag on a short bridle.
+ */
+export const BASE_OPENING: OpeningTiming = { throwOut: 0.3, lineStretch: 1.2, swing: 0.6, inflation: 1.7 };
 
 /**
  * What can go wrong with a main as it comes out. A streamer ("torche"): the
  * canopy leaves the bag but never fills, and trails overhead flapping. It
  * slows the fall to some 90 km/h, too slow for the AAD and far too fast to
- * land: the only way out is to cut it away and pull the reserve.
+ * land: the only way out is to cut it away and pull the reserve. An
+ * off-heading opening: the canopy flies, but facing nearly the other way,
+ * which off a BASE object is back towards the wall.
  */
-export type Malfunction = 'streamer';
+export type Malfunction = 'streamer' | 'offHeading';
 /** How far a streamer gets, as a fraction of the inflation. */
 const STREAMER_INFLATION = 0.16;
 /** Drag area of a streamer, per m² of canopy. */
