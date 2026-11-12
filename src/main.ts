@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Altisonic } from './audio/altisonic';
 import { Sound } from './audio/sound';
 import { T, lang, num, setLanguage } from './i18n';
-import { InputDevices, type Action } from './input/devices';
+import { InputDevices, type Action, type PadMode } from './input/devices';
 import { keyLabel, readKeyboardLayout } from './input/keyLabels';
 import { noWraps, rampControls, wrapTravel } from './input/ramp';
 import { CANOPY_COLORS, RESERVE_PALETTE } from './render/canopyColors';
@@ -598,6 +598,22 @@ function flyInto(position: BodyPosition): void {
 }
 
 /**
+ * B, Y, X on the gamepad: straight into that position, in freefall or to go
+ * out in. The same button again, back to the belly.
+ */
+function takePosition(position: BodyPosition): void {
+  if (!jump) return;
+  flyInto(jump.body.position === position ? 'belly' : position);
+}
+
+/** What the gamepad's right stick and B, Y, X are for at this moment of the jump. */
+function padMode(): PadMode {
+  if (!jump || touchdown || arrival || impact) return 'default';
+  if (jump.phase === 'freefall') return 'freefall';
+  return jump.phase === 'plane' || jump.phase === 'standing' ? 'exit' : 'default';
+}
+
+/**
  * ↑ / ↓: in freefall a quarter somersault, forwards or backwards, into the
  * next position; in the door, the position to go out in.
  */
@@ -665,6 +681,9 @@ const actions: Record<Action, () => void> = {
   track: () => {
     if (!paused) devices.padTrack = !devices.padTrack;
   },
+  posBack: () => takePosition('back'),
+  posSit: () => takePosition('sit'),
+  posHeadDown: () => takePosition('headDown'),
   flyUp: () => flyStep(1),
   flyDown: () => flyStep(-1),
   toggleHud: () => hud.toggle(),
@@ -1658,6 +1677,7 @@ function frame(now: number): void {
   frameAverage += (elapsed - frameAverage) * 0.05;
   if (elapsed < 0.25 && settings.autoResolution) resolution.track(elapsed);
 
+  devices.padMode = padMode();
   devices.poll();
   // After the devices: Start may just have opened the menu, which then ignores it until let go.
   menu.poll();
