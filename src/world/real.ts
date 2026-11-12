@@ -158,7 +158,7 @@ function ringArea(points: number[]): number {
 }
 
 /** Vineyards are planted out to here, m: beyond, the photo shows them. */
-const VINES_REACH = 1500;
+const VINES_REACH = 600;
 
 /** The most trees a drop zone gets, to keep the frame rate. */
 const TREE_BUDGET = 40000;
