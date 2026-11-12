@@ -154,8 +154,9 @@ class Membrane {
     this.mesh.visible = false;
   }
 
+  /** The first of `points`, as many as the sheet has. */
   set(points: THREE.Vector3[]): void {
-    points.forEach((p, i) => this.position.setXYZ(i, p.x, p.y, p.z));
+    for (let i = 0; i < this.position.count; i++) this.position.setXYZ(i, points[i]!.x, points[i]!.y, points[i]!.z);
     this.position.needsUpdate = true;
     this.mesh.geometry.computeVertexNormals();
   }
@@ -165,19 +166,44 @@ class Membrane {
  * How a suit is cut: how much bigger than a plain jumpsuit its arms and legs
  * look, how far down the arm its wing goes (0 none, 1 to the wrist, along
  * the arm from the shoulder), down to where on the side (0 the ribs, 1 the
- * hip), and whether it has a wing between the legs.
+ * hip, 2 the knee, 3 the ankle), how full it is (below 0 its trailing edge
+ * curves in towards the shoulder, at 0 it runs straight from the hand to the
+ * root, at 1 it drops straight down from the hand halfway to the root), and
+ * the wing between the legs: whether there is one (the legs and the body are
+ * then in the wing's fabric), how far in from the outside of the legs it
+ * starts (m, below 0 it wraps around them), how far past the feet its
+ * corners go (m) and where the middle of its trailing edge is (below 0 cut in
+ * towards the crotch, as a share of the way there, above 0 a tail).
  */
 interface SuitCut {
   bag: number;
   armWing: number;
   wingRoot: number;
+  fill: number;
   legWing: boolean;
+  legIn: number;
+  tail: number;
+  notch: number;
 }
 
+const NO_WINGS = { armWing: 0, wingRoot: 0, fill: 0, legWing: false, legIn: 0, tail: 0, notch: 0 };
+
+/**
+ * Drawn from photos: a first wingsuit's arm wings straight from the wrist to
+ * the hip, its leg wing around the legs to the feet and cut in between them;
+ * a bigger one's arm wings straight from the hand to the knee, a big one's to
+ * the ankle, its leg wing square across the feet.
+ */
+const WINGSUIT_CUTS: Record<Suit['level'], Omit<SuitCut, 'bag' | 'legWing'>> = {
+  1: { armWing: 1, wingRoot: 1.1, fill: 0.25, legIn: -0.05, tail: 0, notch: -0.22 },
+  2: { armWing: 1.04, wingRoot: 2, fill: 0, legIn: -0.05, tail: 0.02, notch: -0.15 },
+  3: { armWing: 1.07, wingRoot: 3, fill: 0, legIn: -0.05, tail: 0.04, notch: 0 },
+};
+
 function suitCut(suit: Suit): SuitCut {
-  if (suit.kind === 'jumpsuit') return { bag: 1, armWing: 0, wingRoot: 0, legWing: false };
-  if (suit.kind === 'track') return { bag: [1.15, 1.25, 1.35][suit.level - 1]!, armWing: [0, 0.4, 0.62][suit.level - 1]!, wingRoot: 0.3, legWing: false };
-  return { bag: 1.3 + 0.1 * suit.level, armWing: 1, wingRoot: 1, legWing: true };
+  if (suit.kind === 'jumpsuit') return { ...NO_WINGS, bag: 1 };
+  if (suit.kind === 'track') return { ...NO_WINGS, bag: [1.15, 1.25, 1.35][suit.level - 1]!, armWing: [0, 0.4, 0.62][suit.level - 1]!, wingRoot: 0.3, fill: -0.12 };
+  return { ...WINGSUIT_CUTS[suit.level], bag: 1.3 + 0.1 * suit.level, legWing: true };
 }
 
 /** The face of a metric skydiving altimeter: 0 to 4 thousand metres, red under 1000, yellow to 1500. */
@@ -263,13 +289,17 @@ export class Body {
   private readonly shellMaterial = new THREE.MeshLambertMaterial({ color: OUTFIT_COLORS[DEFAULT_HELMET] });
   /** The wings' fabric: of the canopy's colour. */
   private readonly wingMaterial = new THREE.MeshLambertMaterial({ color: 0x2a6fd0, side: THREE.DoubleSide });
-  /** Between the legs, from the crotch to the ankles. */
-  private readonly legWing = new Membrane(this.wingMaterial, 5, [0, 1, 4, 1, 2, 3, 1, 3, 4]);
+  /** Between the legs, from the crotch to the ankles, or past the feet: crotch, knee, foot, foot, knee, tail. */
+  private readonly legWing = new Membrane(this.wingMaterial, 6, [0, 1, 4, 1, 2, 5, 1, 5, 4, 4, 5, 3]);
   /** The jumpsuit's thighs and shins, made baggier by a suit. */
   private readonly legCloth: THREE.Mesh[] = [];
-  private cut: SuitCut = { bag: 1, armWing: 0, wingRoot: 0, legWing: false };
+  /** The torso and legs, in the wings' fabric in a wingsuit. */
+  private readonly wingCloth: THREE.Mesh[] = [];
+  private cut: SuitCut = { ...NO_WINGS, bag: 1 };
   private armsShown = true;
-  private readonly wingPoints = Array.from({ length: 5 }, () => new THREE.Vector3());
+  private readonly wingPoints = Array.from({ length: 6 }, () => new THREE.Vector3());
+  private readonly knee = new THREE.Vector3();
+  private readonly foot = new THREE.Vector3();
 
   constructor(rig: RigParams) {
     this.eye = new THREE.Vector3(rig.eyePos.x, rig.eyePos.y, rig.eyePos.z);
@@ -291,6 +321,7 @@ export class Body {
     const height = 0.56;
     const torso = near(new THREE.Mesh(new THREE.CapsuleGeometry(radius, height - 2 * radius, 4, 14), suit));
     torso.scale.set(1.35, 1, 0.85);
+    this.wingCloth.push(torso);
     const middle = TORSO_TOP - height / 2;
     torso.position.set(0, middle, TORSO_BACK);
     const front = TORSO_BACK - radius * 0.85 - 0.006;
@@ -363,6 +394,7 @@ export class Body {
       const thighCloth = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, THIGH - 0.12, 4, 10).translate(0, -THIGH / 2 + 0.02, 0), suit);
       const shinCloth = new THREE.Mesh(new THREE.CapsuleGeometry(0.062, shinLength - 0.1, 4, 10).translate(0, -shinLength / 2 + 0.02, 0), suit);
       this.legCloth.push(thighCloth, shinCloth);
+      this.wingCloth.push(thighCloth, shinCloth);
       thigh.add(
         thighCloth,
         // A leg strap round the top of the thigh.
@@ -403,8 +435,8 @@ export class Body {
         fore: limb(0.034),
         hand: near(new THREE.Mesh(new THREE.IcosahedronGeometry(0.046, 2).scale(0.85, 1.15, 0.9), glove)),
         elbow: new THREE.Vector3(),
-        // Shoulder, elbow, the end of the wing on the arm, halfway down its trailing edge, its root on the side.
-        wing: new Membrane(this.wingMaterial, 5, [0, 1, 4, 1, 3, 4, 1, 2, 3]),
+        // Shoulder, elbow, the end of the wing on the arm, halfway down its trailing edge, its root, the hip.
+        wing: new Membrane(this.wingMaterial, 6, [1, 2, 3, 1, 3, 4, 1, 4, 5, 1, 5, 0]),
       };
       near(arm.wing.mesh);
       this.group.add(arm.upper, arm.fore, arm.hand, arm.wing.mesh);
@@ -495,6 +527,7 @@ export class Body {
     const cut = (this.cut = suitCut(suit));
     this.wingMaterial.color.setHex(color);
     for (const mesh of this.legCloth) mesh.scale.set(cut.bag, 1, cut.bag);
+    for (const mesh of this.wingCloth) mesh.material = cut.legWing ? this.wingMaterial : this.suitMaterial;
     for (const arm of this.arms) {
       arm.upper.scale.x = arm.upper.scale.z = cut.bag;
       arm.fore.scale.x = arm.fore.scale.z = cut.bag;
@@ -539,7 +572,7 @@ export class Body {
     if (cut.armWing > 0 && this.armsShown) {
       for (const arm of this.arms) {
         const s = arm.sign;
-        const [shoulder, elbow, tip, trailing, root] = pts as [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3];
+        const [shoulder, elbow, tip, trailing, root, hip] = pts as [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3];
         shoulder.set(s * (SHOULDER.x - 0.03), SHOULDER.y - 0.02, SHOULDER.z).applyMatrix4(trunk.matrix);
         // Along the arm, shoulder to wrist: the elbow is about halfway.
         const along = cut.armWing * (UPPER_ARM + FOREARM - 0.04);
@@ -550,25 +583,40 @@ export class Body {
           elbow.copy(arm.elbow);
           tip.lerpVectors(arm.elbow, arm.hand.position, (along - UPPER_ARM) / FOREARM);
         }
-        root.set(s * 0.15, TORSO_TOP - 0.2 + (hipY - TORSO_TOP + 0.2) * cut.wingRoot, TORSO_BACK - 0.02).applyMatrix4(trunk.matrix);
-        // The trailing edge curves in towards the body, the fabric lifted a little by the air under it.
-        trailing.lerpVectors(tip, root, 0.5).lerp(shoulder, 0.12);
+        hip.set(s * 0.15, TORSO_TOP - 0.2 + (hipY - TORSO_TOP + 0.2) * Math.min(1, cut.wingRoot), TORSO_BACK - 0.02).applyMatrix4(trunk.matrix);
+        root.copy(hip);
+        if (cut.wingRoot > 1) {
+          // On down the outside of the thigh, and of the shin.
+          this.inGroup(this.knee, s < 0 ? this.marks.kneeL : this.marks.kneeR);
+          if (cut.wingRoot > 2) this.knee.lerp(this.inGroup(this.foot, s < 0 ? this.marks.footL : this.marks.footR), cut.wingRoot - 2);
+          this.knee.x += s * 0.06;
+          root.lerp(this.knee, Math.min(1, cut.wingRoot - 1));
+        }
+        // The trailing edge curves in towards the body, or drops from the
+        // hand before it goes in, the fabric lifted a little by the air under it.
+        trailing.lerpVectors(tip, root, 0.5);
+        if (cut.fill < 0) trailing.lerp(shoulder, -cut.fill);
+        else trailing.lerp(this.foot.copy(root).sub(shoulder).multiplyScalar(0.5).add(tip), cut.fill);
         trailing.z += 0.03;
         arm.wing.set(pts);
       }
     }
     if (cut.legWing) {
-      const [crotch, kneeL, footL, footR, kneeR] = pts as [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3];
+      const [crotch, kneeL, footL, footR, kneeR, tail] = pts as [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3];
       crotch.set(0, hipY - 0.06, HIP_BACK).applyMatrix4(trunk.matrix);
       this.inGroup(kneeL, this.marks.kneeL);
       this.inGroup(kneeR, this.marks.kneeR);
       this.inGroup(footL, this.marks.footL);
       this.inGroup(footR, this.marks.footR);
-      // From the inside of each leg, down to just above the shoes.
-      kneeL.x += 0.04;
-      kneeR.x -= 0.04;
-      footL.lerp(kneeL, 0.08).x += 0.03;
-      footR.lerp(kneeR, 0.08).x -= 0.03;
+      // From the inside of each leg (or around it), down to the ankles, or on
+      // past them the way the shins go.
+      kneeL.x += cut.legIn;
+      kneeR.x -= cut.legIn;
+      footL.lerp(kneeL, 0.06).add(this.foot.copy(footL).sub(kneeL).setLength(cut.tail)).x += cut.legIn - 0.01;
+      footR.lerp(kneeR, 0.06).add(this.foot.copy(footR).sub(kneeR).setLength(cut.tail)).x -= cut.legIn - 0.01;
+      // Its trailing edge from foot to foot, cut in towards the crotch or straight.
+      tail.lerpVectors(footL, footR, 0.5);
+      tail.add(this.foot.copy(tail).sub(crotch).multiplyScalar(cut.notch));
       this.legWing.set(pts);
     }
   }

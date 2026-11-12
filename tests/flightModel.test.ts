@@ -174,6 +174,15 @@ describe('steady flight', () => {
     }
   });
 
+  test('one toggle buried alone turns the canopy without stalling either half', () => {
+    for (const canopyAreaFt2 of [170, 107]) {
+      const model = trimmed({ canopyAreaFt2 });
+      simulate(model, 15, controls({ brakeR: 1 }), env);
+      expect(model.deflationL + model.deflationR).toBe(0);
+      expect(model.alphaCentre / DEG).toBeLessThan(15);
+    }
+  });
+
   test('letting the toggles up recovers a stall, with a dive', () => {
     const model = trimmed({}, 0, env);
     simulate(model, 8, controls({ brakeL: BRAKE_DEEP, brakeR: BRAKE_DEEP }), env);

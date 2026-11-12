@@ -77,7 +77,7 @@
       }
       .card button:hover { background: rgba(255, 255, 255, 0.2); }
       .card button[data-act='retry'] { background: #ffd84a; color: #14181e; border-color: #ffd84a; }
-      .card.noReplay .replayBtn { display: none; }
+      .card.noReplay .replayBtn, .card.noWatch .watchBtn { display: none; }
       /* Walking about: out of the way at the bottom, the verdict and the buttons only. */
       .card.compact { top: auto; bottom: 18px; transform: translateX(-50%); padding: 12px 18px; }
       .card.compact h1 { font-size: 18px; margin: 0; }
@@ -89,6 +89,35 @@
       @keyframes rec { 50% { opacity: 0; } }
       #hud.replaying #replay { display: block; }
       #hud.replaying .flight, #hud.replaying .card { visibility: hidden; }
+      /* A whole jump watched again: its instruments, and the bar to move about in it. */
+      #watch {
+        position: absolute; left: 50%; top: 14px; transform: translateX(-50%); width: min(560px, calc(100vw - 32px)); display: none;
+        padding: 10px 14px 9px; border-radius: 10px; background: rgba(12, 16, 22, 0.55); backdrop-filter: blur(6px);
+        pointer-events: auto; text-shadow: none;
+      }
+      #watch .head { display: flex; align-items: baseline; gap: 10px; }
+      #watch .head b { font: 700 18px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.14em; }
+      #watch .head b::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 50%; background: #ff3b30; }
+      #watch .what { flex: 1; font-size: 12px; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #watch .speed { font: 700 14px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.08em; color: #ffd84a; }
+      #watch .cam { font: 700 13px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.1em; color: #6fd0ff; }
+      #watch .track { position: relative; height: 18px; margin: 8px 0 4px; cursor: pointer; touch-action: none; }
+      #watch .track::before { content: ''; position: absolute; left: 0; right: 0; top: 7px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.25); }
+      #watch .fill { position: absolute; left: 0; top: 7px; height: 4px; border-radius: 2px; background: #ffd84a; }
+      #watch .knob { position: absolute; top: 3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5); }
+      #watch .mark { position: absolute; top: 4px; width: 2px; height: 10px; margin-left: -1px; border-radius: 1px; background: #fff; opacity: 0.85; }
+      #watch .mark.exit { background: #6fd0ff; }
+      #watch .mark.open { background: #8fe0a6; }
+      #watch .mark.landing { background: #ff8a7a; }
+      #watch .foot { display: flex; align-items: center; justify-content: space-between; font-size: 12px; opacity: 0.9; }
+      #watch .buttons { display: flex; gap: 6px; }
+      #watch button {
+        font: 600 12px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #fff; cursor: pointer; min-width: 30px;
+        padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.35); background: rgba(255, 255, 255, 0.08);
+      }
+      #watch button:hover { background: rgba(255, 255, 255, 0.2); }
+      #hud.watching #watch { display: block; }
+      #hud.watching .card, #hud.watching #cue, #hud.watching #held { visibility: hidden; }
     </style>
   </head>
   <body>
@@ -110,6 +139,7 @@
       </div>
       <div class="card" id="result"></div>
       <div id="replay"></div>
+      <div id="watch"></div>
     </div>
     <div id="menu"></div>
     <script type="module" src="/src/main.ts"></script>

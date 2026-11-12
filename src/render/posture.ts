@@ -5,6 +5,7 @@
 
 import type { BodyInputs, BodyPosition } from '../sim/freefall';
 import type { ExitSpot } from '../sim/plane';
+import type { SuitLevel } from '../sim/suit';
 import { blendPose, copyPose, makePose, type Pose } from './body';
 
 /**
@@ -238,17 +239,17 @@ function track(p: Pose, input: BodyInputs): void {
   p.elbowR.set(1, 0, 0.4);
 }
 
-function wingsuit(p: Pose, input: BodyInputs): void {
+function wingsuit(p: Pose, input: BodyInputs, level: SuitLevel): void {
   // Flying a wingsuit: arms out wide and nearly straight, swept back a
   // little, the wings taut between them and the body; legs straight in a V
-  // for the wing between them.
+  // for the wing between them, wider the bigger it is.
   const { forward, back, up, down } = drives(input);
   p.lean = p.bow = 0;
   // Diving, the shoulders roll forward and the arms come back; flaring, they go out ahead.
   p.hipL = p.hipR = 0.04 - 0.04 * forward + 0.18 * back;
   p.kneeL = p.kneeR = 0.05 + 0.1 * back;
   // Wings closed a little to go down faster, spread wide to float.
-  p.spread = 0.24 + 0.05 * up - 0.12 * down;
+  p.spread = 0.2 + 0.06 * level + 0.05 * up - 0.12 * down;
   const span = 0.5 + 0.03 * up - 0.2 * down - 0.04 * forward;
   const height = -0.34 - 0.1 * forward + 0.1 * back - 0.08 * down;
   const reach = 0.06 + 0.04 * forward - 0.06 * back;
@@ -359,8 +360,8 @@ export class LegSwing {
 }
 
 export class Posture {
-  /** In a wingsuit: the track is the wings flown. */
-  wings = false;
+  /** In a wingsuit, of that level: the track is the wings flown. */
+  wings: SuitLevel | null = null;
   readonly pose = makePose();
   private readonly target = makePose();
   private readonly out = makePose();
@@ -409,7 +410,7 @@ export class Posture {
         headDown(t, input);
         break;
       case 'track':
-        if (this.wings) wingsuit(t, input);
+        if (this.wings) wingsuit(t, input, this.wings);
         else track(t, input);
         break;
       case 'throw':

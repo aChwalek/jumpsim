@@ -3,6 +3,22 @@
 // QWERTY: the AZERTY letters are given in the comments.
 
 import { noBodyInputs, type BodyInputs } from '../sim/freefall';
+
+/** What drives a free camera (in a replay): where to go and where to look. */
+export interface FreeInputs {
+  /** Along the view (1 ahead), across it (1 to the right), and up (1), -1 to 1. */
+  forward: number;
+  right: number;
+  up: number;
+  /** Faster: Shift, or the right trigger. */
+  fast: boolean;
+  /** The mouse's turn since the last poll, rad, to the right and up. */
+  yaw: number;
+  pitch: number;
+  /** The right stick's, rad/s. */
+  yawRate: number;
+  pitchRate: number;
+}
 import { noPulls, type Pulls } from './ramp';
 
 export type Action =
@@ -191,6 +207,15 @@ export class InputDevices {
   magnify = false;
   /** Multiplies how far the mouse turns the head: less while looking closer. */
   lookScale = 1;
+  /**
+   * The same keys for a free camera: W / S ahead and back, A / D to the
+   * sides, Q / E down and up (AZERTY Z / S, Q / D, A / E); on the gamepad
+   * the left stick, the bumpers, the right stick to look.
+   */
+  readonly free: FreeInputs = { forward: 0, right: 0, up: 0, fast: false, yaw: 0, pitch: 0, yawRate: 0, pitchRate: 0 };
+  /** The mouse's turn not yet read by a free camera, rad. */
+  private freeYaw = 0;
+  private freePitch = 0;
   onAction: (action: Action) => void = () => {};
 
   private readonly keys = new Set<string>();
@@ -256,6 +281,8 @@ export class InputDevices {
     document.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement !== surface) return;
       const speed = MOUSE_SENSITIVITY * this.sensitivity * this.lookScale;
+      this.freeYaw += e.movementX * speed;
+      this.freePitch -= e.movementY * speed * (this.invertLook ? -1 : 1);
       if (this.feetTurn) this.feetYaw += e.movementX * speed;
       else this.headYaw = clamp(this.headYaw + e.movementX * speed, -MAX_YAW, MAX_YAW);
       this.headPitch = clamp(
@@ -326,6 +353,17 @@ export class InputDevices {
     const f = this.feet;
     f.turn = key('KeyE') - key('KeyQ');
     f.slide = key('KeyD') - key('KeyA');
+    const fr = this.free;
+    fr.forward = key('KeyW') - key('KeyS');
+    fr.right = key('KeyD') - key('KeyA');
+    fr.up = key('KeyE') - key('KeyQ');
+    fr.fast = p.hold;
+    fr.yaw = this.freeYaw;
+    fr.pitch = this.freePitch;
+    fr.yawRate = 0;
+    fr.pitchRate = 0;
+    this.freeYaw = 0;
+    this.freePitch = 0;
 
     // On foot the body turns to where the head was turned.
     if (this.feetTurn && this.headYaw !== 0) {
@@ -357,6 +395,13 @@ export class InputDevices {
         const up = -curve(rightY) * STICK_PITCH_RATE * turn * (this.invertLook ? -1 : 1);
         this.headPitch = clamp(this.headPitch + up, -MAX_PITCH_DOWN, MAX_PITCH_UP);
       }
+      // The free camera of a replay: the left stick, the bumpers, the right stick to look.
+      fr.forward = clamp(fr.forward - deadzone(pad.axes[1] ?? 0), -1, 1);
+      fr.right = clamp(fr.right + deadzone(pad.axes[0] ?? 0), -1, 1);
+      fr.up = clamp(fr.up + btn(5) - btn(4), -1, 1);
+      fr.fast ||= this.analogBrakeR > 0.5;
+      fr.yawRate = rightX * 1.7;
+      fr.pitchRate = -rightY * 1.2 * (this.invertLook ? -1 : 1);
       // In freefall the left stick drives; the right stick turns, and the
       // triggers too, the way the toggles turn under canopy.
       b.turn = clamp(b.turn + this.analogBrakeR - this.analogBrakeL + (flies ? rightX : 0), -1, 1);
