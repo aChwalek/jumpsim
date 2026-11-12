@@ -9,7 +9,7 @@ import { createRealDz, type RealDzData, type RealDzLook } from './real';
 import { LOOKS } from './realDzs';
 import { TOWER_HEIGHT, createTowerZone } from './tower';
 
-export type DzId = 'valbrise' | 'tower' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadeloupe' | 'lauterbrunnen' | 'limska';
+export type DzId = 'valbrise' | 'tower' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadeloupe' | 'lauterbrunnen' | 'limska' | 'brento';
 
 export interface DzInfo {
   id: DzId;
@@ -143,6 +143,8 @@ export const DZS: DzInfo[] = [
   real('lauterbrunnen', 'High Nose', undefined, 'swiss', () => import('./data/lauterbrunnen'), { height: 545 }),
   // The A9 viaduct: the road's height above the landing field, as built into data/limska.ts.
   real('limska', 'Vijadukt Limska Draga', undefined, 'croatia', () => import('./data/limska'), { height: 115, standing: true }),
+  // The Becco dell'Aquila: the height down to the landing field, as in tools/dz/brento.json.
+  real('brento', "Becco dell'Aquila", undefined, 'trentino', () => import('./data/brento'), { height: 1175 }),
 ];
 
 export function dzInfo(id: DzId): DzInfo {
