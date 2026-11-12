@@ -254,6 +254,9 @@ export class InputDevices {
     b.slide = key('KeyE') - key('KeyQ');
     // R up (spread out, slower), F down (tucked in, faster).
     b.fall = key('KeyF') - key('KeyR');
+    // Arrows held: somersaults and rolls one after the other.
+    b.flip = key('ArrowUp') - key('ArrowDown');
+    b.roll = key('ArrowRight') - key('ArrowLeft');
     const f = this.feet;
     f.turn = key('KeyE') - key('KeyQ');
     f.slide = key('KeyD') - key('KeyA');
@@ -282,6 +285,9 @@ export class InputDevices {
       f.slide = clamp(f.slide + deadzone(pad.axes[0] ?? 0), -1, 1);
       // The bumpers go up and down, the cross picks the position.
       b.fall = clamp(b.fall + (pad.buttons[5]?.pressed ? 1 : 0) - (pad.buttons[4]?.pressed ? 1 : 0), -1, 1);
+      const btn = (i: number): number => (pad.buttons[i]?.pressed ? 1 : 0);
+      b.flip = clamp((b.flip ?? 0) + btn(12) - btn(13), -1, 1);
+      b.roll = clamp((b.roll ?? 0) + btn(15) - btn(14), -1, 1);
       const jump = pad.buttons[0]?.pressed ?? false;
       if (jump && !this.padJump) this.onAction('jump');
       this.padJump = jump;

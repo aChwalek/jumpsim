@@ -474,6 +474,16 @@ function flyInto(position: BodyPosition): void {
   jump.fly(position, (flat ? b.slide : b.forward) < 0 ? -1 : 1);
 }
 
+/**
+ * ↑ / ↓: in freefall a quarter somersault, forwards or backwards, into the
+ * next position; in the door, the position to go out in.
+ */
+function flyStep(dir: -1 | 1): void {
+  if (paused || !jump) return;
+  if (jump.phase === 'freefall') jump.flip(dir);
+  else flyInto(stepPosition(jump.body.position, dir > 0 ? 'up' : 'down'));
+}
+
 /** A short message over the HUD's cue. */
 function say(text: string, small = '', ms = 1800): void {
   flash = { text: small ? `${text}<small>${small}</small>` : text, until: performance.now() + ms };
@@ -528,8 +538,8 @@ const actions: Record<Action, () => void> = {
   track: () => {
     if (!paused) devices.padTrack = !devices.padTrack;
   },
-  flyUp: () => jump && flyInto(stepPosition(jump.body.position, 'up')),
-  flyDown: () => jump && flyInto(stepPosition(jump.body.position, 'down')),
+  flyUp: () => flyStep(1),
+  flyDown: () => flyStep(-1),
   toggleHud: () => hud.toggle(),
   togglePause: () => (paused = !paused),
   toggleSound: () => {

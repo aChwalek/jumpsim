@@ -398,4 +398,107 @@ describe('rolls and half turns', () => {
       expect(Math.abs(((jump.body.headingDeg() - heading + 540) % 360) - 180)).toBeGreaterThan(160);
     }
   });
+
+  test('← held: barrel rolls one after the other, stopping on a side when let go', () => {
+    const { jump, run } = settledIn('belly');
+    jump.roll(-1);
+    const held = { ...noBodyInputs(), roll: -1 };
+    let rolled = 0;
+    let last = rightHand(jump).y;
+    for (let t = 0; t < 3; t += SIM_DT) {
+      jump.step(SIM_DT, held, { wind: vec3(), airDensity: airDensityAt(3500) });
+      const y = rightHand(jump).y;
+      if (Math.sign(y) !== Math.sign(last)) rolled++;
+      last = y;
+    }
+    // Two barrel rolls or more: the right hand crosses the horizon twice each.
+    expect(rolled).toBeGreaterThanOrEqual(4);
+    run(2);
+    expect(jump.body.maneuvering).toBe(false);
+    expect(jump.body.offPosition()).toBeLessThan(0.2);
+  });
+});
+
+describe('somersaults', () => {
+  function settledIn(position: BodyPosition) {
+    const model = new FlightModel(deriveRig(DEFAULT_RIG));
+    const env: Environment = { wind: vec3(), airDensity: airDensityAt(4000) };
+    const jump = new Jump(model, { x: 0, z: 0, height: 4000, headingDeg: 270, indicatedAirspeed: 40 }, env, () => 0, () => 0.5);
+    const head = () => rotate(vec3(), jump.body.state.att, vec3(0, 1, 0));
+    /** Runs a while, `input` held; the lowest the head went (-1: straight down). */
+    const run = (seconds: number, input: Partial<BodyInputs> = {}) => {
+      let lowest = 1;
+      for (let t = 0; t < seconds; t += SIM_DT) {
+        env.airDensity = airDensityAt(model.state.pos.y);
+        jump.step(SIM_DT, { ...noBodyInputs(), ...input }, env);
+        lowest = Math.min(lowest, head().y);
+      }
+      return lowest;
+    };
+    jump.act();
+    jump.fly(position);
+    run(15);
+    return { jump, run, head };
+  }
+
+  test('↑ on the belly: head first into head down, quickly', () => {
+    const { jump, run, head } = settledIn('belly');
+    jump.flip(1);
+    expect(jump.body.position).toBe('headDown');
+    run(0.25);
+    expect(head().y).toBeLessThan(-0.5);
+    run(0.5);
+    expect(jump.body.offPosition()).toBeLessThan(0.2);
+  });
+
+  test('↑↑ on the belly goes through head down onto the back without a stop', () => {
+    const { jump, run } = settledIn('belly');
+    jump.flip(1);
+    run(0.2);
+    jump.flip(1);
+    expect(jump.body.position).toBe('back');
+    expect(run(1.2)).toBeLessThan(-0.95);
+    expect(jump.body.maneuvering).toBe(false);
+    expect(jump.body.offPosition()).toBeLessThan(0.2);
+  });
+
+  test('↑↑↑↑ is a front somersault, ↓↓↓↓ a back one: back on the belly the same way round', () => {
+    for (const dir of [1, -1] as const) {
+      const { jump, run } = settledIn('belly');
+      const heading = jump.body.headingDeg();
+      for (let i = 0; i < 4; i++) {
+        jump.flip(dir);
+        run(0.15);
+      }
+      expect(jump.body.position).toBe('belly');
+      run(2);
+      expect(jump.body.maneuvering).toBe(false);
+      expect(jump.body.offPosition()).toBeLessThan(0.2);
+      expect(Math.abs(((jump.body.headingDeg() - heading + 540) % 360) - 180)).toBeLessThan(20);
+    }
+  });
+
+  test('↑ held: somersault after somersault, then a position once let go', () => {
+    const { jump, run, head } = settledIn('belly');
+    jump.flip(1);
+    let downs = 0;
+    let wasDown = false;
+    for (let t = 0; t < 4; t += 0.05) {
+      run(0.05, { flip: 1 });
+      const down = head().y < -0.9;
+      if (down && !wasDown) downs++;
+      wasDown = down;
+    }
+    expect(downs).toBeGreaterThanOrEqual(2);
+    run(2);
+    expect(jump.body.maneuvering).toBe(false);
+    expect(jump.body.offPosition()).toBeLessThan(0.2);
+  });
+
+  test('a roll does not mix into a somersault', () => {
+    const { jump } = settledIn('belly');
+    jump.flip(1);
+    jump.roll(1);
+    expect(jump.body.position).toBe('headDown');
+  });
 });
