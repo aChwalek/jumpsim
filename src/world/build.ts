@@ -69,7 +69,8 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     water.object,
     flags.object,
   );
-  if (dz.vineRows?.length) object.add(buildVines(dz.vineRows, groundAt));
+  const vines = dz.vineRows?.length ? buildVines(dz.vineRows, groundAt) : undefined;
+  if (vines) object.add(vines.object);
   if (dz.bridges) object.add(buildBridges(dz.bridges, groundAt));
   if (cliffTop) object.add(cliffTop.object);
   // The run is painted on a tower's roof; a cliff has nothing on it, and off a bridge there is no run.
@@ -104,6 +105,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
       water.update(seconds);
       flags.update(seconds);
       cliffTop?.update(seconds);
+      vines?.update(eye);
     },
     ready() {
       const done = photos?.uniforms.photoReady?.value as THREE.Vector3 | undefined;

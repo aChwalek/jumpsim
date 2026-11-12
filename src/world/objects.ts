@@ -372,11 +372,14 @@ export function buildFlags(flags: Flag[], fabric: THREE.Color, groundAt = flat):
  * foot and at the top. `rows` holds lengths of row, ax, az, bx, bz, each
  * straight from the ground at one end to the ground at the other.
  */
-export function buildVines(rows: number[], groundAt = flat): THREE.Group {
+/** Vines are drawn out to this from the eye, m, thinning away over the last part: beyond, the photo shows them. */
+const VINES_DRAWN = 450;
+
+export function buildVines(rows: number[], groundAt = flat): { object: THREE.Group; update(eye: THREE.Vector3): void } {
   /** Across the row and up, from one foot over the top to the other. */
   const SECTION: [number, number][] = [[-0.25, 0.25], [-0.42, 1.15], [0, 1.75], [0.42, 1.15], [0.25, 0.25]];
-  /** The rows are gathered in squares of this side, m, so that those out of sight are not drawn. */
-  const SQUARE = 400;
+  /** The rows are gathered in squares of this side, m, so that those out of sight or too far are not drawn. */
+  const SQUARE = 100;
   const squares = new Map<string, number[]>();
   for (let i = 0; i < rows.length; i += 4) {
     const key = `${Math.floor(rows[i]! / SQUARE)},${Math.floor(rows[i + 1]! / SQUARE)}`;
@@ -402,9 +405,11 @@ export function buildVines(rows: number[], groundAt = flat): THREE.Group {
         `#include <color_fragment>
         // Height leans both ways into the plan, so that a wall running either way gets the pattern unstretched.
         vec2 leafAt = vLeafWorld.xz + vLeafWorld.y * vec2(0.7, 1.1);
+        // Thinning out towards the far edge of what is drawn, so that the squares do not pop.
+        float fade = smoothstep(${(VINES_DRAWN * 0.7).toFixed(1)}, ${VINES_DRAWN.toFixed(1)}, distance(vLeafWorld, cameraPosition));
         float thin = texture2D(leafMap, leafAt / 9.0).r;
         float leaf = texture2D(leafMap, leafAt / 1.1).r;
-        if (thin + 0.5 * leaf < 0.62) discard;
+        if (thin + 0.5 * leaf < 0.62 + 1.2 * fade) discard;
         diffuseColor.rgb *= (0.45 + 1.1 * leaf) * (0.7 + 0.6 * thin);`,
       );
   };
@@ -455,7 +460,16 @@ export function buildVines(rows: number[], groundAt = flat): THREE.Group {
     geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
     group.add(new THREE.Mesh(geometry, material));
   }
-  return group;
+  return {
+    object: group,
+    update(eye) {
+      for (const mesh of group.children as THREE.Mesh[]) {
+        const sphere = mesh.geometry.boundingSphere!;
+        mesh.visible = eye.distanceTo(sphere.center) - sphere.radius < VINES_DRAWN;
+      }
+    },
+  };
 }
