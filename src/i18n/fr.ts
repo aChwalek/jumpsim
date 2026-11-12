@@ -42,6 +42,7 @@ export const fr = {
       lauterbrunnen: 'High Nose, de la Mürrenfluh dans la vallée',
       limska: 'Le viaduc de l\'A9 au-dessus de la Limska draga, en Istrie',
       millau: 'Le viaduc de Millau au-dessus du Tarn, à 270 m (interdit en vrai)',
+      brento: "Le Becco dell'Aquila, au-dessus de la vallée de la Sarca",
     },
     made: 'DZ imaginaire',
     credits: {
@@ -51,6 +52,7 @@ export const fr = {
       spain: 'Photos PNOA © IGN España, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       swiss: 'Photos et relief © swisstopo, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       croatia: 'Photos DOF5 2019/20 © DGU (Otvorena dozvola), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
+      trentino: 'Photos et LiDAR © Provincia autonoma di Trento (CC BY 4.0), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
     },
   },
 

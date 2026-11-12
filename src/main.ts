@@ -199,7 +199,7 @@ function newRigView(): void {
 function fitSuit(): void {
   const suit = suitOf(setup.gear);
   rigView.body.setSuit(suit, wingColor(setup.gear.color));
-  posture.wings = hasWings(suit);
+  posture.wings = hasWings(suit) ? suit.level : null;
   const outfit = outfitOf(setup.gear);
   rigView.setOutfit(outfit);
   ragdollView.setOutfit(outfit);
