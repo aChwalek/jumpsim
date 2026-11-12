@@ -124,12 +124,13 @@ test('jump run goes into the wind by default, or on the heading chosen, beside t
 
 test('the jump plan is checked when read back, and the run follows the wind until a heading is chosen', () => {
   const setup = validSetup({ jump: { start: 'final', exitHeight: 9000, runDeg: -45 } });
-  expect(setup.jump).toEqual({ start: 'final', exitHeight: 4500, runDeg: 315, malfunction: 'none' });
+  expect(setup.jump).toEqual({ start: 'final', exitHeight: 4500, runDeg: 315, malfunction: 'none', exitSpot: 'low' });
   expect(validSetup({ jump: { start: 'moon', exitHeight: 1234, malfunction: 'often' } }).jump).toEqual({
     start: 'plane',
     exitHeight: 1200,
     runDeg: null,
     malfunction: 'none',
+    exitSpot: 'low',
   });
   expect(validSetup({ jump: { malfunction: 'always' } }).jump.malfunction).toBe('always');
   const plan = defaultSetup();
@@ -203,4 +204,12 @@ test('strong gusts and the wind gradient shake the canopy but do not upset it', 
   // as a gust builds and dies, and rocks a little.
   expect(worstBank).toBeLessThan(10);
   expect(worstPitch).toBeLessThan(20);
+});
+
+test('the place at the door is kept, and anything else is the sill', () => {
+  expect(defaultSetup().jump.exitSpot).toBe('low');
+  expect(validSetup({ jump: { exitSpot: 'step' } }).jump.exitSpot).toBe('step');
+  expect(validSetup({ jump: { exitSpot: 'wing' } }).jump.exitSpot).toBe('low');
+  // Saved before there were places.
+  expect(validSetup({ jump: { exitHeight: 3000 } }).jump.exitSpot).toBe('low');
 });

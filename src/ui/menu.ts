@@ -53,7 +53,7 @@ import {
   type Setup,
   type Start,
 } from '../setup';
-import { AIRCRAFT } from '../sim/plane';
+import { AIRCRAFT, EXIT_SPOTS, type ExitSpot } from '../sim/plane';
 import { reserveSize, type CanopyKind } from '../sim/rig';
 import { trimSpeeds } from '../sim/telemetry';
 import {
@@ -941,7 +941,7 @@ export class Menu {
         const run = runHeading(this.setup);
         const aloft = Math.round(weather.windKmh * windGradient(jump.exitHeight));
         return `
-          <span class="big">${num(jump.exitHeight)}<small class="unit">m</small> <small>${j.starts.plane}</small></span>
+          <span class="big">${num(jump.exitHeight)}<small class="unit">m</small> <small>${j.starts.plane} · ${j.spots[jump.exitSpot]}</small></span>
           <span>${j.runLine(heading(run), windOnRun(run, weather.windFromDeg, weather.windKmh))}</span>
           <span class="dim">${j.aloftLine(String(aloft), String(Math.round(freefallSeconds(jump.exitHeight))))}</span>`;
       }
@@ -1149,6 +1149,10 @@ export class Menu {
           disabled: noPlane,
         },
       ),
+      this.choice<ExitSpot>(j.exitSpot, options(EXIT_SPOTS, (s) => j.spots[s]), () => plan().exitSpot, (exitSpot) => this.setJump({ exitSpot }), {
+        note: () => `${j.spotNote[plan().exitSpot]} ${j.spotKeys(keyLabel('KeyW'), keyLabel('KeyS'))}`,
+        disabled: noPlane,
+      }),
       this.choice<boolean>(
         j.runAxis,
         [

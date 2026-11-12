@@ -12,7 +12,7 @@ import { PlaneView } from './render/planeView';
 import { CanopyView, type SliderState } from './render/canopyView';
 import { ChaseCamera, type ChaseTarget } from './render/chaseCamera';
 import { cycle, lockedChase, pickPlayer, pickPoint, type Target } from './render/lockOn';
-import { FREEFALL_STANCES, LegSwing, Posture, type LegCues, type Stance } from './render/posture';
+import { FREEFALL_STANCES, LegSwing, Posture, doorStance, type LegCues, type Stance } from './render/posture';
 import { RigView, type RigFrame } from './render/rigView';
 import { RagdollView } from './render/ragdollView';
 import { SMOKE_BURN, SmokeTrail } from './render/smoke';
@@ -488,7 +488,7 @@ function spawn(kind: Start): void {
   if (kind === 'plane') {
     windAt(env.wind, setup.weather, spots.plane.height, airTime);
     const malfunction = unlucky ? 'streamer' : null;
-    jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction });
+    jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction, spot: setup.jump.exitSpot });
   } else if (kind === 'base') {
     const b = dz.base!;
     windAt(env.wind, setup.weather, b.height, airTime);
@@ -1229,7 +1229,7 @@ function stance(): Stance {
     case 'standing':
       return 'ground';
     case 'plane':
-      return jump.plane!.type.doorSide < 0 ? 'door' : 'doorRight';
+      return doorStance(jump.spot, jump.plane!.type.doorSide);
     case 'freefall':
       // Just cut away: the hands are still on the handles.
       if (jump.cutawayAt !== null && jump.time - jump.cutawayAt < 0.45) return 'cutaway';
@@ -1458,7 +1458,7 @@ function cue(): string {
   }
   if (jump.phase === 'plane') {
     const exit = c.exitIn[jump.body.position];
-    return `${c.greenLight}<small>${exit ? `${exit} · ` : ''}${c.spaceToExit}</small>`;
+    return `${c.greenLight}<small>${c.spots[jump.spot]} · ${exit ? `${exit} · ` : ''}${c.spaceToExit}</small>`;
   }
   if (jump.phase === 'standing') {
     const exit = c.exitIn[jump.body.position];

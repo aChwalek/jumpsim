@@ -1,14 +1,34 @@
 // How the pilot holds the body at each moment of the jump, and the moves
-// between: crouched in the door, the four freefall positions (box, back,
+// between: at one of the places at the door, the four freefall positions (box, back,
 // sit, head down, which shift with the inputs) and the track, the reach for the pilot
 // chute, hanging in the harness, standing on the ground.
 
 import type { BodyInputs, BodyPosition } from '../sim/freefall';
+import type { ExitSpot } from '../sim/plane';
 import { blendPose, copyPose, makePose, type Pose } from './body';
 
-/** In the door: `door` on the left of the plane, `doorRight` on its right. */
+/**
+ * At a place at the door (see ExitSpot), drawn for a door on the left of the
+ * plane; `…Right` for one on its right. `door` is crouched on the sill.
+ */
+export type DoorStance = 'door' | 'doorHigh' | 'step' | 'inside';
 /** `track`: stretched out to glide, a track flat, an angle upright; drawn the same, the body's attitude does the rest. */
-export type Stance = 'door' | 'doorRight' | BodyPosition | 'track' | 'throw' | 'hanging' | 'ground' | 'cutaway' | 'reserve';
+export type Stance =
+  | DoorStance
+  | `${DoorStance}Right`
+  | BodyPosition
+  | 'track'
+  | 'throw'
+  | 'hanging'
+  | 'ground'
+  | 'cutaway'
+  | 'reserve';
+
+const DOOR_STANCES: Record<ExitSpot, DoorStance> = { low: 'door', high: 'doorHigh', step: 'step', inside: 'inside' };
+
+/** How the jumper is held at this place at a door on this side (-1 left, 1 right). */
+export const doorStance = (spot: ExitSpot, side: -1 | 1): Stance =>
+  side < 0 ? DOOR_STANCES[spot] : `${DOOR_STANCES[spot]}Right`;
 
 /** The stances that follow the freefall inputs. */
 export const FREEFALL_STANCES: ReadonlySet<Stance> = new Set(['belly', 'back', 'sit', 'headDown', 'track']);
@@ -20,6 +40,12 @@ const HANGING_HIPS = 0.21;
 const SETTLE: Record<Stance, number> = {
   door: 0.35,
   doorRight: 0.35,
+  doorHigh: 0.35,
+  doorHighRight: 0.35,
+  step: 0.35,
+  stepRight: 0.35,
+  inside: 0.35,
+  insideRight: 0.35,
   belly: 0.3,
   back: 0.3,
   sit: 0.3,
@@ -57,6 +83,55 @@ function door(p: Pose, side: -1 | 1): void {
   frameElbow.set(side, -0.6, 0.1);
   knee.set(0.13 * -side, -0.47, -0.13);
   kneeElbow.set(-side, 0, 0.4);
+}
+
+function doorHigh(p: Pose, side: -1 | 1): void {
+  // Standing bent over in the doorway behind the one on the sill, the head
+  // under the top of the frame, knees well bent: the outer hand up on the
+  // top of the frame, out of the eyes' way, the inner one forward on the
+  // shoulder of the one below.
+  const inner = -side;
+  p.lean = 0;
+  p.bow = 0.4;
+  p.hipL = p.hipR = 1.1;
+  p.kneeL = p.kneeR = 1.5;
+  p.spread = 0.14;
+  const [top, topElbow, low, lowElbow] = side < 0 ? [p.handL, p.elbowL, p.handR, p.elbowR] : [p.handR, p.elbowR, p.handL, p.elbowL];
+  top.set(0.22 * side, 0.28, -0.05);
+  topElbow.set(side, 0, 0.2);
+  low.set(0.1 * inner, -0.3, -0.38);
+  lowElbow.set(inner, -0.6, 0.2);
+}
+
+function onStep(p: Pose, side: -1 | 1): void {
+  // Upright on the step outside, facing the nose, close to the side of the
+  // plane: both hands on the front of the door frame, the inner one up, the
+  // outer one across the chest; knees soft.
+  const inner = -side;
+  p.lean = 0;
+  p.bow = 0.08;
+  p.hipL = p.hipR = 0.25;
+  p.kneeL = p.kneeR = 0.4;
+  p.spread = 0.1;
+  const [near, nearElbow, far, farElbow] = side < 0 ? [p.handR, p.elbowR, p.handL, p.elbowL] : [p.handL, p.elbowL, p.handR, p.elbowR];
+  near.set(0.24 * inner, 0.02, -0.3);
+  nearElbow.set(inner, -0.5, 0.3);
+  far.set(0.1 * inner, -0.22, -0.34);
+  farElbow.set(side, -0.6, 0.2);
+}
+
+function inside(p: Pose): void {
+  // On both knees on the cabin floor, a little forward, the hands ready in
+  // front: set to dive out of the door.
+  p.lean = 0;
+  p.bow = 0.22;
+  p.hipL = p.hipR = 0.05;
+  p.kneeL = p.kneeR = 1.6;
+  p.spread = 0.12;
+  p.handL.set(-0.2, -0.3, -0.3);
+  p.handR.set(0.2, -0.3, -0.3);
+  p.elbowL.set(-1, -0.4, 0.3);
+  p.elbowR.set(1, -0.4, 0.3);
 }
 
 function box(p: Pose, input: BodyInputs): void {
@@ -283,6 +358,18 @@ export class Posture {
       case 'door':
       case 'doorRight':
         door(t, stance === 'door' ? -1 : 1);
+        break;
+      case 'doorHigh':
+      case 'doorHighRight':
+        doorHigh(t, stance === 'doorHigh' ? -1 : 1);
+        break;
+      case 'step':
+      case 'stepRight':
+        onStep(t, stance === 'step' ? -1 : 1);
+        break;
+      case 'inside':
+      case 'insideRight':
+        inside(t);
         break;
       case 'belly':
         box(t, input);

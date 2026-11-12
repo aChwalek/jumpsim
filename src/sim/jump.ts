@@ -10,11 +10,11 @@
 import type { Controls, Environment, FlightModel } from './flightModel';
 import { Freefall, freefallParams, noBodyInputs, type BodyInputs, type BodyPosition } from './freefall';
 import { BASE_OPENING, MAIN_OPENING, Opening, RESERVE_HANDLE_OPENING, RESERVE_OPENING, STOWED_BRAKE, type Malfunction } from './opening';
-import { Plane, type JumpRun } from './plane';
+import { EXIT_SPOTS, Plane, type ExitSpot, type JumpRun } from './plane';
 import { ReleasedCanopy } from './released';
 import type { RigParams } from './rig';
 import { RunUp } from './runUp';
-import { DEG, quatFromYaw, rotate, set, vec3 } from './vec';
+import { DEG, copy, quat, quatFromYaw, quatMultiply, rotate, set, vec3, type Vec3 } from './vec';
 
 /** `standing`: on top of a BASE object, before the exit. */
 export type JumpPhase = 'standing' | 'plane' | 'freefall' | 'opening' | 'canopy';
@@ -62,6 +62,8 @@ export interface JumpOptions {
   rsl?: boolean;
   /** What goes wrong with the main as it opens, if anything. */
   malfunction?: Malfunction | null;
+  /** Where in the plane the jumper starts: crouched on the sill if not given. */
+  spot?: ExitSpot;
 }
 
 /**
@@ -72,8 +74,10 @@ export const AAD_HEIGHT = 225;
 export const AAD_SPEED = 35;
 /** The pull is not taken in the first moments out of the door: no pilot chute over the tail. */
 const CLEAR_OF_THE_PLANE = 1.5;
-/** How hard the jumper pushes off out of the door, m/s. */
-const PUSH_OFF = 1.5;
+/** Time to move from one place at the door to the next, s. */
+const SPOT_MOVE = 0.6;
+/** How far the stick or a key has to go to move to the next place, of its travel. */
+const SPOT_NUDGE = 0.5;
 /** How far off the pilot's heading a canopy may open, degrees either way. */
 const OFF_HEADING = 25;
 /** How far past its stow a toggle has to come to free it. */
@@ -159,6 +163,15 @@ export class Jump {
   private readonly eye = vec3();
   /** Where the pilot was before the last step. */
   private readonly prev = vec3();
+  private readonly turn = quat();
+  /** Where in or around the door the jumper is, in the plane. */
+  spot: ExitSpot;
+  /** Moving to `spot`: from where (eyes, plane frame; turn to the door, degrees), and how far along, 0 to 1. */
+  private readonly fromEye = vec3();
+  private fromYaw = 0;
+  private spotMove = 1;
+  /** Which way forward or back was held last step: a press moves one place, holding it no further. */
+  private nudged: -1 | 0 | 1 = 0;
   private readonly solidAt: (x: number, z: number, y?: number) => number;
 
   /**
@@ -178,6 +191,7 @@ export class Jump {
     this.base = isLedge(from);
     this.exitHeight = isLedge(from) ? from.height : undefined;
     this.single = options.container === 'base';
+    this.spot = options.spot ?? 'low';
     if (isLedge(from)) {
       this.phase = 'standing';
       this.plane = null;
@@ -186,6 +200,7 @@ export class Jump {
       this.phase = 'plane';
       this.plane = new Plane(from, env.wind, groundAt(from.x, from.z));
       this.runUp = null;
+      this.fromYaw = this.place(this.fromEye);
     }
     this.log = {
       exitHeight: isLedge(from) ? (from.height ?? this.solidAt(from.x, from.z) - groundAt(from.x, from.z)) : from.height,
@@ -252,6 +267,25 @@ export class Jump {
     if (this.pullWhenFlat) return;
     if (this.phase === 'plane' || this.phase === 'standing') this.body.setPosition(dir < 0 ? 'belly' : 'back');
     else if (this.phase === 'freefall') this.body.rollOver(dir);
+  }
+
+  /**
+   * Forward or back in the plane (`dir` 1 / -1): to the next place at the
+   * door, out towards the step or back into the cabin.
+   */
+  moveSpot(dir: -1 | 1): void {
+    if (this.phase !== 'plane') return;
+    const next = EXIT_SPOTS[EXIT_SPOTS.indexOf(this.spot) + dir];
+    if (!next) return;
+    // From wherever the last move got to.
+    this.fromYaw = this.place(this.fromEye);
+    this.spot = next;
+    this.spotMove = 0;
+  }
+
+  /** Settled at the place at the door, not on the way to it. */
+  get inPlace(): boolean {
+    return this.spotMove >= 1;
   }
 
   /**
@@ -322,6 +356,10 @@ export class Jump {
   step(dt: number, input: BodyInputs, env: Environment): void {
     this.plane?.step(dt);
     if (this.phase === 'plane') {
+      const nudge = input.forward > SPOT_NUDGE ? 1 : input.forward < -SPOT_NUDGE ? -1 : 0;
+      if (nudge !== 0 && nudge !== this.nudged) this.moveSpot(nudge);
+      this.nudged = nudge;
+      this.spotMove = Math.min(1, this.spotMove + dt / SPOT_MOVE);
       this.ride();
       return;
     }
@@ -433,13 +471,28 @@ export class Jump {
     return this.phase === 'canopy' && (this.stowedL || this.stowedR);
   }
 
-  /** Crouched in the door, eyes out in the air, facing the nose. */
+  /**
+   * Where the eyes are in the plane, plane frame, at the place or on the way
+   * to it; and how far the jumper is turned to the door, degrees.
+   */
+  private place(out: Vec3): number {
+    const to = this.plane!.type.spots[this.spot];
+    const k = ease(this.spotMove);
+    const from = this.fromEye;
+    if (k >= 1) copy(out, to.eye);
+    else set(out, from.x + (to.eye.x - from.x) * k, from.y + (to.eye.y - from.y) * k, from.z + (to.eye.z - from.z) * k);
+    return this.fromYaw + (to.yawDeg - this.fromYaw) * k;
+  }
+
+  /** At the place at the door, eyes where it puts them, facing the nose or turned to the door. */
   private ride(): void {
     const s = this.model.state;
     const plane = this.plane!;
-    Object.assign(s.pilotAtt, plane.level);
-    Object.assign(s.att, plane.level);
-    plane.point(this.eye, plane.type.doorEye);
+    const yaw = this.place(this.eye);
+    quatFromYaw(this.turn, -plane.type.doorSide * yaw * DEG);
+    quatMultiply(s.pilotAtt, plane.level, this.turn);
+    Object.assign(s.att, s.pilotAtt);
+    plane.point(this.eye, this.eye);
     rotate(this.tmp, s.pilotAtt, this.model.rig.eyePos);
     set(s.pos, this.eye.x - this.tmp.x, this.eye.y - this.tmp.y, this.eye.z - this.tmp.z);
     set(s.vel, plane.vel.x, plane.vel.y, plane.vel.z);
@@ -465,9 +518,10 @@ export class Jump {
     const b = this.body.state;
     set(b.pos, s.pos.x, s.pos.y, s.pos.z);
     if (this.plane) {
-      // Off the sill, out of the plane's way.
-      const out = rotate(this.tmp, this.plane.level, set(this.tmp, this.plane.type.doorSide, 0, 0));
-      set(b.vel, s.vel.x + out.x * PUSH_OFF, s.vel.y - 0.5, s.vel.z + out.z * PUSH_OFF);
+      // Out of the plane's way, as the place allows: a dive, a jump, a roll off the sill, letting go of the step.
+      const { push } = this.plane.type.spots[this.spot];
+      const out = rotate(this.tmp, this.plane.level, set(this.tmp, this.plane.type.doorSide * push.out, push.up, -push.ahead));
+      set(b.vel, s.vel.x + out.x, s.vel.y + out.y, s.vel.z + out.z);
     } else {
       const v = this.runUp!.vel;
       set(b.vel, v.x, v.y, v.z);

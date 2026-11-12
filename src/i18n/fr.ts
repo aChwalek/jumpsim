@@ -119,6 +119,7 @@ export const fr = {
     greenLight: 'FEU VERT',
     exited: (who: string) => `${who} a sauté`,
     exitIn: { belly: '', back: 'sortie sur le dos', sit: 'sortie assis', headDown: 'sortie tête en bas' },
+    spots: { inside: 'intérieur', high: 'haut de porte', low: 'bas de porte', step: 'step' },
     spaceToExit: 'Espace pour sauter',
     flat: 'À PLAT',
     toPull: 'pour ouvrir',
@@ -162,6 +163,7 @@ export const fr = {
     shift: 'Maj',
     exit: 'sauter',
     exitPosition: 'position de sortie',
+    exitSpot: 'place à la porte',
     look: 'regarder',
     lookRecentre: (k: string) => `regarder, ${k} recentrer`,
     fwdBack: 'avancer / reculer',
@@ -404,6 +406,15 @@ export const fr = {
       malfunctionOff: 'La principale s\'ouvre toujours bien.',
       malfunctionOn: (k: string) => `La principale peut partir en torche : ${k} maintenu pour libérer, puis le secours.`,
       malfunctionBase: 'En BASE, la voile peut s\'ouvrir à 180°, face à la paroi : tourne tout de suite.',
+      exitSpot: 'PLACE À LA PORTE',
+      spots: { inside: 'Intérieur', high: 'Haut de porte', low: 'Bas de porte', step: 'Step' },
+      spotNote: {
+        inside: 'À genoux dans la cabine, derrière la porte : sortie en plongeant.',
+        high: 'Debout, penché dans la porte, la tête sous le haut du cadre : sortie par-dessus le bas de porte.',
+        low: 'Accroupi sur le seuil, à l\'avant de la porte : sortie en basculant.',
+        step: 'Dehors sur le marchepied, accroché au cadre, déjà dans le vent : il suffit de lâcher.',
+      },
+      spotKeys: (fwd: string, back: string) => `Dans l'avion, ${fwd} / ${back} pour changer de place.`,
     },
 
     map: {
