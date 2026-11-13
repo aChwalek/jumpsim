@@ -275,7 +275,7 @@ export class Jump {
 
   /**
    * ← / → (`dir` -1 / 1). In the door: belly or back exit. In freefall: a half
-   * roll flat (twice is a barrel roll), a half turn upright.
+   * roll flat (twice is a barrel roll), a half cartwheel upright (sit ↔ head down).
    */
   roll(dir: -1 | 1): void {
     if (this.pullWhenFlat) return;

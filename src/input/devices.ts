@@ -37,7 +37,7 @@ export type Action =
   | 'padMenu'
   | 'cycleQuality'
   | 'toggleKeys'
-  /** Flat, a half roll that way; upright, a half turn. */
+  /** Flat, a half roll that way; upright, a half cartwheel (sit ↔ head down). */
   | 'flyLeft'
   | 'flyRight'
   /** Head up or down one step from the current position. */
