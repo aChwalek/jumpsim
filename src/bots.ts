@@ -10,7 +10,7 @@ import { OUTFIT_COLOR_IDS } from './render/outfit';
 import type { Lighting } from './render/scene';
 import { reserveRigFor, rigFor, type Gear } from './setup';
 import { airDensityAt } from './sim/atmosphere';
-import { Bot, guideTo, roundGuide, type BotLead, type BotMode, type Guide, type Lead } from './sim/bot';
+import { Bot, bumpBots, guideTo, roundGuide, type BotLead, type BotMode, type Guide, type Lead } from './sim/bot';
 import type { Environment } from './sim/flightModel';
 import { feetHeight } from './sim/landing';
 import type { ExitSpot, JumpRun } from './sim/plane';
@@ -131,6 +131,9 @@ export class Bots implements Others {
       if (out && !f.out) this.exited.push(f.name);
       f.out = out;
     }
+    // In the air, they run into each other as they run into us.
+    const flown = this.flown;
+    for (let i = 0; i < flown.length; i++) for (let j = i + 1; j < flown.length; j++) bumpBots(flown[i]!.bot, flown[j]!.bot, seconds);
   }
 
   /** Draws them as they are now; `shown` false hides them all. */
@@ -155,9 +158,8 @@ export class Bots implements Others {
   bodies(): OtherBody[] {
     const out: OtherBody[] = [];
     for (const { id, bot } of this.flown) {
-      const phase = bot.jump.phase;
-      if (bot.touchdown || bot.jump.impact || (phase !== 'freefall' && phase !== 'opening' && phase !== 'canopy')) continue;
-      out.push({ id, pos: bot.model.pilotPoint(vec3(), bot.model.rig.pilotPos), vel: bot.model.state.vel, falling: phase === 'freefall' });
+      const air = bot.inAir;
+      if (air) out.push({ id, pos: bot.model.pilotPoint(vec3(), bot.model.rig.pilotPos), vel: bot.model.state.vel, falling: air === 'falling' });
     }
     return out;
   }

@@ -15,6 +15,7 @@ import { Jump, type JumpOptions } from './jump';
 import { detectTouchdown, feetHeight, type Touchdown } from './landing';
 import { EXIT_SPOTS, type ExitSpot, type JumpRun } from './plane';
 import type { RigParams } from './rig';
+import { blowAt, contact, newContact, rebound, tumbleAxis } from './midair';
 import { hasWings, type Suit } from './suit';
 import { SIM_DT } from './telemetry';
 import { DEG, clamp, rotate, set, vec3, type Vec3 } from './vec';
@@ -307,6 +308,14 @@ export class Bot {
   /** A track, or whatever is flown in wings: a line behind a leader, where round us or round a bot is a round. */
   private get line(): boolean {
     return leaderLed(this.plan.mode, this.plan.options.suit);
+  }
+
+  /** In the air, where it can be run into: in freefall, or hanging under a canopy that does not give way; null out of reach. */
+  get inAir(): 'falling' | 'hanging' | null {
+    const phase = this.jump.phase;
+    if (this.touchdown || this.jump.impact) return null;
+    if (phase === 'freefall') return 'falling';
+    return phase === 'opening' || phase === 'canopy' ? 'hanging' : null;
   }
 
   /** Leading: the others, and we, follow this one. */
@@ -614,4 +623,47 @@ export class Bot {
     w.brakeR = Math.max(0, pull);
     w.brakeL = Math.max(0, -pull);
   }
+}
+
+/** Out of the door together, they hold on to each other this long, s: not run into until let go of. */
+const LEFT_TOGETHER = 1;
+const hit = newContact();
+const atA = vec3();
+const atB = vec3();
+const shift = vec3();
+const dv = vec3();
+const spin = vec3();
+
+/**
+ * Two bots run into each other in the air, or did over the last `seconds`:
+ * each is moved out of the other and takes its share of the blow, as we do
+ * when we run into one (half each in freefall, all of it for the one falling
+ * onto one under a canopy). The closing speed, m/s, if they touched; null if not.
+ * Just out of the door, they have not let go of each other yet.
+ */
+export function bumpBots(a: Bot, b: Bot, seconds: number): number | null {
+  const airA = a.inAir;
+  const airB = b.inAir;
+  if (!airA || !airB || (airA !== 'falling' && airB !== 'falling')) return null;
+  if (a.jump.time < LEFT_TOGETHER || b.jump.time < LEFT_TOGETHER) return null;
+  const va = a.model.state.vel;
+  const vb = b.model.state.vel;
+  a.model.pilotPoint(atA, a.model.rig.pilotPos);
+  b.model.pilotPoint(atB, b.model.rig.pilotPos);
+  const c = contact(hit, atA, va, atB, vb, seconds);
+  if (!c) return null;
+  const blow = blowAt(Math.max(0, c.closing));
+  tumbleAxis(spin, c, va, vb);
+  const shareA = airA === 'hanging' ? 0 : airB === 'hanging' ? 1 : 0.5;
+  for (const [bot, share, sign] of [
+    [a, shareA, 1],
+    [b, 1 - shareA, -1],
+  ] as const) {
+    if (share === 0) continue;
+    set(shift, c.shift.x * share * sign, c.shift.y * share * sign, c.shift.z * share * sign);
+    rebound(dv, c, share);
+    set(dv, dv.x * sign, dv.y * sign, dv.z * sign);
+    bot.jump.bump(shift, dv, spin, blow.spin, blow.stun);
+  }
+  return c.closing;
 }
