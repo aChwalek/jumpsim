@@ -260,6 +260,25 @@ describe('a jump flown progressively', () => {
     expect(new Set(Object.values(STANCE_CODES)).size).toBe(Object.keys(STANCE_CODES).length);
   });
 
+  test('rolled onto a flank, the legs go into a stride: the stance of the flank that is down', () => {
+    const { jump, step } = inFreefall();
+    const rollTo = (zone: FlightZone) => {
+      while (jump.body.zone !== zone) step(SIM_DT, { roll: 1 });
+    };
+    step(0.7, { flip: 1 });
+    expect(jumpStance(jump)).toBe('track');
+    rollTo('sideTrack');
+    // → : the right hand goes down.
+    expect(jump.body.flank).toBe('right');
+    expect(jumpStance(jump)).toBe('sideRight');
+    rollTo('backTrack');
+    expect(jump.body.flank).toBeNull();
+    expect(jumpStance(jump)).toBe('track');
+    rollTo('sideTrack');
+    expect(jumpStance(jump)).toBe('sideLeft');
+    expect(STANCE_CODES.sideRight).not.toBe(STANCE_CODES.sideLeft);
+  });
+
   test('space in a track: back flat first, then the pull, whatever the arrows do', () => {
     const { jump, step } = inFreefall();
     step(0.7, { flip: 1 });

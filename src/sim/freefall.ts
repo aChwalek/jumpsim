@@ -544,6 +544,13 @@ export class Freefall {
     return flat && Math.abs(a.z) < Math.cos(CAPTURE) ? 'side' : zone;
   }
 
+  /** Flown progressively, the flank that is down, the body rolled well onto it; or none. */
+  get flank(): 'left' | 'right' | null {
+    const a = this.aim;
+    // The air leaves by the flank that is up.
+    return flankOf(a) > 0.5 ? (a.x < 0 ? 'right' : 'left') : null;
+  }
+
   /**
    * Flown progressively, ↑ ↓ ← → held swing the body round. ↑ / ↓ about the
    * shoulders, round the loop belly → head down → back → sit. ← / → about the

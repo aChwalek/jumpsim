@@ -29,10 +29,13 @@ export function jumpStance(jump: Jump | null): Stance {
 /**
  * Flown progressively: each stretch of the way round is held its own way.
  * The angles, head low on the belly side, on the back, and feet first; the
- * tracks stretched out, whichever side is down; the positions as ever.
+ * tracks stretched out, belly or back down; on one flank, the legs in a
+ * stride; the positions as ever.
  */
 function swungStance(body: Freefall): Stance {
   const stretched = body.track > 0.5;
+  const flank = body.flank;
+  if (flank) return flank === 'right' ? 'sideRight' : 'sideLeft';
   switch (body.zone) {
     case 'angle':
       return 'angle';
