@@ -266,6 +266,13 @@ export function freefallParams(exitWeightKg: number, suit: SuitFit = JUMPSUIT_FI
   };
 }
 
+/** A tumble wears down over this long in the air, s; and stops over this long once the body is flown again. */
+const TUMBLE_FADE = 3;
+const TUMBLE_STOPS = 0.35;
+/** The last of a tumble, in which the body is brought back onto the airflow, s. */
+const RECOVER = 0.8;
+const CALM: BodyInputs = { turn: 0, forward: 0, slide: 0, fall: 0 };
+
 export interface FreefallState {
   /** Between the shoulders, world frame, m. */
   pos: Vec3;
@@ -317,6 +324,12 @@ export class Freefall {
   };
   /** How long ↑ / ↓ and ← / → have been held, s. */
   private readonly held = { flip: 0, roll: 0 };
+  /**
+   * Knocked off the airflow by a blow: turning about `axis` (world frame) at
+   * `rate`, rad/s, which the air wears down; `left` of `of` seconds until the
+   * body is flown again. Until then it is limp, and does nothing it is asked.
+   */
+  private readonly tumble = { axis: vec3(), rate: 0, left: 0, of: 0 };
   /** Where the body is heading for: tilted off the airflow by the inputs. */
   private readonly target = vec3();
   private readonly down = vec3();
@@ -411,6 +424,29 @@ export class Freefall {
     else if (roll && h.roll >= SPIN_HOLD && due('roll', roll, Math.PI)) this.rollOver(roll as -1 | 1);
   }
 
+  /**
+   * A blow: thrown into a tumble about `axis` (world frame, unit) at `rate`,
+   * rad/s, limp for `seconds`. A harder one on top of another takes over.
+   */
+  knock(axis: Vec3, rate: number, seconds: number): void {
+    const t = this.tumble;
+    if (seconds <= 0) return;
+    if (rate >= t.rate) {
+      set(t.axis, axis.x, axis.y, axis.z);
+      t.rate = rate;
+    }
+    if (seconds > t.left) t.left = t.of = seconds;
+    // Whatever roll or somersault was under way is over.
+    this.maneuver.left = 0;
+    this.maneuver.rate = 0;
+    this.held.flip = this.held.roll = 0;
+  }
+
+  /** Seconds left of a tumble, limp: 0 when flying. */
+  get stunned(): number {
+    return this.tumble.left;
+  }
+
   /** Angle between the body and its position on the airflow, rad: 0 once settled. */
   offPosition(): number {
     const s = this.state;
@@ -429,6 +465,10 @@ export class Freefall {
     const p = this.params;
     const s = this.state;
     const shape = this.shape;
+    const t = this.tumble;
+    const limp = t.left > 0;
+    // Limp, nothing is flown.
+    if (limp) input = CALM;
 
     // Arms and legs come to the shape the position and the fall ask for.
     const fall = clamp(input.fall, -1, 1);
@@ -436,7 +476,7 @@ export class Freefall {
     const reshape = 1 - Math.exp(-dt / p.reshape);
     // Into the track and out of it, the stretch taking its time.
     const tr = p.tracks[this.position];
-    const inTrack = (this.track += ((this.tracking ? 1 : 0) - this.track) * (1 - Math.exp(-dt / p.trackIn)));
+    const inTrack = (this.track += ((this.tracking && !limp ? 1 : 0) - this.track) * (1 - Math.exp(-dt / p.trackIn)));
     const area = this.area;
     area.x += ((shape.area.x + (tr.area.x - shape.area.x) * inTrack) * size - area.x) * reshape;
     area.y += ((shape.area.y + (tr.area.y - shape.area.y) * inTrack) * size - area.y) * reshape;
@@ -531,6 +571,17 @@ export class Freefall {
           wz = az * rate;
         }
       }
+    }
+
+    if (limp) {
+      // Coming to: the body finds the airflow again over the last of it, as the tumble dies down.
+      const back = clamp(1 - (t.left - RECOVER) / RECOVER, 0, 1) ** 2;
+      wx = wx * back + t.axis.x * t.rate;
+      wy = wy * back + t.axis.y * t.rate;
+      wz = wz * back + t.axis.z * t.rate;
+      t.rate *= Math.exp(-dt / (t.left < RECOVER ? TUMBLE_STOPS : TUMBLE_FADE));
+      t.left = Math.max(0, t.left - dt);
+      if (t.left === 0) t.rate = 0;
     }
 
     if (m.left !== 0) {

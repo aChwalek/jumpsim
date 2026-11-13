@@ -12,7 +12,9 @@ import { ROOM_NAME } from './protocol';
 import { RemoteJumper, type RemoteFrame } from './remote';
 import { RoomState, cleanName, nextLoad, publicDz, readRoomMessage, sharedPart, type RoomMessage, type SharedSetup } from './room';
 import { SNAPSHOT_BYTES, decodeSnapshot, emptySnapshot, encodeSnapshot, type Snapshot } from './snapshot';
+import type { OtherBody } from '../bots';
 import type { OtherJumper } from '../replay/track';
+import { vec3 } from '../sim/vec';
 
 /** Snapshots sent a second. */
 const SEND_RATE = 15;
@@ -265,6 +267,17 @@ export class Multiplayer {
       if (pos) seen.push({ id: p.id, name: p.name || '…', pos });
     }
     return seen;
+  }
+
+  bodies(): OtherBody[] {
+    const out: OtherBody[] = [];
+    for (const [id, { jumper }] of this.remotes) {
+      const pos = vec3();
+      const vel = vec3();
+      const body = jumper.body(pos, vel);
+      if (body) out.push({ id, pos, vel, falling: body.falling });
+    }
+    return out;
   }
 
   members(): OtherJumper[] {

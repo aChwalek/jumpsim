@@ -148,6 +148,11 @@ export const fr = {
 
   cue: {
     greenLight: 'FEU VERT',
+    bumped: 'CONTACT',
+    stunned: 'SONNÉ',
+    knockedOut: 'K.O.',
+    hitBy: (who: string) => `collision avec ${who}`,
+    cameTo: 'tu reprends connaissance',
     exited: (who: string) => `${who} a sauté`,
     loadIn: (s: number) => `PROCHAINE ROTATION DANS ${s} s`,
     loadAboard: 'tu es à bord',

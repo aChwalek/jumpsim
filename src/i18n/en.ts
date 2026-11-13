@@ -144,6 +144,11 @@ export const en: Strings = {
 
   cue: {
     greenLight: 'GREEN LIGHT',
+    bumped: 'CONTACT',
+    stunned: 'STUNNED',
+    knockedOut: 'KNOCKED OUT',
+    hitBy: (who: string) => `collided with ${who}`,
+    cameTo: 'you come to',
     exited: (who: string) => `${who} is out`,
     loadIn: (s: number) => `NEXT LOAD IN ${s} s`,
     loadAboard: 'you are aboard',
