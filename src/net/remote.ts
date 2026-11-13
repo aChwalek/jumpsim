@@ -10,6 +10,7 @@ import { hasWings } from '../sim/suit';
 import { FlightModel } from '../sim/flightModel';
 import { noBodyInputs } from '../sim/freefall';
 import { feetHeight } from '../sim/landing';
+import type { Vec3 } from '../sim/vec';
 import { SnapshotBuffer } from './interp';
 import { copySnapshot, emptySnapshot, type Snapshot } from './snapshot';
 
@@ -219,6 +220,20 @@ export class RemoteJumper {
     const burning = this.smokeLitAt !== null && f.now - this.smokeLitAt < SMOKE_BURN * 1000;
     this.smokeVel.set(s.vel.x, s.vel.y, s.vel.z);
     this.smoke.update(f.dt, burning ? view.body.smokePoint(this.smokeFrom) : null, this.smokeVel, f.wind);
+  }
+
+  /**
+   * The middle of their body and how fast it goes, world frame, while they
+   * are in the air and drawn: what can be bumped into. `falling`: in freefall.
+   */
+  body(pos: Vec3, vel: Vec3): { falling: boolean } | null {
+    const s = this.now;
+    if (!this.view?.object.visible || !this.main || !this.reserve) return null;
+    if (s.landed || (s.phase !== 'freefall' && s.phase !== 'opening' && s.phase !== 'canopy')) return null;
+    const model = s.reserve ? this.reserve : this.main;
+    model.pilotPoint(pos, model.rig.pilotPos);
+    Object.assign(vel, s.vel);
+    return { falling: s.phase === 'freefall' };
   }
 
   /** Where they are now, if drawn: over their head, or over their canopy once it is out. */

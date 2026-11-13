@@ -284,11 +284,34 @@ export class Jump {
   }
 
   /**
+   * Hit in the air by another body, in freefall: moved `shift` out of it, the
+   * speed changed by `dv`, and set turning about `axis` (world frame) at
+   * `rate`, rad/s: limp in a tumble for `seconds` from a hard blow, or with
+   * none, tipped over and still flown.
+   */
+  bump(shift: Vec3, dv: Vec3, axis?: Vec3, rate = 0, seconds = 0): void {
+    if (this.phase !== 'freefall' || this.impact) return;
+    const b = this.body.state;
+    set(b.pos, b.pos.x + shift.x, b.pos.y + shift.y, b.pos.z + shift.z);
+    set(b.vel, b.vel.x + dv.x, b.vel.y + dv.y, b.vel.z + dv.z);
+    if (axis && seconds > 0) this.body.knock(axis, rate, seconds);
+    // Short of a tumble, tipped over and left to fly out of it.
+    else if (axis && rate > 0) this.body.jolt(axis, rate);
+    this.follow();
+  }
+
+  /** Limp from a blow, in freefall: nothing can be done until it is over. */
+  get stunned(): boolean {
+    return this.phase === 'freefall' && this.body.stunned > 0;
+  }
+
+  /**
    * Space bar: out of the door, then the pull. Nobody pulls head down or on
    * the back: out of any other position the pilot comes back to belly to
    * earth first, and pulls once there.
    */
   act(): void {
+    if (this.stunned) return;
     if (this.phase === 'plane' && this.walk) {
       // Only off the ramp: in the hold, the roof is overhead and the jumper still far from the way out.
       if (this.walk.z < this.plane!.type.ramp!.hinge - LEAP_FROM_RAMP) return;
@@ -316,7 +339,7 @@ export class Jump {
    * way a half turn goes (-1 to the left or backwards, 1 to the right or forwards).
    */
   fly(position: BodyPosition, roll = 1): void {
-    if (this.pullWhenFlat || (this.wings && !flat(position))) return;
+    if (this.pullWhenFlat || this.stunned || (this.wings && !flat(position))) return;
     if (this.phase === 'plane' || this.phase === 'standing' || this.phase === 'freefall') this.body.setPosition(position, roll);
   }
 
@@ -335,7 +358,7 @@ export class Jump {
    * roll flat (twice is a barrel roll), a half cartwheel upright (sit ↔ head down).
    */
   roll(dir: -1 | 1): void {
-    if (this.pullWhenFlat) return;
+    if (this.pullWhenFlat || this.stunned) return;
     if (this.phase === 'plane' || this.phase === 'standing') this.body.setPosition(dir < 0 ? 'belly' : 'back');
     else if (this.phase === 'freefall') this.body.rollOver(dir);
   }
@@ -374,7 +397,7 @@ export class Jump {
    * backwards into the next position round the loop.
    */
   flip(dir: -1 | 1): void {
-    if (this.pullWhenFlat || this.phase !== 'freefall' || this.wings) return;
+    if (this.pullWhenFlat || this.stunned || this.phase !== 'freefall' || this.wings) return;
     this.body.flip(dir);
   }
 

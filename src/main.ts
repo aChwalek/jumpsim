@@ -4,7 +4,7 @@ import { Sound, type Landing } from './audio/sound';
 import { T, lang, num, setLanguage } from './i18n';
 import { InputDevices, type Action, type PadMode } from './input/devices';
 import { keyLabel, readKeyboardLayout } from './input/keyLabels';
-import { noWraps, rampControls, wrapTravel } from './input/ramp';
+import { noPulls, noWraps, rampControls, wrapTravel } from './input/ramp';
 import { CANOPY_COLORS, RESERVE_PALETTE } from './render/canopyColors';
 import { CLOUD_BASE, CLOUD_DEPTH } from './render/clouds';
 import { daylight, sunPosition } from './render/daylight';
@@ -18,7 +18,7 @@ import { FREEFALL_STANCES, LegSwing, Posture, type LegCues, type Stance } from '
 import { RigView, type RigFrame } from './render/rigView';
 import { RagdollView } from './render/ragdollView';
 import { SMOKE_BURN, SmokeTrail } from './render/smoke';
-import { copyPose, type Pose } from './render/body';
+import { blendPose, copyPose, makePose, type Pose } from './render/body';
 import { TopView } from './render/topView';
 import { FIELD_OF_VIEW, GEAR_LAYER, OUTSIDE_LAYER, Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
 import { logJump, type LogEntry, type Outcome } from './logbook';
@@ -60,6 +60,7 @@ import { engineHubs } from './sim/plane';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import type { RunUp } from './sim/runUp';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
+import { blowAt, contact, newContact, rebound, tumbleAxis } from './sim/midair';
 import { DEG, quat, rotateInv, vec3 } from './sim/vec';
 import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
@@ -503,6 +504,34 @@ let ragdoll: Ragdoll | null = null;
 let hitsHeard = 0;
 let cried = 0;
 let groaned = false;
+/**
+ * A blow taken in the air: how dark it went for the eyes (0 to 1), how long
+ * is left of that, s, of how long; and out cold, until the ground.
+ */
+const blow = { dark: 0, left: 0, of: 0, cold: false };
+/** How dark it is drawn right now, eased. */
+let darkShown = 0;
+const blackout = document.getElementById('blackout') as HTMLElement;
+/** Who we ran into last, and until when (air time, s) another blow from them does not count. */
+const bumped = new Map<string, number>();
+const NO_PULLS = noPulls();
+const hit = newContact();
+const bodyAt = vec3();
+const shift = vec3();
+const dv = vec3();
+const spinAxis = vec3();
+/** The body limp in the air: whatever the wind makes of it. */
+const LIMP = makePose();
+LIMP.hipL = 0.35;
+LIMP.hipR = -0.3;
+LIMP.kneeL = 0.5;
+LIMP.kneeR = 0.9;
+LIMP.spread = 0.3;
+LIMP.handL.set(-0.5, 0.05, 0.25);
+LIMP.handR.set(0.4, 0.3, 0.3);
+LIMP.elbowL.set(-1, 0, 0.6);
+LIMP.elbowR.set(1, 0.2, 0.6);
+const limpPose = makePose();
 /** The last seconds of the jump, and all of a crash. */
 const recorder = new Recorder();
 /** The end of the jump being shown again, and whether a crash has been once already. */
@@ -688,6 +717,9 @@ function spawn(kind: Start): void {
   rigView.body.setHandles(true, true);
   lastVel.x = Number.NaN;
   flash = null;
+  blow.dark = blow.left = blow.of = 0;
+  blow.cold = false;
+  bumped.clear();
   neck = null;
   paused = false;
   devices.recentre();
@@ -821,7 +853,7 @@ const actions: Record<Action, () => void> = {
     // Space skips a replay, and on the ground gathers the canopy up.
     if (replay) stopReplay();
     else if (arrival?.canWalk && gather === null && !rigView.detached && arrival.time > 2) gather = 0;
-    else jump?.act();
+    else if (!blow.cold) jump?.act();
   },
   flyLeft: () => {
     if (!paused) jump?.roll(-1);
@@ -855,12 +887,12 @@ const actions: Record<Action, () => void> = {
     menu.refresh();
   },
   cutaway: () => {
-    if (!paused && jump && !touchdown && !arrival) jump.cutaway();
+    if (!paused && !blow.cold && jump && !touchdown && !arrival) jump.cutaway();
   },
   slider: () => {
     if (paused) return;
     const underMain = (!jump || (jump.phase === 'canopy' && jump.canopy === 'main')) && !touchdown && !arrival;
-    if (!underMain || sliderState !== 'open') return;
+    if (!underMain || sliderState !== 'open' || blow.cold) return;
     if (setup.gear.slider === 'fixed') {
       flash = { text: `${T.cue.sliderFixed}<small>${T.cue.sliderStays}</small>`, until: performance.now() + 2000 };
       return;
@@ -1028,8 +1060,13 @@ resize();
 function simulate(seconds: number): void {
   // Under line twists, every press of a toggle is a kick round that way.
   const taps = devices.takeTaps();
-  for (let i = 0; i < taps.left; i++) jump?.kick(-1);
-  for (let i = 0; i < taps.right; i++) jump?.kick(1);
+  // Out cold, the hands do nothing: the canopy flies on its stowed brakes, or as it was left.
+  const cold = blow.cold;
+  const pulls = cold ? NO_PULLS : devices.pulls;
+  const analogL = cold ? 0 : devices.analogBrakeL;
+  const analogR = cold ? 0 : devices.analogBrakeR;
+  for (let i = 0; i < taps.left && !cold; i++) jump?.kick(-1);
+  for (let i = 0; i < taps.right && !cold; i++) jump?.kick(1);
   let left = seconds;
   while (left > 1e-5 && !touchdown && !impact) {
     // Whole steps, then one short step so the sim lands exactly on the frame.
@@ -1043,10 +1080,10 @@ function simulate(seconds: number): void {
       // On trial: the arrows swing the body round little by little. Not a wingsuit, which only flies flat.
       jump.body.progressive = settings.progressiveFly && !jump.wings;
       jump.body.sweep = settings.progressiveRate;
-      jump.trackIt(devices.tracking);
+      jump.trackIt(devices.tracking && !cold);
       // A track the gamepad turned on ends with the freefall, or at the pull.
       if (!jump.body.tracking) devices.padTrack = false;
-      jump.step(dt, jump.afoot ? devices.feet : devices.body, env);
+      jump.step(dt, cold ? still : jump.afoot ? devices.feet : devices.body, env);
       if (jump.impact) {
         hitWithoutCanopy(jump);
         return;
@@ -1055,10 +1092,10 @@ function simulate(seconds: number): void {
     if (!flying && jump?.handsOnToggles) {
       // Hanging under the canopy as it opens: the toggles are in the hands
       // already, short of wraps; the front risers wait.
-      rampControls(ramped, devices.pulls, dt);
+      rampControls(ramped, pulls, dt);
       ramped.frontL = ramped.frontR = 0;
-      applied.brakeL = Math.max(ramped.brakeL, devices.analogBrakeL);
-      applied.brakeR = Math.max(ramped.brakeR, devices.analogBrakeR);
+      applied.brakeL = Math.max(ramped.brakeL, analogL);
+      applied.brakeR = Math.max(ramped.brakeR, analogR);
       applied.frontL = applied.frontR = 0;
       Object.assign(hands, applied);
       jump.holdStows(applied);
@@ -1074,15 +1111,14 @@ function simulate(seconds: number): void {
       jump.holdStows(applied);
       continue;
     }
-    rampControls(ramped, devices.pulls, dt);
-    const pulls = devices.pulls;
+    rampControls(ramped, pulls, dt);
     // Kept pulled all the way, the toggles go on into wraps and can stall the
     // canopy. It takes both: one toggle buried alone is a turn, the canopy
     // dives round and keeps flying.
-    const fullL = (pulls.brakeL && ramped.brakeL >= 1) || devices.analogBrakeL >= FULL_TRIGGER;
-    const fullR = (pulls.brakeR && ramped.brakeR >= 1) || devices.analogBrakeR >= FULL_TRIGGER;
-    applied.brakeL = Math.max(ramped.brakeL, devices.analogBrakeL) + wrapTravel(wraps, 'brakeL', fullL && fullR, pulls.hold, dt);
-    applied.brakeR = Math.max(ramped.brakeR, devices.analogBrakeR) + wrapTravel(wraps, 'brakeR', fullL && fullR, pulls.hold, dt);
+    const fullL = (pulls.brakeL && ramped.brakeL >= 1) || analogL >= FULL_TRIGGER;
+    const fullR = (pulls.brakeR && ramped.brakeR >= 1) || analogR >= FULL_TRIGGER;
+    applied.brakeL = Math.max(ramped.brakeL, analogL) + wrapTravel(wraps, 'brakeL', fullL && fullR, pulls.hold, dt);
+    applied.brakeR = Math.max(ramped.brakeR, analogR) + wrapTravel(wraps, 'brakeR', fullL && fullR, pulls.hold, dt);
     applied.frontL = ramped.frontL;
     applied.frontR = ramped.frontR;
     Object.assign(hands, applied);
@@ -1123,6 +1159,101 @@ function simulate(seconds: number): void {
       if (landed.rating === 'hard' || landed.rating === 'crash') startRagdoll(true);
     }
   }
+}
+
+/** After a blow from someone, another from them does not count for this long, s: what is seen of them lags. */
+const BUMP_AGAIN = 0.6;
+/** The sight comes back over this long at the most, s. */
+const COME_TO = 1.5;
+
+/**
+ * In freefall, the others in the air are in the way: run into gently, they
+ * push us off; harder, we tumble limp for a while; harder still it goes dark,
+ * and from the hardest blows we come to on the ground. Each player takes
+ * their own share of it; a bot takes its share from us.
+ */
+function collide(seconds: number): void {
+  const all = others();
+  if (!all || !jump || jump.phase !== 'freefall' || impact) return;
+  const s = model.state;
+  for (const o of all.bodies()) {
+    model.pilotPoint(bodyAt, rig.pilotPos);
+    const c = contact(hit, bodyAt, s.vel, o.pos, o.vel, seconds);
+    if (!c) continue;
+    // Out of each other: half the way each, or all of it from one who does not give way.
+    const share = o.falling ? 0.5 : 1;
+    // A bot takes its half from us; another player takes theirs on their side.
+    const theirs = bots && o.falling ? share - 1 : 0;
+    shift.x = c.shift.x * share;
+    shift.y = c.shift.y * share;
+    shift.z = c.shift.z * share;
+    const fresh = c.closing > 0 && !((bumped.get(o.id) ?? -1) > airTime);
+    const b = blowAt(fresh ? c.closing : 0);
+    if (fresh) bumped.set(o.id, airTime + BUMP_AGAIN);
+    tumbleAxis(spinAxis, c, s.vel, o.vel);
+    rebound(dv, c, fresh ? share : 0);
+    // Out cold, the tumble has no end of its own: the AAD, or the ground, ends it.
+    jump.bump(shift, dv, spinAxis, b.spin, b.cold ? Number.MAX_VALUE : b.stun);
+    if (theirs !== 0) {
+      shift.x = c.shift.x * theirs;
+      shift.y = c.shift.y * theirs;
+      shift.z = c.shift.z * theirs;
+      dv.x = -dv.x;
+      dv.y = -dv.y;
+      dv.z = -dv.z;
+      bots!.bump(o.id, shift, dv, spinAxis, b.spin, b.stun);
+    }
+    if (fresh) takeBlow(b.stun, b.dark, b.cold, c.closing, all.nameOf(o.id));
+  }
+}
+
+/** What a blow in the air does to the pilot: what is heard, said and seen of it. */
+function takeBlow(stun: number, dark: number, cold: boolean, closing: number, who: string): void {
+  const ouch = (kind: 'hit' | 'cry', level: number) => {
+    sound.ouch(kind, level);
+    recorder.hear(kind, level);
+    trackRecorder.hear({ kind: 'ouch', ouch: kind, level });
+  };
+  ouch('hit', Math.min(1, 0.2 + closing / 12));
+  if (stun > 0 && dark < 1) ouch('cry', 1);
+  if (cold || (dark > blow.dark && !blow.cold)) {
+    blow.dark = cold ? 1 : dark;
+    blow.left = blow.of = stun;
+    blow.cold = blow.cold || cold;
+  }
+  if (cold || dark >= 1) say(T.cue.knockedOut, T.cue.hitBy(who), 2500);
+  else if (stun > 0) say(T.cue.stunned, T.cue.hitBy(who), Math.min(2500, stun * 1000));
+  else if (closing > 1) say(T.cue.bumped, T.cue.hitBy(who), 1200);
+}
+
+/**
+ * The dark after a blow, for the eyes only: it lifts as the pilot comes to,
+ * and out cold only once on the ground.
+ */
+function drawBlackout(seconds: number, elapsed: number): void {
+  if (blow.cold && (arrival || impact || touchdown)) {
+    blow.cold = false;
+    blow.left = blow.of = 2 * COME_TO;
+    if (!impact) say(T.cue.cameTo, '', 2500);
+  }
+  if (!blow.cold && blow.left > 0) {
+    blow.left = Math.max(0, blow.left - seconds);
+    if (blow.left === 0) blow.dark = 0;
+  }
+  const lifting = blow.cold ? 1 : Math.min(1, blow.left / Math.min(COME_TO, blow.of / 2 || 1));
+  const wanted = view === 'eyes' && !replay && !watching && !menu.isOpen ? blow.dark * lifting : 0;
+  // Dark at once, light again slowly.
+  darkShown += (wanted - darkShown) * Math.min(1, elapsed / (wanted > darkShown ? 0.06 : 0.25));
+  if (Math.abs(wanted - darkShown) < 0.002) darkShown = wanted;
+  if (darkShown <= 0) {
+    blackout.style.display = 'none';
+    return;
+  }
+  // The edges go first, the middle last.
+  const edge = Math.min(1, darkShown * 2);
+  const middle = Math.max(0, darkShown * 2 - 1);
+  blackout.style.display = 'block';
+  blackout.style.background = `radial-gradient(ellipse at center, rgba(0,0,0,${middle.toFixed(3)}) ${Math.round(30 * (1 - darkShown))}%, rgba(0,0,0,${edge.toFixed(3)}) ${Math.round(40 + 50 * (1 - darkShown))}%)`;
 }
 
 /** Where the pilot was before the last step under canopy. */
@@ -2257,7 +2388,10 @@ function frame(now: number): void {
       const gathering = gather !== null && gather < 1;
       arrival.update(seconds, ragdoll || gathering ? null : devices.feet);
       if (gather !== null) gather = Math.min(1, gather + seconds / GATHER_TIME);
-    } else simulate(seconds);
+    } else {
+      simulate(seconds);
+      collide(seconds);
+    }
     if (ragdoll) {
       ragdoll.update(seconds);
       followRagdoll(ragdoll);
@@ -2301,7 +2435,10 @@ function frame(now: number): void {
     const run = jump?.afoot ? jumpFeet().feet : null;
     const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : run ? [run.legL, run.legR] : undefined;
     updateLegs(moving, pose === 'hanging' && !touchdown);
-    const shown = posture.update(moving, pose, FREEFALL_STANCES.has(pose) ? devices.body : still, legs, legCues);
+    const held = posture.update(moving, pose, FREEFALL_STANCES.has(pose) && !blow.cold ? devices.body : still, legs, legCues);
+    // Limp from a blow, the arms and legs go where the wind takes them.
+    const limp = jump?.stunned ? Math.min(1, jump.body.stunned / 0.6) : 0;
+    const shown = limp > 0 ? blendPose(copyPose(limpPose, held), LIMP, limp) : held;
     rigView.body.setPose(shown);
     rigView.body.showArms(!onRisers);
     rigView.body.setHeight(feetHeight(model, solid));
@@ -2384,6 +2521,7 @@ function frame(now: number): void {
       camera.quaternion.slerp(lockedView, ease(lockBlend));
     }
   }
+  drawBlackout(live && !replay && !watching ? Math.min(elapsed, 0.1) : 0, Math.min(elapsed, 0.1));
   sky.position.copy(camera.position);
   others()?.drawMarkers(camera, target?.kind === 'player' ? target.id : null);
   watching?.view.drawMarkers(camera);
@@ -2548,6 +2686,7 @@ if (import.meta.env.DEV) {
     view: { get: () => view, set: (v: 'eyes' | 'outside') => (view = v) },
     arrival: { get: () => arrival },
     ragdoll: { get: () => ragdoll },
+    blow: { get: () => blow },
     replay: { get: () => replay },
     gather: { get: () => gather },
     net: { get: () => net },

@@ -14,7 +14,7 @@ import { Bot, guideTo, roundGuide, type BotLead, type BotMode, type Guide, type 
 import type { Environment } from './sim/flightModel';
 import { feetHeight } from './sim/landing';
 import type { ExitSpot, JumpRun } from './sim/plane';
-import { vec3 } from './sim/vec';
+import { vec3, type Vec3 } from './sim/vec';
 import { windAt, type Weather } from './sim/weather';
 
 /** The others in the air with us, whoever flies them: who can be looked at, locked on, and tagged. */
@@ -26,6 +26,16 @@ export interface Others {
   drawMarkers(camera: THREE.PerspectiveCamera, targeted?: string | null): void;
   /** Those drawn at the last frame, as drawn: for the replay of the jump. */
   members(): OtherJumper[];
+  /** Those in the air right now, who can be bumped into. */
+  bodies(): OtherBody[];
+}
+
+/** Someone else's body in the air: its middle, how fast it goes, and whether it is in freefall. */
+export interface OtherBody {
+  id: string;
+  pos: Vec3;
+  vel: Vec3;
+  falling: boolean;
 }
 
 export interface BotsSpec {
@@ -140,6 +150,21 @@ export class Bots implements Others {
       if (snap) out.push({ id, name, gear, snap });
     }
     return out;
+  }
+
+  bodies(): OtherBody[] {
+    const out: OtherBody[] = [];
+    for (const { id, bot } of this.flown) {
+      const phase = bot.jump.phase;
+      if (bot.touchdown || bot.jump.impact || (phase !== 'freefall' && phase !== 'opening' && phase !== 'canopy')) continue;
+      out.push({ id, pos: bot.model.pilotPoint(vec3(), bot.model.rig.pilotPos), vel: bot.model.state.vel, falling: phase === 'freefall' });
+    }
+    return out;
+  }
+
+  /** We ran into this one: what it takes of the blow, as we take ours (see Jump.bump). */
+  bump(id: string, shift: Vec3, dv: Vec3, axis: Vec3, rate: number, seconds: number): void {
+    this.flown.find((f) => f.id === id)?.bot.jump.bump(shift, dv, axis, rate, seconds);
   }
 
   /** The bot that leads, if one does: who to keep an eye on. */

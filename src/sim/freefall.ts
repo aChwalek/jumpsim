@@ -384,6 +384,15 @@ export function freefallParams(exitWeightKg: number, suit: SuitFit = JUMPSUIT_FI
   };
 }
 
+/** A tumble wears down over this long in the air, s; and stops over this long once the body is flown again. */
+const TUMBLE_FADE = 3;
+const TUMBLE_STOPS = 0.35;
+/** The last of a tumble, in which the body is brought back onto the airflow, s. */
+const RECOVER = 0.8;
+/** A knock is spent over this long, s. */
+const JOLT_FADE = 0.4;
+const CALM: BodyInputs = { turn: 0, forward: 0, slide: 0, fall: 0 };
+
 export interface FreefallState {
   /** Between the shoulders, world frame, m. */
   pos: Vec3;
@@ -453,6 +462,14 @@ export class Freefall {
   };
   /** How long ↑ / ↓ and ← / → have been held, s. */
   private readonly held = { flip: 0, roll: 0 };
+  /**
+   * Knocked off the airflow by a blow: turning about `axis` (world frame) at
+   * `rate`, rad/s, which the air wears down; `left` of `of` seconds until the
+   * body is flown again. Until then it is limp, and does nothing it is asked.
+   */
+  private readonly tumble = { axis: vec3(), rate: 0, left: 0, of: 0 };
+  /** Tipped off the airflow by a knock, and still flown: turning about `axis` (world frame) at `rate`, rad/s, soon spent. */
+  private readonly jolted = { axis: vec3(), rate: 0 };
   /** Where the body is heading for: tilted off the airflow by the inputs. */
   private readonly target = vec3();
   private readonly down = vec3();
@@ -719,6 +736,41 @@ export class Freefall {
     else if (roll && h.roll >= SPIN_HOLD && due('roll', roll, Math.PI)) this.rollOver(roll as -1 | 1);
   }
 
+  /**
+   * A blow: thrown into a tumble about `axis` (world frame, unit) at `rate`,
+   * rad/s, limp for `seconds`. A harder one on top of another takes over.
+   */
+  knock(axis: Vec3, rate: number, seconds: number): void {
+    const t = this.tumble;
+    if (seconds <= 0) return;
+    if (rate >= t.rate) {
+      set(t.axis, axis.x, axis.y, axis.z);
+      t.rate = rate;
+    }
+    if (seconds > t.left) t.left = t.of = seconds;
+    // Whatever roll or somersault was under way is over.
+    this.maneuver.left = 0;
+    this.maneuver.rate = 0;
+    this.held.flip = this.held.roll = 0;
+  }
+
+  /**
+   * A knock short of a blow: tipped over about `axis` (world frame, unit),
+   * starting at `rate`, rad/s. The body is still flown, and has to be flown
+   * back: it slides off the way it leans until it has settled again.
+   */
+  jolt(axis: Vec3, rate: number): void {
+    const j = this.jolted;
+    if (rate <= j.rate) return;
+    set(j.axis, axis.x, axis.y, axis.z);
+    j.rate = rate;
+  }
+
+  /** Seconds left of a tumble, limp: 0 when flying. */
+  get stunned(): number {
+    return this.tumble.left;
+  }
+
   /** Angle between the body and its position on the airflow, rad: 0 once settled. */
   offPosition(): number {
     const s = this.state;
@@ -736,6 +788,10 @@ export class Freefall {
   step(dt: number, input: BodyInputs, air: Air, drogue = 0): void {
     const p = this.params;
     const s = this.state;
+    const t = this.tumble;
+    const limp = t.left > 0;
+    // Limp, nothing is flown.
+    if (limp) input = CALM;
     const progressive = this.progressive;
     if (progressive) {
       this.steer(dt, input);
@@ -749,7 +805,7 @@ export class Freefall {
     const reshape = 1 - Math.exp(-dt / p.reshape);
     // Into the track and out of it, the stretch taking its time.
     const tr = p.tracks[this.position];
-    const stretch = progressive ? this.stretch() : this.tracking ? 1 : 0;
+    const stretch = limp ? 0 : progressive ? this.stretch() : this.tracking ? 1 : 0;
     const inTrack = (this.track += (stretch - this.track) * (1 - Math.exp(-dt / p.trackIn)));
     const area = this.area;
     if (progressive) {
@@ -852,6 +908,26 @@ export class Freefall {
           wz = az * rate;
         }
       }
+    }
+
+    if (limp) {
+      // Coming to: the body finds the airflow again over the last of it, as the tumble dies down.
+      const back = clamp(1 - (t.left - RECOVER) / RECOVER, 0, 1) ** 2;
+      wx = wx * back + t.axis.x * t.rate;
+      wy = wy * back + t.axis.y * t.rate;
+      wz = wz * back + t.axis.z * t.rate;
+      t.rate *= Math.exp(-dt / (t.left < RECOVER ? TUMBLE_STOPS : TUMBLE_FADE));
+      t.left = Math.max(0, t.left - dt);
+      if (t.left === 0) t.rate = 0;
+    }
+
+    const j = this.jolted;
+    if (j.rate > 0) {
+      wx += j.axis.x * j.rate;
+      wy += j.axis.y * j.rate;
+      wz += j.axis.z * j.rate;
+      j.rate *= Math.exp(-dt / JOLT_FADE);
+      if (j.rate < 0.02) j.rate = 0;
     }
 
     if (m.left !== 0) {
