@@ -70,8 +70,9 @@ export const SPIN_HOLD = 0.4;
 // let go, so what was a position is now a stretch of the way round. ↑ from
 // flat goes head low into a track, steeper into an angle, head down, over
 // onto the back in an angle then a track, flat on the back, feet low into the
-// head-up angle, and sitting. ← / → roll about the head: a track goes onto
-// its side and on over to the back, still going the same way.
+// head-up angle, sitting, and on leaning forward into the head-up angle that
+// goes backwards. ← / → roll about the head: a track goes onto its side and
+// on over to the back, still going the same way.
 //
 // What is held is where the air leaves the body by, in the body's own axes: a
 // point on a sphere. Belly, back, sitting and head down are four points of
@@ -88,6 +89,7 @@ export type FlightZone =
   | 'back'
   | 'sitAngle'
   | 'sit'
+  | 'sitBackAngle'
   | 'side'
   | 'sideTrack';
 
@@ -95,8 +97,13 @@ export type FlightZone =
 const SWEEP_SLOW = 50 * DEG;
 const SWEEP_FAST = 120 * DEG;
 const SWEEP_RAMP = 0.8;
-/** Let go this close to a position, the body settles into it: how close, rad, and how fast, rad/s. */
+/**
+ * Let go this close to a position, the body settles into it: how close, rad,
+ * flat and upright, and how fast, rad/s. Upright takes more finding, with
+ * the body swinging fast through it: it is the wider.
+ */
 const CAPTURE = 8 * DEG;
+const CAPTURE_UPRIGHT = 12 * DEG;
 const CAPTURE_RATE = 40 * DEG;
 /** Further than this from every position, the body is stretched right out, rad. */
 const STRETCHED = 25 * DEG;
@@ -105,7 +112,7 @@ const STRETCHED = 25 * DEG;
  * angle is a narrow stretch either side of it: within `STEEP` of upright,
  * rad, ↑ / ↓ swing the body this much slower.
  */
-const STEEP = 14 * DEG;
+const STEEP = 20 * DEG;
 const STEEP_SWEEP = 0.35;
 /** Rolled onto one flank: what the body shows the air across the shoulders and through the chest, as a fraction of the belly's area. */
 const FLANK_AREA = 0.85;
@@ -116,15 +123,16 @@ const FLANK_DEPTH = 0.7;
  */
 const ZONES: [upTo: number, zone: FlightZone][] = [
   [8, 'belly'],
-  [72, 'track'],
-  [82, 'angle'],
-  [98, 'headDown'],
-  [110, 'backAngle'],
+  [68, 'track'],
+  [78, 'angle'],
+  [102, 'headDown'],
+  [112, 'backAngle'],
   [172, 'backTrack'],
   [188, 'back'],
-  [262, 'sitAngle'],
-  // Leaning forward from sitting, on the way down to the belly: no name of its own.
-  [315, 'sit'],
+  [258, 'sitAngle'],
+  [282, 'sit'],
+  // Leaning forward from sitting, belly to the air and feet first: it goes backwards.
+  [352, 'sitBackAngle'],
   [360, 'belly'],
 ];
 
@@ -459,6 +467,7 @@ export class Freefall {
       { at: Math.PI, area: S.back.area },
       { at: 1.5 * Math.PI - settledAt(t.sit.tilt), area: t.sit.area },
       { at: 1.5 * Math.PI, area: S.sit.area },
+      { at: 1.5 * Math.PI + settledAt(t.sit.tilt), area: t.sit.area },
       { at: 2 * Math.PI, area: S.belly.area },
     ];
   }
@@ -540,8 +549,7 @@ export class Freefall {
     const deg = loopOf(a) / DEG;
     const zone = ZONES.find(([upTo]) => deg < upTo)?.[1] ?? 'belly';
     // Flat but rolled part of the way: neither on the belly nor on the back yet.
-    const flat = (zone === 'belly' && (deg < 8 || deg >= 352)) || zone === 'back';
-    return flat && Math.abs(a.z) < Math.cos(CAPTURE) ? 'side' : zone;
+    return (zone === 'belly' || zone === 'back') && Math.abs(a.z) < Math.cos(CAPTURE) ? 'side' : zone;
   }
 
   /** Flown progressively, the flank that is down, the body rolled well onto it; or none. */
@@ -585,7 +593,7 @@ export class Freefall {
     } else h.flip = 0;
     if (roll) {
       if (h.roll === 0) {
-        if (Math.abs(a.y) > Math.cos(CAPTURE + 2 * DEG)) set(this.rollAxis, 0, 0, 1);
+        if (Math.abs(a.y) > Math.cos(CAPTURE_UPRIGHT + 2 * DEG)) set(this.rollAxis, 0, 0, 1);
         else set(this.rollAxis, 0, -1, 0);
       }
       h.roll += dt;
@@ -598,12 +606,13 @@ export class Freefall {
       const most = CAPTURE_RATE * dt;
       const y = Math.abs(a.y);
       const z = Math.abs(a.z);
-      if (Math.max(y, z) > Math.cos(CAPTURE)) {
+      const upright = y > Math.cos(CAPTURE_UPRIGHT);
+      if (upright || z > Math.cos(CAPTURE)) {
         // Close to a position: into it.
-        const off = Math.acos(Math.min(1, Math.max(y, z)));
+        const off = Math.acos(Math.min(1, upright ? y : z));
         const k = off > most ? most / off : 1;
         a.x -= a.x * k;
-        if (y > z) {
+        if (upright) {
           a.y += (Math.sign(a.y) - a.y) * k;
           a.z -= a.z * k;
         } else {
@@ -622,7 +631,7 @@ export class Freefall {
     unit(a);
     // The position it comes closest to, for whoever asks: flat until nearly head down.
     const deg = loopOf(a) / DEG;
-    this.position = deg < 82 || deg >= 315 ? 'belly' : deg < 98 ? 'headDown' : deg < 225 ? 'back' : 'sit';
+    this.position = deg < 78 || deg >= 315 ? 'belly' : deg < 102 ? 'headDown' : deg < 225 ? 'back' : 'sit';
   }
 
   /** How far the body is stretched out, 0 in a position to 1 well away from all of them. */
@@ -630,7 +639,7 @@ export class Freefall {
     const a = this.aim;
     // From flat it stretches little by little into the track; the angle stays stretched right up to upright.
     const flat = (Math.acos(Math.min(1, Math.abs(a.z))) - CAPTURE) / (STRETCHED - CAPTURE);
-    const upright = (Math.acos(Math.min(1, Math.abs(a.y))) - 0.6 * CAPTURE) / (0.6 * CAPTURE);
+    const upright = (Math.acos(Math.min(1, Math.abs(a.y))) - 0.6 * CAPTURE_UPRIGHT) / (0.4 * CAPTURE_UPRIGHT);
     return clamp(Math.min(flat, upright), 0, 1);
   }
 
@@ -873,7 +882,7 @@ export class Freefall {
       // About the airflow. Head low and back to earth, from head down to the
       // track on the back, the eyes see the world the other way up.
       const a = this.aim;
-      const k = a.y < -0.5 && a.z < 0.1 ? -1 : 1;
+      const k = a.y < -0.5 && a.z < Math.sin(CAPTURE_UPRIGHT) ? -1 : 1;
       rotate(up, s.att, a);
       set(up, up.x * k, up.y * k, up.z * k);
     } else

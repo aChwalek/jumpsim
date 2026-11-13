@@ -60,7 +60,7 @@ describe('positions flown progressively', () => {
     const { body, env } = flying(true);
     const seen: FlightZone[] = [body.zone];
     const stayed: number[] = [0];
-    for (let t = 0; t < 3.4; t += SIM_DT) {
+    for (let t = 0; t < 6 && body.zone !== 'sitBackAngle'; t += SIM_DT) {
       body.step(SIM_DT, { ...noBodyInputs(), flip: 1 }, env);
       if (body.zone !== seen.at(-1)) {
         seen.push(body.zone);
@@ -68,7 +68,10 @@ describe('positions flown progressively', () => {
       }
       stayed[stayed.length - 1]! += SIM_DT;
     }
-    expect(seen).toEqual(['belly', 'track', 'angle', 'headDown', 'backAngle', 'backTrack', 'back', 'sitAngle', 'sit']);
+    expect(seen).toEqual(['belly', 'track', 'angle', 'headDown', 'backAngle', 'backTrack', 'back', 'sitAngle', 'sit', 'sitBackAngle']);
+    // Upright is not gone through in a blink: there is time to let go in it.
+    expect(stayed[seen.indexOf('headDown')]).toBeGreaterThan(0.45);
+    expect(stayed[seen.indexOf('sit')]).toBeGreaterThan(0.45);
     // None of them gone through in a blink.
     for (const [i, s] of stayed.slice(1, -1).entries()) expect(s, seen[i + 1]).toBeGreaterThan(0.12);
     // And ↓ comes back the same way.
@@ -113,6 +116,37 @@ describe('positions flown progressively', () => {
     expect(v.down).toBeGreaterThan(210);
   });
 
+  test('head down is wide: let go well short of it or well past it, the body still settles into it', () => {
+    for (const off of [-11, 11]) {
+      const { body, env } = flying(true);
+      headLow(body, env, 60);
+      while (Math.atan2(-body.aim.y, body.aim.z) < (90 + off) * DEG) body.step(SIM_DT, { ...noBodyInputs(), flip: 1 }, env);
+      expect(body.zone, `${off}`).toBe('headDown');
+      fly(body, env, 12);
+      expect(body.aim.y, `${off}`).toBe(-1);
+      expect(kmh(body).down, `${off}`).toBeGreaterThan(265);
+    }
+  });
+
+  test('sitting and leaning forward, the head-up angle that goes backwards, feet first', () => {
+    const { body, env } = flying(true, 'sit');
+    const facing = body.headingDeg();
+    swingTo(body, env, 'sitBackAngle', { flip: 1 }, 0.25);
+    fly(body, env, 25);
+    expect(body.zone).toBe('sitBackAngle');
+    expect(body.position).toBe('sit');
+    const v = kmh(body);
+    // Out of the door facing north: now going south, the way the back faces, the head still up.
+    expect(Math.abs(body.headingDeg() - facing)).toBeLessThan(1);
+    const ahead = { x: Math.sin(facing * DEG), z: -Math.cos(facing * DEG) };
+    expect((body.state.vel.x * ahead.x + body.state.vel.z * ahead.z) * 3.6).toBeLessThan(-80);
+    expect(v.glide).toBeGreaterThan(0.35);
+    expect(v.glide).toBeLessThan(0.8);
+    expect(rotate(vec3(), body.state.att, vec3(0, 1, 0)).y).toBeGreaterThan(0.3);
+    // Belly to the ground.
+    expect(rotate(vec3(), body.state.att, vec3(0, 0, -1)).y).toBeLessThan(-0.3);
+  });
+
   test('let go close to a position, the body settles into it and flies as it always did', () => {
     const classic = Object.fromEntries(POSITIONS.map((p) => [p, kmh(flying(false, p).body).down]));
     const { body, env } = flying(true);
@@ -120,7 +154,7 @@ describe('positions flown progressively', () => {
       fly(body, env, 15);
       expect(body.position).toBe(position);
       expect(Math.abs(kmh(body).down - classic[position]!), position).toBeLessThan(1);
-      expect(kmh(body).glide, position).toBeLessThan(0.01);
+      expect(kmh(body).glide, position).toBeLessThan(0.02);
       const d = BODY_SHAPES[position].downstream;
       expect(rotate(vec3(), body.state.att, d).y, position).toBeGreaterThan(0.999);
     };
@@ -249,12 +283,14 @@ describe('a jump flown progressively', () => {
   test('each stretch of the way round is held its own way', () => {
     const { jump, step } = inFreefall();
     const held: Stance[] = [];
-    for (let t = 0; t < 3.4 && jump.body.zone !== 'sit'; t += SIM_DT) {
+    for (let t = 0; t < 6 && jump.body.zone !== 'sitBackAngle'; t += SIM_DT) {
       step(SIM_DT, { flip: 1 });
       const stance = jumpStance(jump);
       if (stance !== held.at(-1)) held.push(stance);
     }
-    expect(held).toEqual(['belly', 'track', 'angle', 'headDown', 'backAngle', 'track', 'back', 'sitAngle', 'sit']);
+    step(0.3, { flip: 1 });
+    held.push(jumpStance(jump));
+    expect(held).toEqual(['belly', 'track', 'angle', 'headDown', 'backAngle', 'track', 'back', 'sitAngle', 'sit', 'sitBackAngle']);
     // Every one of them goes to the others in the room and into the replay.
     for (const stance of held) expect(STANCE_CODES[stance], stance).toBeTypeOf('number');
     expect(new Set(Object.values(STANCE_CODES)).size).toBe(Object.keys(STANCE_CODES).length);

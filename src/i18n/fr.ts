@@ -153,6 +153,7 @@ export const fr = {
       back: 'SUR LE DOS',
       sitAngle: 'TRACE ASSIS',
       sit: 'ASSIS',
+      sitBackAngle: 'TRACE ASSIS ARRIÈRE',
       side: 'SUR LE CÔTÉ',
       sideTrack: 'TRACK DE CÔTÉ',
     },
@@ -577,7 +578,7 @@ export const fr = {
       progressiveFly: 'POSITIONS PROGRESSIVES',
       progressiveRate: 'INTENSITÉ DES TRANSITIONS',
       progressiveFlyNote:
-        'À l\'essai. En chute, ↑ ↓ ← → maintenues font pivoter le corps petit à petit, et il reste où on le lâche : ↑ à plat → track → trace → tête en bas → trace dos → dos → trace assis → assis ; ← / → roule sur le côté puis sur le dos. Lâché près d\'une position, il s\'y cale.',
+        'À l\'essai. En chute, ↑ ↓ ← → maintenues font pivoter le corps petit à petit, et il reste où on le lâche : ↑ à plat → track → trace → tête en bas → trace dos → dos → trace assis → assis → trace assis arrière ; ← / → roule sur le côté puis sur le dos. Lâché près d\'une position, il s\'y cale.',
       keys: 'TOUCHES',
       keyboard: 'Clavier',
       gamepad: 'Manette',

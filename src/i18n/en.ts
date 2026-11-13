@@ -149,6 +149,7 @@ export const en: Strings = {
       back: 'ON YOUR BACK',
       sitAngle: 'HEAD-UP ANGLE',
       sit: 'SIT',
+      sitBackAngle: 'HEAD-UP ANGLE, BACKWARDS',
       side: 'ON YOUR SIDE',
       sideTrack: 'SIDE TRACK',
     },
@@ -573,7 +574,7 @@ export const en: Strings = {
       progressiveFly: 'PROGRESSIVE POSITIONS',
       progressiveRate: 'TRANSITION INTENSITY',
       progressiveFlyNote:
-        'On trial. In freefall, ↑ ↓ ← → held swing the body round little by little, and it stays where you let go: ↑ flat → track → angle → head down → back angle → back → head-up angle → sit; ← / → rolls onto the side, then the back. Let go close to a position, it settles into it.',
+        'On trial. In freefall, ↑ ↓ ← → held swing the body round little by little, and it stays where you let go: ↑ flat → track → angle → head down → back angle → back → head-up angle → sit → head-up angle backwards; ← / → rolls onto the side, then the back. Let go close to a position, it settles into it.',
       keys: 'KEYS',
       keyboard: 'Keyboard',
       gamepad: 'Gamepad',

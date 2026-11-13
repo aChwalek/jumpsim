@@ -97,6 +97,7 @@ export const STANCE_CODES: Record<Stance, number> = {
   sitAngle: 20,
   sideRight: 21,
   sideLeft: 22,
+  sitBackAngle: 23,
 };
 const DEPLOY_CODES: Record<DeployStage, number> = { stowed: 0, hand: 1, tow: 2, bag: 3, canopy: 4, free: 5 };
 

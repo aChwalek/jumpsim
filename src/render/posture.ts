@@ -16,7 +16,8 @@ export type DoorStance = 'door' | 'doorHigh' | 'step' | 'inside';
 /**
  * `track`: stretched out to glide, a track flat, an angle upright; drawn the same, the body's attitude does the rest.
  * Flown progressively, the angles have their own: `angle` head low on the belly side, `backAngle` head low on the
- * back, `sitAngle` feet first; and so has flying on one flank, `sideRight` with the right one down.
+ * back, `sitAngle` feet first leaning back, `sitBackAngle` feet first leaning forward; and so has flying on one
+ * flank, `sideRight` with the right one down.
  */
 export type Stance =
   | DoorStance
@@ -26,6 +27,7 @@ export type Stance =
   | 'angle'
   | 'backAngle'
   | 'sitAngle'
+  | 'sitBackAngle'
   | 'sideRight'
   | 'sideLeft'
   | 'throw'
@@ -41,7 +43,7 @@ export const doorStance = (spot: ExitSpot, side: -1 | 1): Stance =>
   side < 0 ? DOOR_STANCES[spot] : `${DOOR_STANCES[spot]}Right`;
 
 /** The stances that follow the freefall inputs. */
-export const FREEFALL_STANCES: ReadonlySet<Stance> = new Set(['belly', 'back', 'sit', 'headDown', 'track', 'angle', 'backAngle', 'sitAngle', 'sideRight', 'sideLeft']);
+export const FREEFALL_STANCES: ReadonlySet<Stance> = new Set(['belly', 'back', 'sit', 'headDown', 'track', 'angle', 'backAngle', 'sitAngle', 'sitBackAngle', 'sideRight', 'sideLeft']);
 
 /** Hip angle of the legs hanging in the harness, rad forward. */
 const HANGING_HIPS = 0.21;
@@ -64,6 +66,7 @@ const SETTLE: Record<Stance, number> = {
   angle: 0.4,
   backAngle: 0.4,
   sitAngle: 0.4,
+  sitBackAngle: 0.4,
   sideRight: 0.4,
   sideLeft: 0.4,
   throw: 0.12,
@@ -347,6 +350,28 @@ function sitAngle(p: Pose, input: BodyInputs): void {
   p.elbowR.set(1, -0.2, 0.4);
 }
 
+function sitBackAngle(p: Pose, input: BodyInputs): void {
+  // Head up and leaning forward, belly to the air, going backwards feet
+  // first: the body a straight plank from the heels to the head, legs a
+  // little apart, arms out to the sides and down in front, palms on the air.
+  const { forward, back, up, down } = drives(input);
+  p.lean = p.bow = 0;
+  // Pushed, straighter still and the arms come in; eased off, a little pike and the knees soften.
+  p.hipL = p.hipR = -0.08 + 0.06 * forward + 0.22 * back;
+  p.kneeL = p.kneeR = 0.14 - 0.08 * forward + 0.3 * back;
+  p.spread = 0.2 + 0.12 * up - 0.1 * down;
+  const span = 0.52 + 0.06 * up - 0.18 * down - 0.08 * forward;
+  const height = -0.22 - 0.1 * down - 0.08 * forward;
+  const dip = 0.13 * input.turn + 0.06 * input.slide;
+  const shift = 0.11 * input.slide;
+  // The legs go the other way, like a rudder.
+  p.sway = -0.12 * input.slide - 0.05 * input.turn;
+  p.handL.set(-span + shift, height + dip, -0.18);
+  p.handR.set(span + shift, height - dip, -0.18);
+  p.elbowL.set(-1, -0.2, 0.3);
+  p.elbowR.set(1, -0.2, 0.3);
+}
+
 function onSide(p: Pose, input: BodyInputs, down: -1 | 1): void {
   // On one flank (`down`: -1 the left, 1 the right), head first: the legs in
   // a stride as in a daffy, the upper one in front and the lower one behind,
@@ -556,6 +581,9 @@ export class Posture {
         break;
       case 'sitAngle':
         sitAngle(t, input);
+        break;
+      case 'sitBackAngle':
+        sitBackAngle(t, input);
         break;
       case 'sideRight':
       case 'sideLeft':

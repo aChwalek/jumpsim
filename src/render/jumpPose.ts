@@ -43,6 +43,8 @@ function swungStance(body: Freefall): Stance {
       return 'backAngle';
     case 'sitAngle':
       return stretched ? 'sitAngle' : body.position;
+    case 'sitBackAngle':
+      return stretched ? 'sitBackAngle' : body.position;
     case 'track':
     case 'backTrack':
     case 'side':
