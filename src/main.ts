@@ -54,6 +54,7 @@ import { FlightModel, neutralControls, type Environment } from './sim/flightMode
 import { noBodyInputs, stepPosition, type BodyPosition } from './sim/freefall';
 import { Jump, type JumpOptions } from './sim/jump';
 import { detectTouchdown, feetHeight, worst, type Touchdown } from './sim/landing';
+import { engineHubs } from './sim/plane';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import type { RunUp } from './sim/runUp';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
@@ -614,6 +615,7 @@ function spawn(kind: Start): void {
     headingDeg: runHeading(setup),
     height: setup.jump.exitHeight,
     aircraft: aircraftOf(setup),
+    windKmh: setup.weather.windKmh,
   });
   const rate = setup.jump.malfunction;
   const unlucky = rate === 'always' || (rate === 'sometimes' && Math.random() < 1 / MALFUNCTION_ODDS);
@@ -1857,6 +1859,11 @@ function chaseFraming(): ChaseTarget {
     t.heading = jump.headingDeg() * DEG;
     t.distance = 3.5;
     t.above = 0.25;
+  } else if (jump && jump.phase === 'plane' && jump.plane!.type.rotors) {
+    // Off the door's side, clear of the tail rotor, to see the jumper in it under the blades.
+    t.heading = (runHeading(setup) - 75 * jump.plane!.type.doorSide) * DEG;
+    t.distance = 7;
+    t.above = 0.1;
   } else if (jump && jump.phase === 'plane') {
     // From behind the wing on the door's side, to see the jumper in it.
     t.heading = (runHeading(setup) - 38 * jump.plane!.type.doorSide) * DEG;
@@ -1950,7 +1957,8 @@ function cue(): string {
   }
   if (jump.phase === 'plane') {
     const exit = c.exitIn[jump.body.position];
-    return `${c.greenLight}<small>${c.spots[jump.spot]} · ${exit ? `${exit} · ` : ''}${c.spaceToExit}</small>`;
+    const where = jump.spot === 'step' && jump.plane!.type.rotors ? c.onSkid : c.spots[jump.spot];
+    return `${c.greenLight}<small>${where} · ${exit ? `${exit} · ` : ''}${c.spaceToExit}</small>`;
   }
   if (jump.phase === 'standing') {
     const exit = c.exitIn[jump.body.position];
@@ -2324,9 +2332,9 @@ function frame(now: number): void {
   const plane = watching ? watching.view.planeNow : jump?.plane;
   if (plane) {
     // The plane: how far, which way, and how fast it is going away, heard
-    // from its nearest propeller.
+    // from its nearest propeller, or from the rotor.
     let near = Infinity;
-    for (const hub of plane.type.propellers) {
+    for (const hub of engineHubs(plane.type)) {
       plane.point(toPlane, hub);
       const d = (toPlane.x - eye.x) ** 2 + (toPlane.y - eye.y) ** 2 + (toPlane.z - eye.z) ** 2;
       if (d < near) {
@@ -2342,7 +2350,7 @@ function frame(now: number): void {
       (toPlane.x * (plane.vel.x - eyeVel.x) + toPlane.y * (plane.vel.y - eyeVel.y) + toPlane.z * (plane.vel.z - eyeVel.z)) /
       distance;
     toPlane.applyQuaternion(unlook);
-    sound.hearPlane({ distance, closing: -away, fromRight: toPlane.x / distance, live: heard });
+    sound.hearPlane({ distance, closing: -away, fromRight: toPlane.x / distance, live: heard, rotor: plane.type.rotors !== undefined });
   } else {
     sound.hearPlane(null);
   }
