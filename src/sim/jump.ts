@@ -285,8 +285,9 @@ export class Jump {
 
   /**
    * Hit in the air by another body, in freefall: moved `shift` out of it, the
-   * speed changed by `dv`, and from a hard blow thrown into a tumble about
-   * `axis` (world frame) at `rate`, rad/s, limp for `seconds`.
+   * speed changed by `dv`, and set turning about `axis` (world frame) at
+   * `rate`, rad/s: limp in a tumble for `seconds` from a hard blow, or with
+   * none, tipped over and still flown.
    */
   bump(shift: Vec3, dv: Vec3, axis?: Vec3, rate = 0, seconds = 0): void {
     if (this.phase !== 'freefall' || this.impact) return;
@@ -294,6 +295,8 @@ export class Jump {
     set(b.pos, b.pos.x + shift.x, b.pos.y + shift.y, b.pos.z + shift.z);
     set(b.vel, b.vel.x + dv.x, b.vel.y + dv.y, b.vel.z + dv.z);
     if (axis && seconds > 0) this.body.knock(axis, rate, seconds);
+    // Short of a tumble, tipped over and left to fly out of it.
+    else if (axis && rate > 0) this.body.jolt(axis, rate);
     this.follow();
   }
 

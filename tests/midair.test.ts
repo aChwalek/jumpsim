@@ -5,7 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { airDensityAt } from '../src/sim/atmosphere';
 import type { Environment } from '../src/sim/flightModel';
 import { Freefall, freefallParams, noBodyInputs } from '../src/sim/freefall';
-import { BODY_RADIUS, COLD_FROM, DARK_FROM, DIM_FROM, LONGEST_STUN, STUN_FROM, blowAt, contact, newContact, rebound, tumbleAxis } from '../src/sim/midair';
+import { BODY_RADIUS, JOLT_FROM, COLD_FROM, DARK_FROM, DIM_FROM, LONGEST_STUN, STUN_FROM, blowAt, contact, newContact, rebound, tumbleAxis } from '../src/sim/midair';
 import { SIM_DT } from '../src/sim/telemetry';
 import { dot, rotate, set, vec3 } from '../src/sim/vec';
 
@@ -60,7 +60,17 @@ describe('contact', () => {
 
 describe('blow', () => {
   test('gentle: a push and no more', () => {
-    expect(blowAt(STUN_FROM - 0.1)).toEqual({ stun: 0, spin: 0, dark: 0, cold: false });
+    expect(blowAt(JOLT_FROM - 0.1)).toEqual({ stun: 0, spin: 0, dark: 0, cold: false });
+  });
+
+  test('firmer, short of a tumble: tipped over, the harder the more, and still flown', () => {
+    const light = blowAt(JOLT_FROM + 0.5);
+    const firm = blowAt(STUN_FROM - 0.1);
+    expect(light.stun).toBe(0);
+    expect(firm.stun).toBe(0);
+    expect(light.spin).toBeGreaterThan(0);
+    expect(firm.spin).toBeGreaterThan(light.spin);
+    expect(firm.dark).toBe(0);
   });
 
   test('the harder, the longer limp, the darker', () => {
@@ -110,6 +120,26 @@ describe('tumble', () => {
     expect(body.state.yawRate).toBeCloseTo(0);
     for (let i = 0; i < 4 / SIM_DT; i++) body.step(SIM_DT, noBodyInputs(), env);
     expect(body.stunned).toBe(0);
+    expect(off(body)).toBeLessThan(0.1);
+  });
+
+  test('jolted, the body is tipped off the airflow, slides, can still be flown, and settles again', () => {
+    const { body, env } = settled();
+    body.jolt(vec3(0, 0, 1), blowAt(3).spin);
+    expect(body.stunned).toBe(0);
+    let most = 0;
+    for (let i = 0; i < 1 / SIM_DT; i++) {
+      body.step(SIM_DT, { ...noBodyInputs(), turn: 1 }, env);
+      most = Math.max(most, off(body));
+    }
+    // Well off, short of going over.
+    expect(most).toBeGreaterThan(0.35);
+    expect(most).toBeLessThan(1.4);
+    // Still turning as asked.
+    expect(Math.abs(body.state.yawRate)).toBeGreaterThan(0.3);
+    // And pushed off sideways by the lean.
+    expect(Math.hypot(body.state.vel.x, body.state.vel.z)).toBeGreaterThan(1);
+    for (let i = 0; i < 4 / SIM_DT; i++) body.step(SIM_DT, noBodyInputs(), env);
     expect(off(body)).toBeLessThan(0.1);
   });
 

@@ -271,6 +271,8 @@ const TUMBLE_FADE = 3;
 const TUMBLE_STOPS = 0.35;
 /** The last of a tumble, in which the body is brought back onto the airflow, s. */
 const RECOVER = 0.8;
+/** A knock is spent over this long, s. */
+const JOLT_FADE = 0.4;
 const CALM: BodyInputs = { turn: 0, forward: 0, slide: 0, fall: 0 };
 
 export interface FreefallState {
@@ -330,6 +332,8 @@ export class Freefall {
    * body is flown again. Until then it is limp, and does nothing it is asked.
    */
   private readonly tumble = { axis: vec3(), rate: 0, left: 0, of: 0 };
+  /** Tipped off the airflow by a knock, and still flown: turning about `axis` (world frame) at `rate`, rad/s, soon spent. */
+  private readonly jolted = { axis: vec3(), rate: 0 };
   /** Where the body is heading for: tilted off the airflow by the inputs. */
   private readonly target = vec3();
   private readonly down = vec3();
@@ -440,6 +444,18 @@ export class Freefall {
     this.maneuver.left = 0;
     this.maneuver.rate = 0;
     this.held.flip = this.held.roll = 0;
+  }
+
+  /**
+   * A knock short of a blow: tipped over about `axis` (world frame, unit),
+   * starting at `rate`, rad/s. The body is still flown, and has to be flown
+   * back: it slides off the way it leans until it has settled again.
+   */
+  jolt(axis: Vec3, rate: number): void {
+    const j = this.jolted;
+    if (rate <= j.rate) return;
+    set(j.axis, axis.x, axis.y, axis.z);
+    j.rate = rate;
   }
 
   /** Seconds left of a tumble, limp: 0 when flying. */
@@ -582,6 +598,15 @@ export class Freefall {
       t.rate *= Math.exp(-dt / (t.left < RECOVER ? TUMBLE_STOPS : TUMBLE_FADE));
       t.left = Math.max(0, t.left - dt);
       if (t.left === 0) t.rate = 0;
+    }
+
+    const j = this.jolted;
+    if (j.rate > 0) {
+      wx += j.axis.x * j.rate;
+      wy += j.axis.y * j.rate;
+      wz += j.axis.z * j.rate;
+      j.rate *= Math.exp(-dt / JOLT_FADE);
+      if (j.rate < 0.02) j.rate = 0;
     }
 
     if (m.left !== 0) {

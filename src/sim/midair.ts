@@ -11,6 +11,8 @@ export const BODY_RADIUS = 0.45;
 /** Share of the closing speed given back. */
 const RESTITUTION = 0.3;
 
+/** Closing speed, m/s, from which a knock tips the body off the airflow, still flown. */
+export const JOLT_FROM = 1;
 /** Closing speed, m/s, from which a blow throws the body into a tumble. */
 export const STUN_FROM = 4;
 /** From which the sight narrows, goes out altogether, and stays out until the ground. */
@@ -79,7 +81,7 @@ export const newContact = (): Contact => ({ normal: vec3(), shift: vec3(), closi
 export interface Blow {
   /** Thrown into a tumble for this long, s: 0 for a push and no more. */
   stun: number;
-  /** How fast the tumble starts, rad/s. */
+  /** How fast the body is set turning, rad/s: the tumble, or short of one, the knock that tips it over, still flown. */
   spin: number;
   /** How dark it goes for the eyes: 0 not at all, up to 1 nothing left to see. */
   dark: number;
@@ -89,7 +91,8 @@ export interface Blow {
 
 /** What a blow at this closing speed, m/s, does. */
 export function blowAt(closing: number): Blow {
-  if (closing < STUN_FROM) return { stun: 0, spin: 0, dark: 0, cold: false };
+  // Short of a tumble: tipped a quarter of the way over by 2 m/s, most of the way by 4, and left to fly out of it.
+  if (closing < STUN_FROM) return { stun: 0, spin: closing < JOLT_FROM ? 0 : closing * 1.8, dark: 0, cold: false };
   return {
     stun: Math.min(LONGEST_STUN, 1 + (closing - STUN_FROM) * 0.5),
     spin: Math.min(14, 1.5 + closing * 0.5),
