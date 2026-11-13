@@ -1,12 +1,12 @@
 // Renderer, cameras, sky, light and haze.
 
 import * as THREE from 'three';
-import { viewSize } from '../viewport';
+import { handheld, viewSize } from '../viewport';
 import { Clouds } from './clouds';
 import type { Daylight } from './daylight';
 
 export function createRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: !handheld(), powerPreference: 'high-performance' });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   return renderer;
 }
