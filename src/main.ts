@@ -1019,6 +1019,7 @@ function resize(): void {
   resolution.apply();
 }
 window.addEventListener('resize', resize);
+updateSideways();
 resize();
 
 function simulate(seconds: number): void {
@@ -2158,8 +2159,8 @@ function frame(now: number): void {
 
   devices.padMode = padMode();
   devices.feetTurn = onFoot() && !locked;
-  // A phone held upright: the jump on its side, the menu the way the phone is held.
-  if (updateSideways(!menu.isOpen)) resize();
+  // A phone held upright: everything on its side.
+  if (updateSideways()) resize();
   touchControls.update(touchLayout());
   devices.poll();
   const feetYaw = devices.takeFeetYaw();

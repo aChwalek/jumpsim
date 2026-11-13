@@ -7,9 +7,12 @@
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
       canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-      /* A phone held upright: the jump on its side all the same, a quarter turn round (see viewport.ts). */
-      html.sideways canvas#view, html.sideways #hud, html.sideways #touch {
-        inset: auto; left: 0; top: 0; width: var(--view-w); height: var(--view-h);
+      /*
+       * A phone held upright: everything on its side all the same, a quarter turn round (see viewport.ts).
+       * Turned, the body is what the picture, the instruments, the controls and the menu are laid out in.
+       */
+      html.sideways body {
+        position: fixed; left: 0; top: 0; width: var(--view-w); height: var(--view-h);
         transform-origin: 0 0; transform: translateX(var(--view-h)) rotate(90deg);
       }
       html.sideways #watch { width: min(560px, calc(var(--view-w) - 32px)); }

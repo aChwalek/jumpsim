@@ -18,28 +18,31 @@ function screen(width: number, height: number, coarse: boolean) {
 }
 
 afterEach(() => {
-  updateSideways(false);
+  // Back to a screen that is drawn as it is.
+  screen(844, 390, false);
+  updateSideways();
   vi.unstubAllGlobals();
 });
 
 describe('a phone held upright', () => {
-  it('draws the jump on its side, and the menu the way the phone is held', () => {
+  it('draws everything on its side, until the phone itself is turned', () => {
     const classes = screen(390, 664, true);
-    expect(updateSideways(true)).toBe(true);
+    expect(updateSideways()).toBe(true);
     expect(isSideways()).toBe(true);
     expect(classes.has('sideways')).toBe(true);
     expect(viewSize()).toEqual({ width: 664, height: 390 });
     // Nothing new on the next frame.
-    expect(updateSideways(true)).toBe(false);
-    // The menu opens: upright again.
-    expect(updateSideways(false)).toBe(true);
-    expect(classes.has('sideways')).toBe(false);
-    expect(viewSize()).toEqual({ width: 390, height: 664 });
+    expect(updateSideways()).toBe(false);
+    // The page turns with the phone: as it is again.
+    const turned = screen(664, 390, true);
+    expect(updateSideways()).toBe(true);
+    expect(turned.has('sideways')).toBe(false);
+    expect(viewSize()).toEqual({ width: 664, height: 390 });
   });
 
   it('reads a finger in the turned picture: its left is the top of the screen', () => {
     screen(390, 664, true);
-    updateSideways(true);
+    updateSideways();
     // The top right corner of the screen is the top left of the picture.
     expect(toView(390, 0)).toEqual({ x: 0, y: 0 });
     // The bottom left of the screen, its bottom right.
@@ -50,11 +53,11 @@ describe('a phone held upright', () => {
 describe('otherwise', () => {
   it('a phone on its side, or a computer in a tall window, is drawn as it is', () => {
     screen(844, 390, true);
-    expect(updateSideways(true)).toBe(false);
+    expect(updateSideways()).toBe(false);
     expect(viewSize()).toEqual({ width: 844, height: 390 });
     expect(toView(100, 50)).toEqual({ x: 100, y: 50 });
     screen(600, 900, false);
-    expect(updateSideways(true)).toBe(false);
+    expect(updateSideways()).toBe(false);
     expect(isSideways()).toBe(false);
   });
 });
