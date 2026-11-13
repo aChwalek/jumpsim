@@ -56,7 +56,7 @@ on a bridge names it (`bridge`, an index), the station along it and the side:
 the exit is then on the lip of the deck, outside the parapet, square to the
 road, with no run-up, and its height is the road's above the landing field.
 
-`imagery` names the orthophotos (`ign`, `pnoa`, `swissimage`, `dgu` or `pat`), and
+`imagery` names the orthophotos (`ign`, `pnoa`, `swissimage`, `dgu`, `pat` or `naip`), and
 `overpass` may name servers to ask first, such as a national mirror.
 
 `src/world/realDzs.ts` holds what the data cannot say: wall colours, tree
@@ -94,6 +94,9 @@ z south, metres. The photos map onto it with no resampling distortion.
   the SIAT's WMS) and the LiDAR DTM of the 2006-2009 flights (1 m GeoTIFFs,
   siatservices.provincia.tn.it, tiles found through the SIAT's WFS index),
   © Provincia autonoma di Trento, CC BY 4.0 (dati.trentino.it).
+- Orthophotos, United States: NAIP, USDA Farm Production and Conservation
+  Business Center, through the USGS National Map's image service: public
+  domain.
 - Satellite, everywhere: Sentinel-2 cloudless 2023 by EOX IT Services GmbH
   (contains modified Copernicus Sentinel data 2023), CC BY-NC-SA 4.0: fine for
   this non-commercial project, the attribution must stay.

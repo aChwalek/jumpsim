@@ -8,7 +8,7 @@ and downloads, once, into the cache:
   - relief: Mapzen/AWS Terrain Tiles (Terrarium PNG; SRTM, EU-DEM, GEBCO...);
   - imagery: orthophotos (IGN BD ORTHO in France and overseas, PNOA in Spain,
     SWISSIMAGE in Switzerland, DGU DOF5 in Croatia, the Province of Trento's
-    2015 flight in Trentino) near the field,
+    2015 flight in Trentino, NAIP in the United States) near the field,
     Sentinel-2 cloudless (EOX) out to the horizon;
   - OpenStreetMap through Overpass: buildings, trees, woods, water, coastline.
 
@@ -91,6 +91,10 @@ def cache_path(url, ext, data=None):
     return os.path.join(CACHE, key[:2], key + ext)
 
 
+# A busy map server (the USGS's above all) may turn a request away a few times running.
+TRIES = 7
+
+
 def cached(url, ext, data=None, content_type=None):
     path = cache_path(url, ext, data)
     if os.path.exists(path):
@@ -98,14 +102,14 @@ def cached(url, ext, data=None, content_type=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     headers = {'User-Agent': UA, **({'Content-Type': content_type} if content_type else {})}
     req = urllib.request.Request(url, data=data.encode() if data else None, headers=headers)
-    for attempt in range(4):
+    for attempt in range(TRIES):
         try:
             with urllib.request.urlopen(req, timeout=180) as r:
                 body = r.read()
             # A map server in trouble can still answer 200, with an XML report
             # where the picture should be: once more, then a blank tile.
             if ext in ('.jpg', '.png', '.tif') and body[:1] == b'<':
-                if attempt == 3:
+                if attempt == TRIES - 1:
                     body = b''
                     break
                 raise ConnectionError('service exception')
@@ -114,13 +118,13 @@ def cached(url, ext, data=None, content_type=None):
             if e.code in (400, 404):
                 body = b''
                 break
-            if e.code < 500 or attempt == 3:
+            if e.code < 500 or attempt == TRIES - 1:
                 raise
         except (urllib.error.URLError, ConnectionError, TimeoutError):
             # A connection dropped by a busy server: once more, a little later.
-            if attempt == 3:
+            if attempt == TRIES - 1:
                 raise
-        time.sleep(2 ** attempt)
+        time.sleep(min(2 ** attempt, 30))
     tmp = path + '.part'
     with open(tmp, 'wb') as f:
         f.write(body)
@@ -169,6 +173,10 @@ SOURCES = {
     # Trentino: the Province of Trento's orthophoto of 2015 (20 cm), a WMS too.
     'pat': 'https://siat.provincia.tn.it/geoserver/stem/ecw-rgb-2015/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap'
            '&LAYERS=ecw-rgb-2015&STYLES=&CRS=EPSG:3857&BBOX={bbox}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg',
+    # United States: the USDA's NAIP (0.6 m, public domain) through the USGS
+    # National Map, an ArcGIS image server asked one web mercator tile at a time.
+    'naip': 'https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer/exportImage?bbox={bbox}'
+            '&bboxSR=3857&imageSR=3857&size=256,256&format=jpg&f=image',
 }
 
 
@@ -216,7 +224,8 @@ def mosaic(source, zoom, size_m, px_out, label):
     cols, rows = tx1 - tx0 + 1, ty1 - ty0 + 1
     print(f'  {label}: {source} z{zoom}, {cols}x{rows} tiles', flush=True)
     jobs = [(tile_url(source, zoom, x, y), '.jpg') for y in range(ty0, ty1 + 1) for x in range(tx0, tx1 + 1)]
-    paths = fetch_all(jobs)
+    # The USGS's image server mosaics each tile on demand: a few at a time.
+    paths = fetch_all(jobs, 3 if source == 'naip' else 8)
     # Stitch with ffmpeg's tile filter: frames in reading order. Tiles that are
     # missing or blank (sea beyond the photo flights) become black, masked.
     work = os.path.join(CACHE, 'stitch', f'{DZ_ID}-{label}')
