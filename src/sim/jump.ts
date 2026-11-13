@@ -65,6 +65,11 @@ export interface JumpOptions {
   malfunction?: Malfunction | null;
   /** Where in the plane the jumper starts: crouched on the sill if not given. */
   spot?: ExitSpot;
+  /**
+   * In a plane with a ramp, on foot in its hold, free to walk and run about
+   * and off the end of the ramp, rather than waiting at a place on it.
+   */
+  onFoot?: boolean;
   /** What the jumper wears: a plain jumpsuit if not given. */
   suit?: Suit;
 }
@@ -99,6 +104,24 @@ const BASE_OFF_HEADING = 30;
 const SIDE_HIT = 0.5;
 /** Coming back down on top slower than this is a hop, not a fall, m/s. */
 const HOP_SINK = 6;
+/** Half the width of a body, which keeps it off the walls of a hold, m. */
+const BODY_HALF_WIDTH = 0.3;
+/** On foot in a hold, the jump key leaps out from this far up the ramp or nearer its end, m. */
+const LEAP_FROM_RAMP = 0.5;
+/** Where one starts in a hold: this far behind its front bulkhead, facing the ramp, m. */
+const HOLD_START = 1.5;
+
+/**
+ * The floor of a hold, plane frame: flat from the front bulkhead to the end
+ * of the ramp, walled in on both sides and at the front, nothing past the end.
+ */
+export function holdFloor(ramp: { front: number; end: number }, halfWidth: number): (x: number, z: number) => number {
+  return (x, z) => {
+    if (z > ramp.end) return -100;
+    if (Math.abs(x) > halfWidth - BODY_HALF_WIDTH || z < ramp.front + BODY_HALF_WIDTH) return 10;
+    return 0;
+  };
+}
 
 /** Belly down or on the back: all a wingsuit flies. */
 const flat = (p: BodyPosition): boolean => p === 'belly' || p === 'back';
@@ -134,6 +157,11 @@ export class Jump {
   readonly plane: Plane | null;
   /** On a BASE jump, the jumper on top of the object until the exit. */
   readonly runUp: RunUp | null;
+  /**
+   * On foot in the hold of a plane with a ramp: where the feet are in the
+   * plane's frame (x, z on its floor), and the heading turned from its nose.
+   */
+  readonly walk: RunUp | null;
   /** A BASE jump, off an object: the AAD is off, as for any BASE jump. */
   readonly base: boolean;
   /** The ledge's own height, when it has one. */
@@ -208,10 +236,15 @@ export class Jump {
       this.phase = 'standing';
       this.plane = null;
       this.runUp = new RunUp(this.solidAt, from.x, from.z, from.headingDeg, undefined, from.standing);
+      this.walk = null;
     } else {
       this.phase = 'plane';
       this.plane = new Plane(from, env.wind, groundAt(from.x, from.z));
       this.runUp = null;
+      const ramp = this.plane.type.ramp;
+      // At the front of the hold, facing the ramp: all of it to run down.
+      this.walk =
+        ramp && options.onFoot ? new RunUp(holdFloor(ramp, this.plane.type.cabin.halfWidth), 0, ramp.front + HOLD_START, 180) : null;
       this.fromYaw = this.place(this.fromEye);
     }
     this.log = {
@@ -237,7 +270,12 @@ export class Jump {
    * earth first, and pulls once there.
    */
   act(): void {
-    if (this.phase === 'plane') this.exit();
+    if (this.phase === 'plane' && this.walk) {
+      // Only off the ramp: in the hold, the roof is overhead and the jumper still far from the way out.
+      if (this.walk.z < this.plane!.type.ramp!.hinge - LEAP_FROM_RAMP) return;
+      this.walk.leap();
+      this.exit();
+    } else if (this.phase === 'plane') this.exit();
     else if (this.phase === 'standing') {
       this.runUp!.leap();
       this.exit();
@@ -288,13 +326,23 @@ export class Jump {
    * door, out towards the step or back into the cabin.
    */
   moveSpot(dir: -1 | 1): void {
-    if (this.phase !== 'plane') return;
+    if (this.phase !== 'plane' || this.walk) return;
     const next = EXIT_SPOTS[EXIT_SPOTS.indexOf(this.spot) + dir];
     if (!next) return;
     // From wherever the last move got to.
     this.fromYaw = this.place(this.fromEye);
     this.spot = next;
     this.spotMove = 0;
+  }
+
+  /** On the feet, walking: on top of the object, or in the hold of the plane. */
+  get afoot(): boolean {
+    return this.phase === 'standing' || (this.phase === 'plane' && this.walk !== null);
+  }
+
+  /** On foot in the hold, up the ramp: the jump key goes out from here. */
+  get onRamp(): boolean {
+    return this.phase === 'plane' && this.walk !== null && this.walk.z >= this.plane!.type.ramp!.hinge - LEAP_FROM_RAMP;
   }
 
   /** Settled at the place at the door, not on the way to it. */
@@ -328,6 +376,7 @@ export class Jump {
   /** Compass heading the jumper faces, degrees. */
   headingDeg(): number {
     if (this.runUp && this.phase === 'standing') return this.runUp.headingDeg;
+    if (this.walk && this.phase === 'plane') return (((this.plane!.headingDeg + this.walk.headingDeg) % 360) + 360) % 360;
     return this.body.headingDeg();
   }
 
@@ -369,6 +418,11 @@ export class Jump {
   /** Advances whatever is under way before the canopy flies. */
   step(dt: number, input: BodyInputs, env: Environment): void {
     this.plane?.step(dt);
+    if (this.phase === 'plane' && this.walk) {
+      if (this.walk.step(dt, input)) this.exit();
+      else this.ride();
+      return;
+    }
     if (this.phase === 'plane') {
       const nudge = input.forward > SPOT_NUDGE ? 1 : input.forward < -SPOT_NUDGE ? -1 : 0;
       if (nudge !== 0 && nudge !== this.nudged) this.moveSpot(nudge);
@@ -504,6 +558,21 @@ export class Jump {
   private ride(): void {
     const s = this.model.state;
     const plane = this.plane!;
+    const w = this.walk;
+    if (w) {
+      // On the floor of the hold, going with the plane, plus the walk.
+      quatFromYaw(this.turn, -w.headingDeg * DEG);
+      quatMultiply(s.pilotAtt, plane.level, this.turn);
+      Object.assign(s.att, s.pilotAtt);
+      plane.point(this.eye, set(this.eye, w.x, w.y, w.z));
+      rotate(this.tmp, s.pilotAtt, this.model.rig.feetPos);
+      set(s.pos, this.eye.x - this.tmp.x, this.eye.y - this.tmp.y, this.eye.z - this.tmp.z);
+      rotate(this.tmp, plane.level, w.vel);
+      set(s.vel, plane.vel.x + this.tmp.x, plane.vel.y + this.tmp.y, plane.vel.z + this.tmp.z);
+      set(s.omega, 0, 0, 0);
+      set(s.pilotOmega, 0, 0, 0);
+      return;
+    }
     const yaw = this.place(this.eye);
     quatFromYaw(this.turn, -plane.type.doorSide * yaw * DEG);
     quatMultiply(s.pilotAtt, plane.level, this.turn);
@@ -533,7 +602,11 @@ export class Jump {
     const s = this.model.state;
     const b = this.body.state;
     set(b.pos, s.pos.x, s.pos.y, s.pos.z);
-    if (this.plane) {
+    if (this.plane && this.walk) {
+      // Off the end of the ramp with the speed of the run, and of the leap if any.
+      const v = rotate(this.tmp, this.plane.level, this.walk.vel);
+      set(b.vel, this.plane.vel.x + v.x, this.plane.vel.y + v.y, this.plane.vel.z + v.z);
+    } else if (this.plane) {
       // Out of the plane's way, as the place allows: a dive, a jump, a roll off the sill, letting go of the step.
       const { push } = this.plane.type.spots[this.spot];
       const out = rotate(this.tmp, this.plane.level, set(this.tmp, this.plane.type.doorSide * push.out, push.up, -push.ahead));

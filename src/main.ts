@@ -24,6 +24,7 @@ import { logJump, type LogEntry, type Outcome } from './logbook';
 import { QUALITY_LEVELS, loadSettings, saveSettings } from './settings';
 import {
   MALFUNCTION_ODDS,
+  aircraftOf,
   cloneSetup,
   kindName,
   loadSetup,
@@ -53,6 +54,7 @@ import { FlightModel, neutralControls, type Environment } from './sim/flightMode
 import { noBodyInputs, stepPosition, type BodyPosition } from './sim/freefall';
 import { Jump, type JumpOptions } from './sim/jump';
 import { detectTouchdown, feetHeight, worst, type Touchdown } from './sim/landing';
+import { engineHubs } from './sim/plane';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import type { RunUp } from './sim/runUp';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
@@ -61,6 +63,8 @@ import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
 import { padIcon, type KeysPhase, type PadControl } from './ui/keys';
 import { Menu } from './ui/menu';
+import { goLandscape, TouchControls, type TouchLayout } from './ui/touchControls';
+import { updateSideways, viewSize } from './viewport';
 import { Markers, type MarkerTarget } from './net/markers';
 import { Bots, type Others } from './bots';
 import type { Lead } from './sim/bot';
@@ -78,6 +82,7 @@ const gearCamera = createGearCamera();
 const { scene, sky, light } = createScene();
 const hud = new Hud();
 const devices = new InputDevices(canvas);
+const touchControls = new TouchControls(document.getElementById('touch')!, devices);
 const sound = new Sound();
 const altisonic = new Altisonic();
 
@@ -609,13 +614,23 @@ function spawn(kind: Start): void {
   airTime = 0;
   dropBots();
   resetCanopies();
-  const spots = spawnsFor(dz, setup.weather.windFromDeg, { headingDeg: runHeading(setup), height: setup.jump.exitHeight });
+  const spots = spawnsFor(dz, setup.weather.windFromDeg, {
+    headingDeg: runHeading(setup),
+    height: setup.jump.exitHeight,
+    aircraft: aircraftOf(setup),
+    windKmh: setup.weather.windKmh,
+  });
   const rate = setup.jump.malfunction;
   const unlucky = rate === 'always' || (rate === 'sometimes' && Math.random() < 1 / MALFUNCTION_ODDS);
   if (kind === 'plane') {
     windAt(env.wind, setup.weather, spots.plane.height, airTime);
     const malfunction = unlucky ? 'streamer' : null;
-    jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction, spot: setup.jump.exitSpot });
+    jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, {
+      ...rigOptions(),
+      malfunction,
+      spot: setup.jump.exitSpot,
+      onFoot: true,
+    });
     // Company on a jump alone: out of the same plane, right after us, in a suit like ours.
     if (!net && setup.bots.count > 0) {
       bots = new Bots(scene, light, env, {
@@ -709,6 +724,7 @@ function takePosition(position: BodyPosition): void {
 function onFoot(): boolean {
   if (replay || ragdoll) return false;
   if (arrival) return arrival.canWalk && !(gather !== null && gather < 1);
+  if (jump?.phase === 'plane') return jump.walk !== null;
   return jump?.phase === 'standing' && jump.runUp !== null && !jump.runUp.standing;
 }
 
@@ -720,16 +736,22 @@ const viewDir = new THREE.Vector3();
  * goes there and the sides go round the target, as in any game. Looking
  * straight down or up says nothing about where that is.
  */
-function faceTheView(feet: RunUp | null): void {
+function faceTheView(feet: RunUp | null, fromDeg = 0): void {
   if (!feet) return;
   camera.getWorldDirection(viewDir);
   if (Math.hypot(viewDir.x, viewDir.z) < 0.2) return;
-  feet.headingDeg = ((Math.atan2(viewDir.x, -viewDir.z) / DEG) % 360 + 360) % 360;
+  feet.headingDeg = ((Math.atan2(viewDir.x, -viewDir.z) / DEG - fromDeg) % 360 + 360) % 360;
+}
+
+/** The feet on top of the object, or in the hold of the plane (their heading then from its nose, `fromDeg`). */
+function jumpFeet(): { feet: RunUp | null; fromDeg: number } {
+  if (jump?.phase === 'plane' && jump.walk) return { feet: jump.walk, fromDeg: jump.plane!.headingDeg };
+  return { feet: jump?.runUp ?? null, fromDeg: 0 };
 }
 
 /** The feet the mouse turns: on the ground, up on them first if sitting. */
 function feetToTurn(): RunUp | null {
-  return arrival ? arrival.getUp() : (jump?.runUp ?? null);
+  return arrival ? arrival.getUp() : jumpFeet().feet;
 }
 
 /** What the gamepad's right stick and B, Y, X are for at this moment of the jump. */
@@ -935,6 +957,8 @@ function fly(): void {
   waiting = false;
   sound.wake();
   devices.capture();
+  // A phone: the whole screen, on its side.
+  if (devices.lastUsed === 'touch') goLandscape();
 }
 /** Counts the menu's requests: one answered after the drop zone has loaded may be stale. */
 let request = 0;
@@ -988,12 +1012,14 @@ window.addEventListener('keydown', (e) => {
 });
 
 function resize(): void {
-  camera.aspect = gearCamera.aspect = window.innerWidth / window.innerHeight;
+  const { width, height } = viewSize();
+  camera.aspect = gearCamera.aspect = width / height;
   camera.updateProjectionMatrix();
   gearCamera.updateProjectionMatrix();
   resolution.apply();
 }
 window.addEventListener('resize', resize);
+updateSideways();
 resize();
 
 function simulate(seconds: number): void {
@@ -1013,7 +1039,7 @@ function simulate(seconds: number): void {
       jump.trackIt(devices.tracking);
       // A track the gamepad turned on ends with the freefall, or at the pull.
       if (!jump.body.tracking) devices.padTrack = false;
-      jump.step(dt, jump.phase === 'standing' ? devices.feet : devices.body, env);
+      jump.step(dt, jump.afoot ? devices.feet : devices.body, env);
       if (jump.impact) {
         hitWithoutCanopy(jump);
         return;
@@ -1838,7 +1864,17 @@ function chaseFraming(): ChaseTarget {
   t.focus.set(s.pos.x, s.pos.y, s.pos.z);
   const inflation = jump ? jump.inflation : 1;
   const falling = jump !== null && (jump.phase === 'freefall' || (jump.phase === 'opening' && inflation === null));
-  if (jump && jump.phase === 'plane') {
+  if (jump && jump.phase === 'plane' && jump.walk) {
+    // Behind, a little above, in the hold: down it to the ramp.
+    t.heading = jump.headingDeg() * DEG;
+    t.distance = 3.5;
+    t.above = 0.25;
+  } else if (jump && jump.phase === 'plane' && jump.plane!.type.rotors) {
+    // Off the door's side, clear of the tail rotor, to see the jumper in it under the blades.
+    t.heading = (runHeading(setup) - 75 * jump.plane!.type.doorSide) * DEG;
+    t.distance = 7;
+    t.above = 0.1;
+  } else if (jump && jump.phase === 'plane') {
     // From behind the wing on the door's side, to see the jumper in it.
     t.heading = (runHeading(setup) - 38 * jump.plane!.type.doorSide) * DEG;
     t.distance = 9;
@@ -1899,11 +1935,52 @@ function keysPhase(): KeysPhase | null {
   if (watching) return watching.free ? 'replayFree' : 'replay';
   if (touchdown || arrival || impact) return 'ground';
   if (!jump || jump.phase === 'canopy' || jump.phase === 'opening') return singleCanopy() ? 'baseCanopy' : 'canopy';
-  if (jump.phase === 'standing') return 'ledge';
+  if (jump.afoot) return 'ledge';
   if (jump.phase === 'plane') return 'plane';
   if (jump.wings && jump.cutawayAt === null) return 'wingsuit';
   return jump.body.progressive ? 'freefallProgressive' : 'freefall';
 }
+
+/** What a touch screen has on it right now: nothing behind the menu, or while another device is used. */
+function touchLayout(): TouchLayout | null {
+  const phase = devices.lastUsed === 'touch' ? keysPhase() : null;
+  if (!phase) return null;
+  const t = T.touch;
+  const none = { main: null, cross: false, track: null, cutaway: false, slider: false };
+  switch (phase) {
+    case 'replay':
+      return { ...none, mode: 'look' };
+    case 'replayFree':
+      return { ...none, mode: 'walk' };
+    case 'ground': {
+      if (replay) return { ...none, mode: 'look', main: t.skip };
+      const canGather = !!arrival?.canWalk && gather === null && !rigView.detached && arrival.time > 2;
+      return { ...none, mode: onFoot() ? 'walk' : 'look', main: canGather ? t.gather : null };
+    }
+    case 'canopy':
+    case 'baseCanopy': {
+      const underMain = (!jump || (jump.phase === 'canopy' && jump.canopy === 'main')) && !touchdown && !arrival;
+      const slider = underMain && sliderState === 'open' && setup.gear.slider !== 'fixed';
+      return { ...none, mode: 'canopy', cutaway: phase === 'canopy' && jump !== null, slider };
+    }
+    case 'ledge':
+    case 'plane':
+      return { ...none, mode: 'walk', main: t.exit, cross: true };
+    case 'freefall':
+    case 'freefallProgressive':
+    case 'wingsuit':
+      return {
+        ...none,
+        mode: 'freefall',
+        main: jump?.cutawayAt != null ? t.reserve : t.pull,
+        cross: true,
+        track: phase === 'freefall' ? devices.padTrack : null,
+      };
+  }
+}
+
+/** A key by its name, or on a touch screen what is on the glass instead. */
+const keyOr = (code: string, onGlass: string): string => (devices.lastUsed === 'touch' ? onGlass : keyLabel(code));
 
 /** Aboard a public room's load, out of the menu: the last seconds before it leaves. */
 const LOAD_CUE_S = 10;
@@ -1915,13 +1992,14 @@ function cue(): string {
     const left = Math.ceil((net.nextLoadAt - Date.now()) / 1000);
     if (left <= LOAD_CUE_S) return `${T.cue.loadIn(left)}<small>${T.cue.loadAboard}</small>`;
   }
+  const fingers = devices.lastUsed === 'touch';
   const mainOut = jump !== null && jump.canopy === 'main' && (jump.phase === 'canopy' || (jump.phase === 'opening' && jump.inflation !== null));
   if (devices.cutawayHeld > 0 && (mainOut || !jump) && !touchdown && !arrival && singleCanopy()) {
     // One canopy and nothing under it: a BASE container has no cutaway handle.
     return `${T.cue.noCutaway}<small>${T.cue.oneCanopy}</small>`;
   }
   if (devices.cutawayHeld > 0 && devices.cutawayHeld < 1 && mainOut && !touchdown) {
-    return `${T.cue.cuttingAway}<small>${T.cue.keepHolding(keyLabel('KeyX'))}</small>`;
+    return `${T.cue.cuttingAway}<small>${fingers ? T.touch.keepHolding : T.cue.keepHolding(keyLabel('KeyX'))}</small>`;
   }
   if (!jump || impact) return '';
   const c = T.cue;
@@ -1930,15 +2008,22 @@ function cue(): string {
   }
   const o = jump.opening;
   if (jump.phase === 'opening' && o?.malfunction === 'streamer' && o.stage === 'inflation' && o.time > o.timing.lineStretch + 1.2) {
-    return `${c.streamer}<small>${c.holdToCutaway(keyLabel('KeyX'))}</small>`;
+    return `${c.streamer}<small>${c.holdToCutaway(keyOr('KeyX', T.touch.cutaway.toUpperCase()))}</small>`;
+  }
+  if (jump.phase === 'plane' && jump.walk) {
+    const exit = c.exitIn[jump.body.position];
+    const go = jump.onRamp ? c.offTheRamp : c.runToRamp(keyOr('KeyW', T.touch.stick));
+    return `${c.greenLight}<small>${exit ? `${exit} · ` : ''}${go}</small>`;
   }
   if (jump.phase === 'plane') {
     const exit = c.exitIn[jump.body.position];
-    return `${c.greenLight}<small>${c.spots[jump.spot]} · ${exit ? `${exit} · ` : ''}${c.spaceToExit}</small>`;
+    const where = jump.spot === 'step' && jump.plane!.type.rotors ? c.onSkid : c.spots[jump.spot];
+    return `${c.greenLight}<small>${[where, exit, fingers ? '' : c.spaceToExit].filter(Boolean).join(' · ')}</small>`;
   }
   if (jump.phase === 'standing') {
     const exit = c.exitIn[jump.body.position];
-    const go = jump.runUp?.standing ? c.jumpOut(keyLabel('KeyW')) : c.runAndJump(keyLabel('KeyW'));
+    const standing = jump.runUp?.standing;
+    const go = fingers ? (standing ? T.touch.jumpOut : T.touch.runAndJump) : standing ? c.jumpOut(keyLabel('KeyW')) : c.runAndJump(keyLabel('KeyW'));
     return `${c.onTop}<small>${exit ? `${exit} · ` : ''}${go}</small>`;
   }
   if (jump.phase === 'freefall' && jump.base) {
@@ -1946,12 +2031,12 @@ function cue(): string {
     const delay = c.delay(num(jump.time, 1));
     if (jump.pullWhenFlat) return `${delay}<small>${c.flat} · ${c.toPull}</small>`;
     const { name, glide } = flying(jump);
-    return `${delay}<small>${[name, glide, c.spaceToPull].filter(Boolean).join(' · ')}</small>`;
+    return `${delay}<small>${[name, glide, fingers ? '' : c.spaceToPull].filter(Boolean).join(' · ')}</small>`;
   }
   if (jump.phase === 'freefall') {
     if (jump.pullWhenFlat) return `${c.flat}<small>${c.toPull}</small>`;
     const { name, glide } = flying(jump);
-    if (jump.time > 1.5) return `${name}<small>${[glide, c.spaceToPull].filter(Boolean).join(' · ')}</small>`;
+    if (jump.time > 1.5) return `${name}<small>${[glide, fingers ? '' : c.spaceToPull].filter(Boolean).join(' · ')}</small>`;
     return name;
   }
   if (jump.stowed && !touchdown) {
@@ -1977,7 +2062,8 @@ function guideCue(): string {
   // The key that goes there, or on the gamepad the bumper, or the left stick and which way to push it.
   const pad = devices.lastUsed === 'gamepad';
   const how = (code: string, control: PadControl, push = ''): string =>
-    pad ? `<i>${padIcon(control, devices.padKind)}${push}</i>` : `<kbd>${keyLabel(code)}</kbd>`;
+    // On a touch screen the arrow says enough.
+    devices.lastUsed === 'touch' ? '' : pad ? `<i>${padIcon(control, devices.padKind)}${push}</i>` : `<kbd>${keyLabel(code)}</kbd>`;
   const say = (text: string, m: number, by: string): string => `<span>${text} ${Math.round(Math.abs(m))} m${by}</span>`;
   const parts = [
     Math.abs(g.up) < GUIDE_LEVEL ? `<span class="ok">${t.level}</span>` : g.up > 0 ? say(`▲ ${t.up}`, g.up, how('KeyR', 'lb')) : say(`▼ ${t.down}`, g.up, how('KeyF', 'rb')),
@@ -2085,6 +2171,9 @@ function frame(now: number): void {
 
   devices.padMode = padMode();
   devices.feetTurn = onFoot() && !locked;
+  // A phone held upright: everything on its side.
+  if (updateSideways()) resize();
+  touchControls.update(touchLayout());
   devices.poll();
   const feetYaw = devices.takeFeetYaw();
   // After the devices: Start may just have opened the menu, which then ignores it until let go.
@@ -2122,7 +2211,13 @@ function frame(now: number): void {
     }
     if (feetYaw !== 0) feetToTurn()?.turnBy(feetYaw);
     // Locked, the camera of the last frame says where the body faces; on the ground once walking.
-    if (locked && onFoot()) faceTheView(arrival ? arrival.walker : (jump?.runUp ?? null));
+    if (locked && onFoot()) {
+      if (arrival) faceTheView(arrival.walker);
+      else {
+        const { feet, fromDeg } = jumpFeet();
+        faceTheView(feet, fromDeg);
+      }
+    }
     if (arrival) {
       airTime += seconds;
       // On the feet again: walking, but not while gathering the canopy up.
@@ -2170,7 +2265,7 @@ function frame(now: number): void {
     if (jump && jump.canopy === 'reserve' && !rigView.canopy.reserve) attachReserve();
     rigView.setInflation(inflation);
     rigView.setArms(onRisers);
-    const run = jump?.phase === 'standing' ? jump.runUp : null;
+    const run = jump?.afoot ? jumpFeet().feet : null;
     const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : run ? [run.legL, run.legR] : undefined;
     updateLegs(moving, pose === 'hanging' && !touchdown);
     const shown = posture.update(moving, pose, FREEFALL_STANCES.has(pose) ? devices.body : still, legs, legCues);
@@ -2302,9 +2397,9 @@ function frame(now: number): void {
   const plane = watching ? watching.view.planeNow : jump?.plane;
   if (plane) {
     // The plane: how far, which way, and how fast it is going away, heard
-    // from its nearest propeller.
+    // from its nearest propeller, or from the rotor.
     let near = Infinity;
-    for (const hub of plane.type.propellers) {
+    for (const hub of engineHubs(plane.type)) {
       plane.point(toPlane, hub);
       const d = (toPlane.x - eye.x) ** 2 + (toPlane.y - eye.y) ** 2 + (toPlane.z - eye.z) ** 2;
       if (d < near) {
@@ -2320,7 +2415,7 @@ function frame(now: number): void {
       (toPlane.x * (plane.vel.x - eyeVel.x) + toPlane.y * (plane.vel.y - eyeVel.y) + toPlane.z * (plane.vel.z - eyeVel.z)) /
       distance;
     toPlane.applyQuaternion(unlook);
-    sound.hearPlane({ distance, closing: -away, fromRight: toPlane.x / distance, live: heard });
+    sound.hearPlane({ distance, closing: -away, fromRight: toPlane.x / distance, live: heard, rotor: plane.type.rotors !== undefined });
   } else {
     sound.hearPlane(null);
   }

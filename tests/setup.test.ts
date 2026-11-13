@@ -1,13 +1,14 @@
 import { expect, test } from 'vitest';
 import { Altisonic, CANOPY_ALARMS } from '../src/audio/altisonic';
 import { daylight, sunPosition } from '../src/render/daylight';
-import { defaultSetup, runHeading, validSetup } from '../src/setup';
+import { aircraftOf, defaultSetup, runHeading, validSetup } from '../src/setup';
 import { FlightModel, calmAir, neutralControls } from '../src/sim/flightModel';
 import { DEFAULT_RIG, deriveRig } from '../src/sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from '../src/sim/telemetry';
 import { vec3 } from '../src/sim/vec';
 import { gustAt, gustPeakKmh, windAt, windGradient, type Weather } from '../src/sim/weather';
-import { createValbrise, runLeadIn, spawnsFor } from '../src/world/dz';
+import { createValbrise, hoverUpwind, runLeadIn, spawnsFor } from '../src/world/dz';
+import { dzInfo } from '../src/world/dzs';
 
 const calm: Weather = { sky: 'clear', windFromDeg: 270, windKmh: 18, gusts: 'none' };
 
@@ -124,13 +125,14 @@ test('jump run goes into the wind by default, or on the heading chosen, beside t
 
 test('the jump plan is checked when read back, and the run follows the wind until a heading is chosen', () => {
   const setup = validSetup({ jump: { start: 'final', exitHeight: 9000, runDeg: -45 } });
-  expect(setup.jump).toEqual({ start: 'final', exitHeight: 4500, runDeg: 315, malfunction: 'none', exitSpot: 'low' });
+  expect(setup.jump).toEqual({ start: 'final', exitHeight: 4500, runDeg: 315, malfunction: 'none', exitSpot: 'low', aircraft: null });
   expect(validSetup({ jump: { start: 'moon', exitHeight: 1234, malfunction: 'often' } }).jump).toEqual({
     start: 'plane',
     exitHeight: 1200,
     runDeg: null,
     malfunction: 'none',
     exitSpot: 'low',
+    aircraft: null,
   });
   expect(validSetup({ jump: { malfunction: 'always' } }).jump.malfunction).toBe('always');
   const plan = defaultSetup();
@@ -218,4 +220,48 @@ test('the place at the door is kept, and anything else is the sill', () => {
   expect(validSetup({ jump: { exitSpot: 'wing' } }).jump.exitSpot).toBe('low');
   // Saved before there were places.
   expect(validSetup({ jump: { exitHeight: 3000 } }).jump.exitSpot).toBe('low');
+});
+
+test('the plane picked is kept, and anything else is the drop zone\'s own', () => {
+  expect(defaultSetup().jump.aircraft).toBeNull();
+  expect(validSetup({ jump: { aircraft: 'c130' } }).jump.aircraft).toBe('c130');
+  expect(validSetup({ jump: { aircraft: 'concorde' } }).jump.aircraft).toBeNull();
+  const setup = validSetup({ jump: { aircraft: 'c130' } });
+  expect(aircraftOf(setup)).toBe('c130');
+  setup.jump.aircraft = null;
+  expect(aircraftOf(setup)).toBe(dzInfo(setup.dz).aircraft);
+});
+
+test('out of a ramp, jump run goes over the target, not off to the side of a door', () => {
+  const dz = createValbrise();
+  const door = spawnsFor(dz, 270).plane;
+  const ramp = spawnsFor(dz, 270, { aircraft: 'c130' }).plane;
+  expect(ramp.aircraft).toBe('c130');
+  // Flown west: the run's line is the target's latitude.
+  expect(ramp.z).toBeCloseTo(dz.target.z, 6);
+  expect(Math.abs(door.z - dz.target.z)).toBeGreaterThan(30);
+});
+
+test('a helicopter hovers upwind of the target by the drift of the freefall, its nose on the run', () => {
+  const dz = createValbrise();
+  expect(validSetup({ jump: { aircraft: 'as350' } }).jump.aircraft).toBe('as350');
+  // No wind: right over it.
+  const still = spawnsFor(dz, 270, { aircraft: 'as350', windKmh: 0 }).plane;
+  expect(still.x).toBeCloseTo(dz.target.x, 6);
+  expect(still.z).toBeCloseTo(dz.target.z, 6);
+  // From the west: west of it, on its latitude, by as much as the wind carries the jumpers.
+  const west = spawnsFor(dz, 270, { aircraft: 'as350', windKmh: 20, height: 4000 }).plane;
+  expect(west.aircraft).toBe('as350');
+  expect(west.headingDeg).toBe(270);
+  expect(west.z).toBeCloseTo(dz.target.z, 6);
+  expect(dz.target.x - west.x).toBeCloseTo(hoverUpwind(20, 4000), 6);
+  // A minute of freefall in winds aloft of about 45 km/h: some hundreds of metres.
+  expect(hoverUpwind(20, 4000)).toBeGreaterThan(400);
+  expect(hoverUpwind(20, 4000)).toBeLessThan(1000);
+  // Lower, less far; more wind, further; the nose where the run says, the spot the same.
+  expect(hoverUpwind(20, 2000)).toBeLessThan(hoverUpwind(20, 4000) / 2);
+  expect(hoverUpwind(30, 4000)).toBeGreaterThan(hoverUpwind(20, 4000));
+  const nose = spawnsFor(dz, 270, { aircraft: 'as350', windKmh: 20, height: 4000, headingDeg: 0 }).plane;
+  expect(nose.headingDeg).toBe(0);
+  expect(nose.x).toBeCloseTo(west.x, 6);
 });

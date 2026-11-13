@@ -126,6 +126,39 @@ export const LOOKS = {
     // Cessna 206, 3200 m for the licensed jumpers.
     jumpRun: { downwind: 500, offset: 60, height: 3200, indicatedAirspeed: 40 },
   },
+  // Skydive DeLand on DeLand Municipal Airport (KDED), in central Florida:
+  // pine flatwoods, live oaks and cypress swamps, the St. Johns River to the
+  // west and the Atlantic 30 km to the east.
+  deland: {
+    name: 'DeLand',
+    lat: 29.0642,
+    lon: -81.278408,
+    utcOffsetH: -4,
+    // The sea breeze, from the east, leads from spring to autumn; nothing really dominates.
+    wind: { fromDeg: 80, speed: kmh(15) },
+    grass: { rough: 0x8f9160, mown: 0x7a9448 },
+    // Stucco and metal sheds.
+    walls: [0xf0ede6, 0xe6dfcf, 0xd9d4c8, 0xeae4d3, 0xc9c4b8],
+    roofs: [0x9a9c9e, 0x6e6a66, 0xb8bbbd, 0x5a5652],
+    woods: {
+      // Slash and longleaf pines, live oaks; palmetto scrub; cypress in the swamps.
+      w: { height: [12, 25], perHectare: 30 },
+      s: { height: [1.5, 4], perHectare: 10 },
+      o: { height: [3, 5], perHectare: 50 },
+      m: { height: [10, 20], perHectare: 30 },
+    },
+    rowHeight: [8, 15],
+    // Finals along the landing area, between the facility and taxiway D. The
+    // pattern is flown north of it, over the airfield grass and the runway,
+    // never over the hangars and the industrial park: left-hand with the
+    // easterly, right-hand with a westerly. Inferred, nothing is published.
+    landingAxisDeg: 107,
+    patternSideDeg: 17,
+    pattern: { upwind: 180, side: 150, height: 300 },
+    final: { downwind: 240, height: 80 },
+    // Twin Otters, 13,500 ft.
+    jumpRun: { downwind: 500, offset: 60, height: 4100, indicatedAirspeed: 41 },
+  },
   // Lauterbrunnen: no drop zone, a BASE site. High Nose on the Mürrenfluh,
   // and a meadow on the valley floor 470 m out from it.
   lauterbrunnen: {

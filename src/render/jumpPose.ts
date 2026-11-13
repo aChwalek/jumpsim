@@ -12,6 +12,8 @@ export function jumpStance(jump: Jump | null): Stance {
     case 'standing':
       return 'ground';
     case 'plane':
+      // Upright in a hold, on foot or waiting on the ramp.
+      if (jump.plane!.type.ramp) return 'ground';
       return doorStance(jump.spot, jump.plane!.type.doorSide);
     case 'freefall':
       // Just cut away: the hands are still on the handles.
