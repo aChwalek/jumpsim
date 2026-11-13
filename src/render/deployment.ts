@@ -14,6 +14,7 @@
 // container, the bag carried up the line stretch, the top of the canopy.
 
 import * as THREE from 'three';
+import { suspensionLines } from './lines';
 
 /** The canopy as the bridle lies on it: nothing goes through its top skin. */
 export interface CanopySurface {
@@ -121,11 +122,13 @@ export class Deployment {
 
   /**
    * `reserve`: a spring pilot chute that stays open and a free bag. `colour`:
-   * of the pilot chute's fabric.
+   * of the pilot chute's fabric. `light`: brightness of what is drawn without
+   * the lights.
    */
   constructor(
     private readonly reserve: boolean,
     colour: number,
+    light: THREE.Color,
   ) {
     for (let i = 0; i < BRIDLE_NODES; i++) this.nodes.push(node(0.015, 0.004, 0.02));
     this.nodes.push(node(0.25, 0.05, BAG.z / 2 + 0.01));
@@ -148,8 +151,7 @@ export class Deployment {
 
     const lines = new THREE.BufferGeometry();
     lines.setAttribute('position', new THREE.BufferAttribute(new Float32Array(4 * 2 * 3), 3));
-    this.lines = new THREE.LineSegments(lines, new THREE.LineBasicMaterial({ color: 0x1c1c1c }));
-    this.lines.frustumCulled = false;
+    this.lines = suspensionLines(lines, light);
 
     // A d-bag, the size of the container it came out of, the bridle
     // through the top of it; flattened once empty.

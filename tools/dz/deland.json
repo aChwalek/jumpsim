@@ -1,0 +1,736 @@
+{
+ "id": "deland",
+ "displayName": "DeLand",
+ "menuNote": "DeLand, Florida: Skydive DeLand on DeLand Municipal Airport (KDED)",
+ "operator": "Skydive DeLand",
+ "aerodrome": {
+  "name": "DeLand Municipal Airport - Sidney H. Taylor Field",
+  "icao": "KDED",
+  "elevation_m": 24,
+  "lat": 29.06699,
+  "lon": -81.28383
+ },
+ "utcOffsetSummer_h": -4,
+ "inland": false,
+ "origin": {
+  "lat": 29.0642,
+  "lon": -81.278408,
+  "what": "centroid of the main landing area (the grass between the Skydive DeLand facility, taxiway D and the tree line, NE of the DZ)"
+ },
+ "boundary": [
+  [
+   29.0777897,
+   -81.2873054
+  ],
+  [
+   29.0777803,
+   -81.2868977
+  ],
+  [
+   29.0786711,
+   -81.2866777
+  ],
+  [
+   29.0792243,
+   -81.2866402
+  ],
+  [
+   29.079229,
+   -81.2864631
+  ],
+  [
+   29.0785445,
+   -81.2864095
+  ],
+  [
+   29.0774662,
+   -81.2862217
+  ],
+  [
+   29.0768051,
+   -81.2860125
+  ],
+  [
+   29.0759347,
+   -81.2850179
+  ],
+  [
+   29.0706726,
+   -81.285122
+  ],
+  [
+   29.0704851,
+   -81.2843925
+  ],
+  [
+   29.0703679,
+   -81.2827778
+  ],
+  [
+   29.0703022,
+   -81.2821019
+  ],
+  [
+   29.0694114,
+   -81.2783253
+  ],
+  [
+   29.0717088,
+   -81.2752569
+  ],
+  [
+   29.0707898,
+   -81.2743664
+  ],
+  [
+   29.0699553,
+   -81.2749994
+  ],
+  [
+   29.069402,
+   -81.2752569
+  ],
+  [
+   29.0686518,
+   -81.2753964
+  ],
+  [
+   29.0680001,
+   -81.2753266
+  ],
+  [
+   29.0680188,
+   -81.2745971
+  ],
+  [
+   29.0685393,
+   -81.2745488
+  ],
+  [
+   29.068544,
+   -81.2733096
+  ],
+  [
+   29.0667294,
+   -81.2730467
+  ],
+  [
+   29.0655994,
+   -81.2726176
+  ],
+  [
+   29.0655,
+   -81.2725614
+  ],
+  [
+   29.0653907,
+   -81.2724996
+  ],
+  [
+   29.0649828,
+   -81.2735429
+  ],
+  [
+   29.0648375,
+   -81.2737682
+  ],
+  [
+   29.0647531,
+   -81.273669
+  ],
+  [
+   29.0636816,
+   -81.275045
+  ],
+  [
+   29.063766,
+   -81.2751469
+  ],
+  [
+   29.0633909,
+   -81.2757155
+  ],
+  [
+   29.0634073,
+   -81.2759355
+  ],
+  [
+   29.0635761,
+   -81.2762171
+  ],
+  [
+   29.0639372,
+   -81.2765443
+  ],
+  [
+   29.0636119,
+   -81.2774117
+  ],
+  [
+   29.0635902,
+   -81.2774697
+  ],
+  [
+   29.0636437,
+   -81.2774827
+  ],
+  [
+   29.0636746,
+   -81.277518
+  ],
+  [
+   29.0633511,
+   -81.2783521
+  ],
+  [
+   29.063119,
+   -81.2789851
+  ],
+  [
+   29.06299,
+   -81.2790442
+  ],
+  [
+   29.0629994,
+   -81.2792695
+  ],
+  [
+   29.0629549,
+   -81.2795055
+  ],
+  [
+   29.0628916,
+   -81.2797737
+  ],
+  [
+   29.0628189,
+   -81.2800902
+  ],
+  [
+   29.0591427,
+   -81.2849933
+  ],
+  [
+   29.0588144,
+   -81.2854278
+  ],
+  [
+   29.0586339,
+   -81.2858999
+  ],
+  [
+   29.0585049,
+   -81.2861466
+  ],
+  [
+   29.0582564,
+   -81.2864149
+  ],
+  [
+   29.0576843,
+   -81.2866107
+  ],
+  [
+   29.0576398,
+   -81.2880671
+  ],
+  [
+   29.0575788,
+   -81.2915272
+  ],
+  [
+   29.0577898,
+   -81.2917069
+  ],
+  [
+   29.0595436,
+   -81.2917417
+  ],
+  [
+   29.062282,
+   -81.2881127
+  ],
+  [
+   29.0623429,
+   -81.2882924
+  ],
+  [
+   29.0625282,
+   -81.2882012
+  ],
+  [
+   29.0628869,
+   -81.2880698
+  ],
+  [
+   29.0668231,
+   -81.2879536
+  ],
+  [
+   29.0669732,
+   -81.2877882
+  ],
+  [
+   29.0676015,
+   -81.2884587
+  ],
+  [
+   29.0681173,
+   -81.2890032
+  ],
+  [
+   29.0681079,
+   -81.2891373
+  ],
+  [
+   29.0680188,
+   -81.2892285
+  ],
+  [
+   29.0706539,
+   -81.2921494
+  ],
+  [
+   29.0707476,
+   -81.2925088
+  ],
+  [
+   29.0711368,
+   -81.2930453
+  ],
+  [
+   29.0717604,
+   -81.2935764
+  ],
+  [
+   29.0725105,
+   -81.2947673
+  ],
+  [
+   29.0738608,
+   -81.2940055
+  ],
+  [
+   29.0736452,
+   -81.2936032
+  ],
+  [
+   29.0735326,
+   -81.2928736
+  ],
+  [
+   29.0738421,
+   -81.2916559
+  ],
+  [
+   29.0729325,
+   -81.289596
+  ],
+  [
+   29.0724683,
+   -81.2895745
+  ],
+  [
+   29.0721776,
+   -81.2893063
+  ],
+  [
+   29.071479,
+   -81.2876755
+  ],
+  [
+   29.077349,
+   -81.2875038
+  ]
+ ],
+ "runways": [
+  {
+   "ref": "05/23",
+   "ends": [
+    [
+     29.0608797,
+     -81.2880808
+    ],
+    [
+     29.0686445,
+     -81.2780043
+    ]
+   ],
+   "width_m": 23,
+   "surface": "asphalt",
+   "evidence": "OSM way 26414286 (05-23, asphalt, 1311 m x 23 m); FAA: 4301 x 75 ft. Ends agree with the NAIP photo within a few metres."
+  },
+  {
+   "ref": "12/30",
+   "ends": [
+    [
+     29.0723804,
+     -81.2925526
+    ],
+    [
+     29.0649535,
+     -81.275953
+    ]
+   ],
+   "width_m": 30,
+   "surface": "asphalt",
+   "evidence": "OSM way 26414292 (12-30, asphalt, 1829 m x 30 m); FAA: 6001 x 100 ft. The RWY 30 end falls on the end of the pavement in the NAIP photo."
+  }
+ ],
+ "paved": [
+  {
+   "name": "Apron in front of the DZ (loading area)",
+   "polygon": [
+    [
+     29.065389,
+     -81.27986
+    ],
+    [
+     29.064969,
+     -81.27941
+    ],
+    [
+     29.06439,
+     -81.28025
+    ],
+    [
+     29.064921,
+     -81.280655
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "Digitized on the NAIP photo (USGS ImageServer, 0.3 m): dark asphalt NE of the T-hangars where the jump planes load."
+  },
+  {
+   "name": "Taxiway D along the landing area (west part)",
+   "polygon": [
+    [
+     29.0655342,
+     -81.2798544
+    ],
+    [
+     29.0645822,
+     -81.277722
+    ],
+    [
+     29.0644862,
+     -81.277778
+    ],
+    [
+     29.0654382,
+     -81.2799104
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "OSM taxiway D (way 462213751) centreline buffered to 12 m, the width measured on the NAIP photo."
+  },
+  {
+   "name": "Taxiway D along the landing area (curve)",
+   "polygon": [
+    [
+     29.0645862,
+     -81.2777339
+    ],
+    [
+     29.0644268,
+     -81.2770579
+    ],
+    [
+     29.0643228,
+     -81.2770901
+    ],
+    [
+     29.0644822,
+     -81.2777661
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "OSM taxiway D (way 462213751) centreline buffered to 12 m."
+  },
+  {
+   "name": "Skydive DeLand car park",
+   "polygon": [
+    [
+     29.063469,
+     -81.27893
+    ],
+    [
+     29.06337,
+     -81.27836
+    ],
+    [
+     29.063211,
+     -81.278465
+    ],
+    [
+     29.063139,
+     -81.278885
+    ]
+   ],
+   "surface": "asphalt",
+   "evidence": "Digitized on the NAIP photo: parking lot E of the facility, along Skydive Drive."
+  }
+ ],
+ "landingAreas": [
+  {
+   "name": "Main landing area (grass NE of the facility, pea gravel pit)",
+   "use": "sport",
+   "polygon": [
+    [
+     29.064939,
+     -81.279395
+    ],
+    [
+     29.06505,
+     -81.27932
+    ],
+    [
+     29.064855,
+     -81.2789
+    ],
+    [
+     29.06469,
+     -81.27845
+    ],
+    [
+     29.064555,
+     -81.278
+    ],
+    [
+     29.064405,
+     -81.27755
+    ],
+    [
+     29.06433,
+     -81.2771
+    ],
+    [
+     29.064339,
+     -81.27668
+    ],
+    [
+     29.06397,
+     -81.27668
+    ],
+    [
+     29.063805,
+     -81.2774
+    ],
+    [
+     29.06358,
+     -81.27815
+    ],
+    [
+     29.063445,
+     -81.27836
+    ],
+    [
+     29.063625,
+     -81.27872
+    ],
+    [
+     29.063685,
+     -81.27902
+    ],
+    [
+     29.063925,
+     -81.27944
+    ],
+    [
+     29.064405,
+     -81.27974
+    ],
+    [
+     29.064525,
+     -81.2798
+    ]
+   ],
+   "surface": "grass",
+   "colorHex": "#929566",
+   "evidence": "NAIP photo: open mown grass between the facility, the dark apron, taxiway D and the ditch and tree line to the SE, with a pea gravel pit in it; parachute traffic lands here (DeLand airport's own pilot briefing: 'chutes landing on the left side [of RWY 05] and the area near Skydive DeLand')."
+  }
+ ],
+ "target": {
+  "lat": 29.064015,
+  "lon": -81.278435,
+  "radius_m": 8,
+  "surface": "pea gravel",
+  "colorHex": "#d6d3c6",
+  "evidence": "NAIP photo: a light pit about 17 x 14 m, colour sampled.",
+  "shown": true
+ },
+ "pond": null,
+ "buildings": [
+  {
+   "name": "Skydive DeLand facility (manifest, packing, briefing, shops)",
+   "osmWay": 1065382013,
+   "polygon": [
+    [
+     29.063783,
+     -81.279575
+    ],
+    [
+     29.063575,
+     -81.279386
+    ],
+    [
+     29.063589,
+     -81.279366
+    ],
+    [
+     29.063307,
+     -81.27911
+    ],
+    [
+     29.063364,
+     -81.279028
+    ],
+    [
+     29.063408,
+     -81.279067
+    ],
+    [
+     29.063432,
+     -81.279033
+    ],
+    [
+     29.06367,
+     -81.279249
+    ],
+    [
+     29.063685,
+     -81.279226
+    ],
+    [
+     29.063816,
+     -81.279345
+    ],
+    [
+     29.063794,
+     -81.279376
+    ],
+    [
+     29.063872,
+     -81.279446
+    ]
+   ],
+   "height_m": 6,
+   "wallHex": "#ece9e2",
+   "flatRoof": true,
+   "hangarDoor": false,
+   "evidence": "OSM way 1065382013 (Microsoft footprint) at the OSM 'Skydive Deland' node; light low-slope roofs on the NAIP photo. Height and walls guessed."
+  },
+  {
+   "name": "Dark-roofed building by the landing area",
+   "osmWay": 1065382014,
+   "polygon": [
+    [
+     29.063563,
+     -81.278898
+    ],
+    [
+     29.063481,
+     -81.278826
+    ],
+    [
+     29.06354,
+     -81.278738
+    ],
+    [
+     29.063622,
+     -81.27881
+    ]
+   ],
+   "height_m": 5,
+   "flatRoof": false,
+   "hangarDoor": false,
+   "evidence": "OSM way 1065382014; use and height guessed."
+  }
+ ],
+ "windsocks": [
+  {
+   "lat": 29.063835,
+   "lon": -81.27893
+  },
+  {
+   "lat": 29.0675849,
+   "lon": -81.2761141
+  },
+  {
+   "lat": 29.062672,
+   "lon": -81.2842808
+  }
+ ],
+ "flags": [],
+ "pattern": {
+  "circuitSide": "left",
+  "description": "NOT PUBLISHED - inferred. Finals along the long axis of the landing area (~107/287 deg), into the wind. The pattern is flown on its north side, over the airfield grass and runway 12/30, away from the T-hangars and the industrial park to the south: left-hand with the usual easterly, right-hand with a westerly.",
+  "landingDirection": "Into the wind. The aircraft pattern at KDED is left-hand on all runways; the jump aircraft avoid overflying the airport during parachute operations (AFD remark).",
+  "holdingArea": "Upwind of the landing area over the airfield grass."
+ },
+ "jumpRun": {
+  "exitAltitudeAgl_m": 4100,
+  "aircraft": "DHC-6 Twin Otters (N24HV registered to Vertical Air, operating as Skydive DeLand)",
+  "description": "13,500 ft, the usual US full altitude; along the wind over the airport."
+ },
+ "wind": {
+  "station": "KDED DeLand Municipal ASOS (on the field)",
+  "period": "2015-01-01 to 2024-12-31, 09:00-18:00 local, all months (IEM ASOS archive)",
+  "usual": {
+   "fromDeg": 80,
+   "kmh": 15
+  },
+  "notes": "No strongly dominant direction: E 11%, ENE 9%, N 8%, S 7%, W 7%, calm 6.5%; easterlies (the Atlantic sea breeze) lead from spring to autumn, northerlies in winter. Median 15 km/h (p25 11, p75 18.5)."
+ },
+ "invented": [
+  "Canopy pattern side and legs: nothing published; inferred from the layout and the wind.",
+  "Landing area outline: the grass seen on the photo; the DZ's own limits are not published.",
+  "Building heights and wall colours; the DZ windsock's place (an orange marker on the grass on the photo).",
+  "Exit height 4100 m (13,500 ft, the usual figure; not stated on the DZ's site), and the plane drawn is the sim's PC-6, not a Twin Otter."
+ ],
+ "sources": [
+  "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer: USDA NAIP (0.6 m, public domain) through the USGS National Map",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter: OSM aerodrome 732240125, runways 26414286/26414292, taxiway D 462213751, buildings, windsocks, 'Skydive Deland' node 10270182709",
+  "https://www.deland.org/DocumentCenter/View/509/Flying-the-Traffic-Pattern-at-DeLand-PDF: runway sizes, left-hand traffic, AFD parachute remarks",
+  "https://airhistory.net/photo/344499/N24HV: Twin Otter N24HV, Vertical Air operating as Skydive DeLand",
+  "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=DED (2015-2024): wind statistics"
+ ],
+ "imagery": "naip",
+ "overpass": [
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter"
+ ],
+ "people": [
+  [
+   29.063775,
+   -81.2792
+  ],
+  [
+   29.063805,
+   -81.279155
+  ],
+  [
+   29.063955,
+   -81.27932
+  ],
+  [
+   29.063925,
+   -81.27908
+  ],
+  [
+   29.063955,
+   -81.27842
+  ],
+  [
+   29.064045,
+   -81.27851
+  ],
+  [
+   29.064045,
+   -81.2789
+  ],
+  [
+   29.063625,
+   -81.27923
+  ]
+ ]
+}

@@ -325,6 +325,7 @@
 #menu .map-overlay .run-head { fill: var(--sky); }
 #menu .map-overlay .plane { fill: #fff; stroke: #0d3550; stroke-width: 1.3; stroke-linejoin: round; }
 #menu .map-overlay .run.off { opacity: 0.3; }
+#menu .map-overlay .rotor { fill: rgba(255, 255, 255, 0.18); stroke: #fff; stroke-width: 1.2; stroke-dasharray: 3 2; }
 #menu .map-overlay .target { fill: rgba(255, 216, 74, 0.22); stroke: var(--accent); stroke-width: 2; }
 #menu .map-overlay .target-glow { fill: none; stroke: rgba(255, 216, 74, 0.6); stroke-width: 1.2; stroke-dasharray: 2 3; }
 #menu .map-overlay .target-dot { fill: var(--accent); }
@@ -361,6 +362,7 @@
 #menu .lg-target { width: 11px; height: 11px; border: 2px solid var(--accent); border-radius: 50%; background: rgba(255, 216, 74, 0.25); }
 #menu .lg-pattern { width: 20px; height: 0; border-top: 2px dashed #fff; }
 #menu .lg-run { width: 20px; height: 3px; border-radius: 2px; background: var(--sky); }
+#menu .lg-hover { width: 10px; height: 10px; border-radius: 50%; border: 1.5px dashed #fff; background: rgba(255, 255, 255, 0.25); }
 #menu .lg-start { width: 10px; height: 10px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3); }
 #menu .map-credit { margin: 6px 0 0; font-size: 10.5px; color: var(--faint); }
 #menu .map-credit:empty { display: none; }

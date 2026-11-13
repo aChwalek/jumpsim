@@ -6,9 +6,10 @@
 
 import { T, heading, num } from '../i18n';
 import { aircraftOf, runHeading, type Setup } from '../setup';
+import { AIRCRAFT } from '../sim/plane';
 import { spawnsFor } from '../world/dz';
 import { dzInfo, type DzId } from '../world/dzs';
-import { PLANE_PATH } from './icons';
+import { HELI_PATH, PLANE_PATH } from './icons';
 
 /** Half the side of the square shown, m. */
 export const MAP_HALF = 800;
@@ -162,7 +163,7 @@ export class DzMap {
     this.legend.innerHTML = [
       swatch('lg-target', t.target),
       swatch('lg-pattern', t.pattern),
-      jump.start === 'plane' ? swatch('lg-run', t.run) : swatch('lg-start', t.start),
+      jump.start !== 'plane' ? swatch('lg-start', t.start) : AIRCRAFT[aircraftOf(setup)].rotors ? swatch('lg-hover', t.hover) : swatch('lg-run', t.run),
     ].join('');
 
     const pack = info.loaded();
@@ -173,7 +174,8 @@ export class DzMap {
     const cx = pack.target.x;
     const cz = pack.target.z;
     const at = (x: number, z: number): Point => [(x - cx) * K + VIEW / 2, (z - cz) * K + VIEW / 2];
-    const spots = spawnsFor(pack, weather.windFromDeg, { headingDeg: runHeading(setup), height: jump.exitHeight, aircraft: aircraftOf(setup) });
+    const aircraft = aircraftOf(setup);
+    const spots = spawnsFor(pack, weather.windFromDeg, { headingDeg: runHeading(setup), height: jump.exitHeight, aircraft, windKmh: weather.windKmh });
 
     // The pattern: downwind from its start, abeam the start of final, base, final into the target.
     const down = (spots.pattern.headingDeg * Math.PI) / 180;
@@ -200,7 +202,17 @@ export class DzMap {
     const s0: Point = [(spots.plane.x - cx) * K, (spots.plane.z - cz) * K];
     const s1: Point = [s0[0] + ahead[0] * 3000 * K, s0[1] + ahead[1] * 3000 * K];
     const edge = VIEW / 2 - 6;
-    const seen = clip(s0, s1, edge);
+    const hovers = AIRCRAFT[aircraft].rotors !== undefined;
+    const seen = hovers ? null : clip(s0, s1, edge);
+    if (hovers) {
+      // A helicopter: no run, where it hovers, nose on the run's heading, kept in the frame.
+      const [hx, hy] = s0.map((u) => Math.max(-edge, Math.min(edge, u)) + VIEW / 2) as Point;
+      const off = jump.start === 'plane' ? '' : ' off';
+      parts.push(
+        `<g class="run${off}" transform="translate(${f(hx)} ${f(hy)}) rotate(${f(spots.plane.headingDeg)})">` +
+          `<circle class="rotor" r="10"/><path class="plane" d="${HELI_PATH}"/></g>`,
+      );
+    }
     if (seen) {
       const [u, v] = seen.map(([x, y]) => [x + VIEW / 2, y + VIEW / 2] as Point) as [Point, Point];
       const dir = angle(u, v);

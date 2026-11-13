@@ -12,7 +12,7 @@ import { chromium } from 'playwright-core';
 
 const url = process.argv[2] ?? 'http://127.0.0.1:5173/';
 const out = new URL('../../public/dz/thumbs/', import.meta.url);
-const IDS = ['valbrise', 'tower', 'pujaut', 'chambery', 'empuriabrava', 'guadeloupe', 'lauterbrunnen', 'limska', 'millau', 'brento'];
+const IDS = ['valbrise', 'tower', 'pujaut', 'chambery', 'empuriabrava', 'guadeloupe', 'deland', 'lauterbrunnen', 'limska', 'millau', 'brento'];
 /** Side of the picture, px, and the part of the map it shows (from its centre). */
 const SIZE = 192;
 const CROP = 0.55;
