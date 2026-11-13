@@ -6,7 +6,7 @@ import { Clouds } from './clouds';
 import type { Daylight } from './daylight';
 
 export function createRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: !handheld(), powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   return renderer;
 }
@@ -174,6 +174,11 @@ export function createScene(): SceneParts {
 export class Resolution {
   /** Fraction of the display's native pixel density currently rendered. */
   scale = 1;
+  /**
+   * Lowest scale it goes down to. Not far on a phone: its picture is already 1x,
+   * and below that the trees break into grain while the frame rate hardly moves.
+   */
+  private readonly minScale = handheld() ? 0.8 : 0.5;
   private slow = 0;
   private fast = 0;
 
@@ -203,8 +208,8 @@ export class Resolution {
       this.fast += frameSeconds;
       this.slow = 0;
     }
-    if (this.slow > 1 && this.scale > 0.5) {
-      this.scale = Math.max(0.5, this.scale * 0.85);
+    if (this.slow > 1 && this.scale > this.minScale) {
+      this.scale = Math.max(this.minScale, this.scale * 0.85);
       this.slow = 0;
       this.apply();
     } else if (this.fast > 4 && this.scale < 1) {
