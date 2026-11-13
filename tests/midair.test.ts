@@ -143,6 +143,23 @@ describe('tumble', () => {
     expect(off(body)).toBeLessThan(0.1);
   });
 
+  test('flown progressively too: knocked, the arrows held swing nothing, and the body comes back', () => {
+    const { body, env } = settled();
+    body.progressive = true;
+    for (let i = 0; i < 2 / SIM_DT; i++) body.step(SIM_DT, noBodyInputs(), env);
+    expect(off(body)).toBeLessThan(0.1);
+    body.knock(vec3(1, 0, 0), 6, 3);
+    let most = 0;
+    for (let i = 0; i < 3 / SIM_DT; i++) {
+      body.step(SIM_DT, { ...noBodyInputs(), flip: 1, roll: 1 }, env);
+      most = Math.max(most, off(body));
+    }
+    expect(most).toBeGreaterThan(1.5);
+    expect(body.stunned).toBeCloseTo(0);
+    for (let i = 0; i < 4 / SIM_DT; i++) body.step(SIM_DT, noBodyInputs(), env);
+    expect(off(body)).toBeLessThan(0.15);
+  });
+
   test('a lighter blow does not cut a tumble short', () => {
     const { body } = settled();
     body.knock(vec3(1, 0, 0), 6, 5);

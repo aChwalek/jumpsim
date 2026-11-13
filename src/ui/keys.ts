@@ -9,7 +9,7 @@ import { T } from '../i18n';
 import { keyLabel } from '../input/keyLabels';
 
 /** `ledge`: on top of a BASE object, before the exit; `baseCanopy`: under its one canopy, which cannot be cut away. */
-export type KeysPhase = 'ledge' | 'plane' | 'freefall' | 'wingsuit' | 'canopy' | 'baseCanopy' | 'ground' | 'replay' | 'replayFree';
+export type KeysPhase = 'ledge' | 'plane' | 'freefall' | 'freefallProgressive' | 'wingsuit' | 'canopy' | 'baseCanopy' | 'ground' | 'replay' | 'replayFree';
 /** `touch`: a touch screen, whose controls are on the glass and say what they do. */
 export type InputKind = 'keyboard' | 'gamepad' | 'touch';
 export type PadKind = 'xbox' | 'playstation';
@@ -58,6 +58,11 @@ function keyboardRows(phase: KeysPhase): Row[] {
         [[k('KeyT'), k('KeyL')], t.targetLock],
         [[k('KeyB')], t.outsideCamera],
       ];
+    case 'freefallProgressive':
+      // No track key: the track is on the way round, between flat and head down.
+      return keyboardRows('freefall')
+        .filter(([, what]) => what !== t.track)
+        .map(([keys, what]): Row => [keys, what === t.sitHeadDown ? t.swingRound : what === t.bellyBack ? t.swingOver : what]);
     case 'wingsuit':
       return [
         [[k('KeyW'), k('KeyS')], t.diveFlare],
@@ -156,6 +161,10 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
         [['rs'], t.targetLockPad],
         [['view'], t.camera],
       ];
+    case 'freefallProgressive':
+      return gamepadRows('freefall')
+        .filter(([, what]) => what !== t.trackPress)
+        .map(([pad, what]): [PadControl[], string] => [pad, what === t.sitHeadDown ? t.swingRound : what === t.bellyBack ? t.swingOver : what]);
     case 'wingsuit':
       return [
         [['ls'], t.diveFlare],

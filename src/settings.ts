@@ -8,6 +8,8 @@ export const QUALITY_LEVELS = [{ ratio: 1 }, { ratio: 1.5 }, { ratio: 2 }, { rat
 
 export const SENSITIVITY_MIN = 0.3;
 export const SENSITIVITY_MAX = 3;
+export const PROGRESSIVE_RATE_MIN = 0.3;
+export const PROGRESSIVE_RATE_MAX = 2;
 
 export interface Settings {
   /** Index in QUALITY_LEVELS. */
@@ -25,6 +27,14 @@ export interface Settings {
   mouseSensitivity: number;
   /** Mouse forward and stick up look down, as in a plane. */
   invertLook: boolean;
+  /**
+   * On trial: in freefall ↑ ↓ ← → held swing the body round little by little
+   * (flat → track → angle → head down → back → sitting; ← / → onto the back),
+   * instead of going from one position to the next.
+   */
+  progressiveFly: boolean;
+  /** How fast they swing it, as a multiple of the usual. */
+  progressiveRate: number;
   /** The language on screen. */
   language: Lang;
   /** The name the others see in a room; empty until one is made up or chosen. */
@@ -41,6 +51,8 @@ export function defaultSettings(): Settings {
     volume: 1,
     mouseSensitivity: 1,
     invertLook: false,
+    progressiveFly: false,
+    progressiveRate: 1,
     language: browserLanguage(),
     playerName: '',
   };
@@ -62,6 +74,8 @@ export function validSettings(saved: unknown): Settings {
   if (finite(s.volume)) out.volume = clamp(s.volume, 0, 1);
   if (finite(s.mouseSensitivity)) out.mouseSensitivity = clamp(s.mouseSensitivity, SENSITIVITY_MIN, SENSITIVITY_MAX);
   if (typeof s.invertLook === 'boolean') out.invertLook = s.invertLook;
+  if (typeof s.progressiveFly === 'boolean') out.progressiveFly = s.progressiveFly;
+  if (finite(s.progressiveRate)) out.progressiveRate = clamp(s.progressiveRate, PROGRESSIVE_RATE_MIN, PROGRESSIVE_RATE_MAX);
   if (LANGS.includes(s.language as Lang)) out.language = s.language as Lang;
   if (typeof s.playerName === 'string') out.playerName = s.playerName.replace(/\s+/g, ' ').trim().slice(0, 20);
   return out;
