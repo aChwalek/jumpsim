@@ -47,6 +47,9 @@ export const BRAKE_DEEP = 1.3;
 export const LINEOVER_COLLAPSE = 0.5;
 export const LINEOVER_PULL = 1.15;
 
+/** A kick out of line twists turns the pilot this many times as hard as the risers turn them back. */
+const KICK = 1.5;
+
 export const neutralControls = (): Controls => ({
   brakeL: 0,
   brakeR: 0,
@@ -156,6 +159,14 @@ export class FlightModel {
    * (1) half, whatever the toggles do; 0 for none.
    */
   lineover: -1 | 0 | 1 = 0;
+
+  /**
+   * Line twists that bind: wound past a quarter turn, the lines grip each
+   * other and the risers no longer turn the pilot back. Only kicks do.
+   */
+  twistBind = false;
+  /** The pilot kicking round under the lines, to the left (-1) or the right (1), or not (0). */
+  kick = 0;
 
   /** The canopy flown: the reserve takes over from the main after a cutaway. */
   constructor(public rig: RigParams) {}
@@ -408,9 +419,13 @@ export class FlightModel {
     const turned = Math.atan2(sh.z, sh.x) - s.twist;
     s.twist += turned - 2 * Math.PI * Math.round(turned / (2 * Math.PI));
     const quarter = Math.PI / 2;
-    const yaw =
-      tension * (j.yawHold * clamp(s.twist / j.yawGive, -1, 1) + j.yawArm * Math.sin(clamp(s.twist, -quarter, quarter))) -
-      j.yawDamping * rel.y;
+    const bound = this.twistBind && Math.abs(s.twist) > quarter;
+    const back = bound
+      ? 0
+      : tension * (j.yawHold * clamp(s.twist / j.yawGive, -1, 1) + j.yawArm * Math.sin(clamp(s.twist, -quarter, quarter)));
+    // A kick to the right turns the pilot the way a twist to the left unwinds.
+    const kick = -this.kick * KICK * tension * (j.yawHold + j.yawArm);
+    const yaw = back + kick - j.yawDamping * rel.y;
 
     // Roll, about the axis square to the lines and to the shoulders.
     const flat = Math.hypot(sh.x, sh.z) || 1;

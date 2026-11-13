@@ -52,6 +52,7 @@ const MALFUNCTION_ROWS: Record<Malfunction, () => [string, string]> = {
   lineover: () => [T.hud.lineover, T.hud.lineoverRow],
   sliderHang: () => [T.hud.sliderHang, T.hud.sliderHangRow],
   noOpening: () => [T.hud.noOpening, T.hud.noOpeningRow],
+  brakeFire: () => [T.hud.brakeFire, T.hud.brakeFireRow],
   offHeading: () => [T.hud.offHeading, T.hud.offHeadingRow],
 };
 
@@ -301,7 +302,7 @@ export class Hud {
       opening && malfunction === 'streamer'
         ? [t.streamerTitle, t.streamerText(keyLabel('KeyX'))]
         : opening && malfunction === 'noOpening'
-          ? [t.noOpeningTitle, t.noOpeningText]
+          ? [t.noOpeningTitle, t.noOpeningText(keyLabel('KeyX'))]
           : opening && malfunction === 'sliderHang'
             ? [t.sliderHangTitle, t.sliderHangText(keyLabel('KeyS'), keyLabel('KeyX'))]
             : opening

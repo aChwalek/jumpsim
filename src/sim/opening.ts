@@ -66,14 +66,18 @@ export const BASE_OPENING: OpeningTiming = { throwOut: 0.3, lineStretch: 1.2, sw
  *
  * No opening ("pas d'ouverture"), here a pilot chute in tow: it is out and
  * towing, but the bag stays shut in the container. The fall barely slows:
- * straight to the reserve.
+ * cut away, and the reserve.
+ *
+ * A brake fire ("commande qui saute"): one toggle comes out of its stow as
+ * the canopy opens, the other stays stowed, and the canopy turns that way.
+ * Freeing the other one stops it.
  *
  * An off-heading opening: the canopy flies, but facing nearly the other way,
  * which off a BASE object is back towards the wall.
  */
-export type Malfunction = 'streamer' | 'lineTwists' | 'lineover' | 'sliderHang' | 'noOpening' | 'offHeading';
+export type Malfunction = 'streamer' | 'lineTwists' | 'lineover' | 'sliderHang' | 'noOpening' | 'brakeFire' | 'offHeading';
 /** What a main out of a skydiving container can do. */
-export const MAIN_MALFUNCTIONS: readonly Malfunction[] = ['streamer', 'lineTwists', 'lineover', 'sliderHang', 'noOpening'];
+export const MAIN_MALFUNCTIONS: readonly Malfunction[] = ['streamer', 'lineTwists', 'lineover', 'sliderHang', 'noOpening', 'brakeFire'];
 
 /** How a malfunction goes this time. */
 export interface MalfunctionDetail {
@@ -95,6 +99,13 @@ const SLIDER_HANG_INFLATION = 0.3;
 const SLIDER_HANG_AREA = 0.25;
 /** Full pumps of both toggles that bring a hung slider down, when it will come. */
 export const SLIDER_PUMPS = 2;
+/**
+ * How fast a canopy turns on its toggles once it flies, degrees a second, for
+ * the difference between them: as the flight model turns, 19°/s for a stowed
+ * brake against none, 120°/s for a toggle all the way down against none.
+ */
+const TURN_RATE = 120;
+const TURN_POWER = 1.6;
 /** Both toggles count as down past this, and as back up below that, of their travel. */
 const PUMP_DOWN = 0.75;
 const PUMP_UP = 0.3;
@@ -198,6 +209,9 @@ export class Opening {
   pumps = 0;
   private pumpedDown = false;
   private readonly stuck: boolean;
+  /** The toggles as the lines pull them, 0 to 1: the stows until the hands take them. */
+  private brakeL = STOWED_BRAKE;
+  private brakeR = STOWED_BRAKE;
 
   /**
    * `offHeadingDeg`: canopies seldom open exactly where the pilot faced;
@@ -231,6 +245,12 @@ export class Opening {
   /** The pilot chute is out and towing, and the bag will never leave the container. */
   get towing(): boolean {
     return this.malfunction === 'noOpening';
+  }
+
+  /** The toggles as the lines pull them (stows included), every step: the canopy turns on them as it opens. */
+  steer(brakeL: number, brakeR: number): void {
+    this.brakeL = Math.min(1, brakeL);
+    this.brakeR = Math.min(1, brakeR);
   }
 
   /**
@@ -278,7 +298,17 @@ export class Opening {
     const tau = Math.min(streamer ? STREAMER_INFLATION : 1, this.filled / timing.inflation);
     const rig = this.model.rig;
     const mass = rig.gravMass;
-    const target = trimmedFlight(rig, this.headingDeg, env, STOWED_BRAKE, this.target);
+    // Once it starts to fly, it turns on its toggles.
+    const flying = streamer ? 0 : ease((tau - SURGE) / (1 - SURGE));
+    const pull = this.brakeR - this.brakeL;
+    if (pull !== 0 && flying > 0) {
+      const heading = this.headingDeg + Math.sign(pull) * TURN_RATE * Math.abs(pull) ** TURN_POWER * flying * dt;
+      this.headingDeg = ((heading % 360) + 360) % 360;
+      const h = this.headingDeg * DEG;
+      set(this.ahead, Math.sin(h), 0, -Math.cos(h));
+    }
+    const brake = (this.brakeL + this.brakeR) / 2;
+    const target = trimmedFlight(rig, this.headingDeg, env, brake, this.target);
 
     // The force the canopy ends with carries the weight at its flying speed,
     // tilted forward off the airflow by its glide angle.
@@ -311,7 +341,7 @@ export class Opening {
     ly /= ln;
     lz /= ln;
     // From pure drag at line stretch to the trim's lift over drag once flying.
-    const turn = streamer ? 0 : (Math.PI / 2 - glide) * ease((tau - SURGE) / (1 - SURGE));
+    const turn = (Math.PI / 2 - glide) * flying;
     const q = 0.5 * env.airDensity * speed * speed * area;
     const drag = (q * Math.cos(turn)) / (mass * speed);
     const lift = (q * Math.sin(turn)) / mass;
@@ -349,8 +379,9 @@ export class Opening {
 
     // The flight model takes over once flying steadily enough not to notice.
     const off = Math.hypot(s.vel.x - target.vel.x, s.vel.y - target.vel.y, s.vel.z - target.vel.z);
-    if ((tau >= 1 && off < 0.5) || this.filled > 2 * timing.inflation) {
-      initTrimmed(this.model, s.pos, this.headingDeg, env, STOWED_BRAKE);
+    // Turning on its toggles it never settles on a straight glide: the flight model takes the turn over.
+    if ((tau >= 1 && (off < 0.5 || Math.abs(pull) > 0.05)) || this.filled > 2 * timing.inflation) {
+      initTrimmed(this.model, s.pos, this.headingDeg, env, brake);
       if (this.twist !== 0) {
         // Still wound up: the flight model turns the pilot back out of it.
         quatMultiply(s.pilotAtt, this.twistTurn, s.pilotAtt);

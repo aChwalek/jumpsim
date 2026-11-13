@@ -1016,6 +1016,10 @@ window.addEventListener('resize', resize);
 resize();
 
 function simulate(seconds: number): void {
+  // Under line twists, every press of a toggle is a kick round that way.
+  const taps = devices.takeTaps();
+  for (let i = 0; i < taps.left; i++) jump?.kick(-1);
+  for (let i = 0; i < taps.right; i++) jump?.kick(1);
   let left = seconds;
   while (left > 1e-5 && !touchdown && !impact) {
     // Whole steps, then one short step so the sim lands exactly on the frame.
@@ -1035,14 +1039,15 @@ function simulate(seconds: number): void {
         return;
       }
     }
-    if (!flying && jump?.pumping) {
-      // Under a slider stuck up: the toggles pump it, the canopy waits.
+    if (!flying && jump?.handsOnToggles) {
+      // Hanging under the canopy as it opens: the toggles are in the hands
+      // already, short of wraps; the front risers wait.
       rampControls(ramped, devices.pulls, dt);
+      ramped.frontL = ramped.frontR = 0;
       applied.brakeL = Math.max(ramped.brakeL, devices.analogBrakeL);
       applied.brakeR = Math.max(ramped.brakeR, devices.analogBrakeR);
       applied.frontL = applied.frontR = 0;
       Object.assign(hands, applied);
-      jump.pumpToggles(Math.min(applied.brakeL, applied.brakeR));
       jump.holdStows(applied);
       continue;
     }
@@ -1938,6 +1943,26 @@ function keysPhase(): KeysPhase | null {
 /** Aboard a public room's load, out of the menu: the last seconds before it leaves. */
 const LOAD_CUE_S = 10;
 
+/** A toggle as the device in use pulls it: its key, or the gamepad's trigger. */
+function pullKey(side: 'left' | 'right'): string {
+  if (devices.lastUsed === 'gamepad') return padIcon(side === 'left' ? 'lt' : 'rt', devices.padKind);
+  return `<kbd>${keyLabel(side === 'left' ? 'KeyA' : 'KeyD')}</kbd>`;
+}
+
+/**
+ * Line twists: how many turns are left, and the key to tap again and again
+ * to kick out of them (drawn going down and up), with an arrow going round
+ * the way they unwind.
+ */
+function twistCue(twist: number): string {
+  const turns = Math.abs(twist) / (2 * Math.PI);
+  // Turned to the right under the lines: out of them to the left.
+  const side = twist > 0 ? 'left' : 'right';
+  const key = pullKey(side);
+  const spin = `<span class="spin ${side}">${side === 'left' ? '↺' : '↻'}</span>`;
+  return `${T.cue.lineTwists(turns, num(turns, 1))}<span class="tapping">${spin}${key}</span><small>${T.cue.kickOut}</small>`;
+}
+
 /** What the HUD says to do next. */
 function cue(): string {
   if (flash && performance.now() < flash.until) return flash.text;
@@ -1945,7 +1970,8 @@ function cue(): string {
     const left = Math.ceil((net.nextLoadAt - Date.now()) / 1000);
     if (left <= LOAD_CUE_S) return `${T.cue.loadIn(left)}<small>${T.cue.loadAboard}</small>`;
   }
-  const mainOut = jump !== null && jump.canopy === 'main' && (jump.phase === 'canopy' || (jump.phase === 'opening' && jump.inflation !== null));
+  const mainOut =
+    jump !== null && jump.canopy === 'main' && (jump.phase === 'canopy' || (jump.phase === 'opening' && (jump.inflation !== null || jump.towing)));
   if (devices.cutawayHeld > 0 && (mainOut || !jump) && !touchdown && !arrival && singleCanopy()) {
     // One canopy and nothing under it: a BASE container has no cutaway handle.
     return `${T.cue.noCutaway}<small>${T.cue.oneCanopy}</small>`;
@@ -1964,13 +1990,19 @@ function cue(): string {
     return `${c.streamer}<small>${cutaway}</small>`;
   }
   if (jump.towing && o && o.time > o.timing.lineStretch + 0.8) {
-    return `${c.noOpening}<small>${singleCanopy() ? c.oneCanopy : c.pullReserve}</small>`;
+    return `${c.noOpening}<small>${singleCanopy() ? c.oneCanopy : cutaway}</small>`;
   }
   if (jump.sliderHung && o && o.time > o.timing.lineStretch + 1.2) {
     const pumped = o.pumps > 0 ? ` (${o.pumps})` : '';
     return `${c.sliderHang}<small>${c.pumpToggles(keyLabel('KeyS'))}${pumped} · ${c.elseCutaway(keyLabel('KeyX'))}</small>`;
   }
-  if (jump.twisted && jump.canopy === 'main' && !touchdown) return `${c.lineTwists}<small>${c.kickOut}</small>`;
+  if (jump.twisted && jump.canopy === 'main' && !touchdown) return twistCue(model.state.twist);
+  const fired = jump.canopy === 'main' && jump.log.malfunction === 'brakeFire' && jump.stowedL !== jump.stowedR;
+  if (fired && (jump.phase === 'canopy' || jump.handsOnToggles) && !touchdown) {
+    // The one still stowed turns the canopy: freeing it stops the turn.
+    const key = pullKey(jump.stowedL ? 'left' : 'right');
+    return `${c.brakeFire(jump.stowedL)}<small>${c.freeTheOther(key)}</small>`;
+  }
   if (jump.phase === 'canopy' && jump.canopy === 'main' && jump.log.malfunction === 'lineover' && !touchdown) {
     return `${c.lineover}<small>${cutaway}</small>`;
   }

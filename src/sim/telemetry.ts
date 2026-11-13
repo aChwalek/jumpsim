@@ -168,4 +168,6 @@ export function initTrimmed(
   model.loadFactor = 1;
   model.deflationL = model.deflationR = 0;
   model.lineover = 0;
+  model.twistBind = false;
+  model.kick = 0;
 }
