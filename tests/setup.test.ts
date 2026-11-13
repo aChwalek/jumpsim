@@ -7,7 +7,7 @@ import { DEFAULT_RIG, deriveRig } from '../src/sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from '../src/sim/telemetry';
 import { vec3 } from '../src/sim/vec';
 import { gustAt, gustPeakKmh, windAt, windGradient, type Weather } from '../src/sim/weather';
-import { createValbrise, runLeadIn, spawnsFor } from '../src/world/dz';
+import { createValbrise, hoverUpwind, runLeadIn, spawnsFor } from '../src/world/dz';
 import { dzInfo } from '../src/world/dzs';
 
 const calm: Weather = { sky: 'clear', windFromDeg: 270, windKmh: 18, gusts: 'none' };
@@ -240,4 +240,28 @@ test('out of a ramp, jump run goes over the target, not off to the side of a doo
   // Flown west: the run's line is the target's latitude.
   expect(ramp.z).toBeCloseTo(dz.target.z, 6);
   expect(Math.abs(door.z - dz.target.z)).toBeGreaterThan(30);
+});
+
+test('a helicopter hovers upwind of the target by the drift of the freefall, its nose on the run', () => {
+  const dz = createValbrise();
+  expect(validSetup({ jump: { aircraft: 'as350' } }).jump.aircraft).toBe('as350');
+  // No wind: right over it.
+  const still = spawnsFor(dz, 270, { aircraft: 'as350', windKmh: 0 }).plane;
+  expect(still.x).toBeCloseTo(dz.target.x, 6);
+  expect(still.z).toBeCloseTo(dz.target.z, 6);
+  // From the west: west of it, on its latitude, by as much as the wind carries the jumpers.
+  const west = spawnsFor(dz, 270, { aircraft: 'as350', windKmh: 20, height: 4000 }).plane;
+  expect(west.aircraft).toBe('as350');
+  expect(west.headingDeg).toBe(270);
+  expect(west.z).toBeCloseTo(dz.target.z, 6);
+  expect(dz.target.x - west.x).toBeCloseTo(hoverUpwind(20, 4000), 6);
+  // A minute of freefall in winds aloft of about 45 km/h: some hundreds of metres.
+  expect(hoverUpwind(20, 4000)).toBeGreaterThan(400);
+  expect(hoverUpwind(20, 4000)).toBeLessThan(1000);
+  // Lower, less far; more wind, further; the nose where the run says, the spot the same.
+  expect(hoverUpwind(20, 2000)).toBeLessThan(hoverUpwind(20, 4000) / 2);
+  expect(hoverUpwind(30, 4000)).toBeGreaterThan(hoverUpwind(20, 4000));
+  const nose = spawnsFor(dz, 270, { aircraft: 'as350', windKmh: 20, height: 4000, headingDeg: 0 }).plane;
+  expect(nose.headingDeg).toBe(0);
+  expect(nose.x).toBeCloseTo(west.x, 6);
 });

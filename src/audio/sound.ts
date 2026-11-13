@@ -35,6 +35,8 @@ export interface EngineHearing {
   fromRight: number;
   /** False while the sim is stopped: silence. */
   live: boolean;
+  /** A helicopter: the slap of the main rotor's blades over the tail rotor's buzz. */
+  rotor?: boolean;
 }
 
 /**
@@ -50,6 +52,15 @@ const ENGINE_NEAR = 6;
  * 87 times a second, which is the drone the whole plane hums at.
  */
 const BLADE_PASS = 87.5;
+/**
+ * A helicopter's three-blade main rotor at 390 rpm: the blades pass 19.5
+ * times a second, the slap heard as a beat rather than a tone. Its two-blade
+ * tail rotor, five times faster, gives the buzz.
+ */
+const ROTOR_PASS = 19.5;
+const TAIL_PASS = 65;
+/** How much of the buzz, and of the beat, a helicopter has against a plane. */
+const ROTOR_MIX = { buzz: 0.55, beat: 1.25, depth: 0.55 };
 /** The gas generator's whistle, Hz. */
 const TURBINE = 2950;
 const SOUND_SPEED = 343;
@@ -305,11 +316,15 @@ export function buildEngine(ctx: BaseAudioContext, noise: AudioBuffer, out: Audi
     side.pan.setTargetAtTime(Math.max(-1, Math.min(1, 0.85 * e.fromRight)), now, settle);
     // Doppler: higher while the plane closes in, lower as it pulls away.
     const shift = SOUND_SPEED / Math.max(SOUND_SPEED * 0.5, SOUND_SPEED - e.closing);
-    const pass = BLADE_PASS * shift;
+    // A plane's propeller gives both the drone and the beat; a helicopter's tail rotor the drone, its main rotor the beat.
+    const pass = (e.rotor ? TAIL_PASS : BLADE_PASS) * shift;
     blades.frequency.setTargetAtTime(pass, now, settle);
     second.frequency.setTargetAtTime(2 * pass, now, settle);
-    pulse.frequency.setTargetAtTime(pass, now, settle);
-    beatTone.frequency.setTargetAtTime(520 * shift, now, settle);
+    pulse.frequency.setTargetAtTime(e.rotor ? ROTOR_PASS * shift : pass, now, settle);
+    depth.gain.setTargetAtTime(e.rotor ? ROTOR_MIX.depth : 0.45, now, settle);
+    buzz.gain.setTargetAtTime(ENGINE_MIX.buzz * (e.rotor ? ROTOR_MIX.buzz : 1), now, settle);
+    beat.gain.setTargetAtTime(ENGINE_MIX.beat * (e.rotor ? ROTOR_MIX.beat : 1), now, settle);
+    beatTone.frequency.setTargetAtTime((e.rotor ? 320 : 520) * shift, now, settle);
     whistle.frequency.setTargetAtTime(TURBINE * shift * (1 + 0.004 * Math.sin(now * 1.7)), now, settle);
   };
 }

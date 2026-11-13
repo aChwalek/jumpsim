@@ -58,7 +58,7 @@ import {
   type Setup,
   type Start,
 } from '../setup';
-import { AIRCRAFT, AIRCRAFT_IDS, EXIT_SPOTS, type AircraftId, type ExitSpot } from '../sim/plane';
+import { AIRCRAFT, AIRCRAFT_IDS, EXIT_SPOTS, type Aircraft, type AircraftId, type ExitSpot } from '../sim/plane';
 import { BOTS_MAX, BOT_LEADS, BOT_MODES, botHeights, leaderLed, type BotLead, type BotMode } from '../sim/bot';
 import { SUIT_KINDS, SUIT_LEVELS, hasWings, suitGlide, type SuitKind, type SuitLevel } from '../sim/suit';
 import { reserveSize, type CanopyKind } from '../sim/rig';
@@ -72,7 +72,8 @@ import {
   type SkyKind,
   type Weather,
 } from '../sim/weather';
-import { landingHeading } from '../world/dz';
+import { freefallSeconds } from '../sim/freefall';
+import { hoverUpwind, landingHeading } from '../world/dz';
 import { DZS, dzInfo, type DzId } from '../world/dzs';
 import { keyLabel } from '../input/keyLabels';
 import { DzMap } from './dzMap';
@@ -190,11 +191,11 @@ function windOnRun(runDeg: number, windFromDeg: number, windKmh: number): string
   return Math.abs(off) < 70 ? w.quarter(off > 0) : w.cross(off > 0);
 }
 
-/** Rough freefall time from an exit to a pull at 1000 m, s: about 10 s to get up to speed, then 53 m/s. */
-function freefallSeconds(exitHeight: number): number {
-  const fall = exitHeight - 1000;
-  return fall <= 300 ? fall / 30 : 10 + (fall - 300) / 53;
-}
+/** The places at the door, named for the aircraft: a helicopter's step is its skid. */
+const spotNames = (a: Aircraft): Record<ExitSpot, string> => (a.rotors ? T.menu.jump.spotsHeli : T.menu.jump.spots);
+
+/** How far upwind of the target a helicopter hovers, m, to the nearest ten. */
+const hoverMetres = (windKmh: number, exitHeight: number): number => Math.round(hoverUpwind(windKmh, exitHeight) / 10) * 10;
 
 const ARROW = '<path d="M 0 16 L 0 -18 M -6 -11 L 0 -19 L 6 -11" fill="none" stroke-linecap="round" stroke-linejoin="round" />';
 
@@ -1060,9 +1061,14 @@ export class Menu {
         }
         const run = runHeading(this.setup);
         const aloft = Math.round(weather.windKmh * windGradient(jump.exitHeight));
+        const plane = AIRCRAFT[aircraftOf(this.setup)];
+        const place = plane.ramp ? j.aircraftNames[plane.id] : spotNames(plane)[jump.exitSpot];
+        const line = plane.rotors
+          ? j.hoverLine(num(hoverMetres(weather.windKmh, jump.exitHeight)), heading(run))
+          : j.runLine(heading(run), windOnRun(run, weather.windFromDeg, weather.windKmh));
         return `
-          <span class="big">${num(jump.exitHeight)}<small class="unit">m</small> <small>${j.starts.plane} · ${AIRCRAFT[aircraftOf(this.setup)].ramp ? j.aircraftNames[aircraftOf(this.setup)] : j.spots[jump.exitSpot]}</small></span>
-          <span>${j.runLine(heading(run), windOnRun(run, weather.windFromDeg, weather.windKmh))}</span>
+          <span class="big">${num(jump.exitHeight)}<small class="unit">m</small> <small>${j.starts.plane} · ${place}</small></span>
+          <span>${line}</span>
           <span class="dim">${j.aloftLine(String(aloft), String(Math.round(freefallSeconds(jump.exitHeight))))}</span>`;
       }
     }
@@ -1259,6 +1265,7 @@ export class Menu {
     const plan = (): JumpPlan => this.setup.jump;
     const noPlane = (): boolean => plan().start !== 'plane';
     const ramp = (): boolean => AIRCRAFT[aircraftOf(this.setup)].ramp !== undefined;
+    const heli = (): boolean => AIRCRAFT[aircraftOf(this.setup)].rotors !== undefined;
     const noBots = (): boolean => noPlane() || this.room !== null;
     const wings = (): boolean => hasWings(suitOf(this.setup.gear));
     const led = (): boolean => leaderLed(this.setup.bots.mode, suitOf(this.setup.gear));
@@ -1306,10 +1313,21 @@ export class Menu {
         (aircraft) => this.setJump({ aircraft }),
         { note: () => j.aircraftNote[aircraftOf(this.setup)], disabled: noPlane },
       ),
-      this.choice<ExitSpot>(j.exitSpot, options(EXIT_SPOTS, (s) => j.spots[s]), () => plan().exitSpot, (exitSpot) => this.setJump({ exitSpot }), {
-        note: () => (ramp() ? j.rampNote : `${j.spotNote[plan().exitSpot]} ${j.spotKeys(keyLabel('KeyW'), keyLabel('KeyS'))}`),
-        disabled: () => noPlane() || ramp(),
-      }),
+      this.choice<ExitSpot>(
+        j.exitSpot,
+        () => options(EXIT_SPOTS, (s) => spotNames(AIRCRAFT[aircraftOf(this.setup)])[s]),
+        () => plan().exitSpot,
+        (exitSpot) => this.setJump({ exitSpot }),
+        {
+          note: () => {
+            if (ramp()) return j.rampNote;
+            const spot = plan().exitSpot;
+            const note = heli() && spot === 'step' ? j.spotNoteSkid : j.spotNote[spot];
+            return `${note} ${j.spotKeys(keyLabel('KeyW'), keyLabel('KeyS'))}`;
+          },
+          disabled: () => noPlane() || ramp(),
+        },
+      ),
       this.slider(j.bots, { min: 0, max: BOTS_MAX, step: 1, big: 1 }, () => this.setup.bots.count, (count) => this.setBots({ count }), {
         hint: j.botsHint,
         value: () => (this.setup.bots.count ? String(this.setup.bots.count) : j.botsNone),
@@ -1351,9 +1369,14 @@ export class Menu {
             const { weather } = this.setup;
             const aloft = Math.round(weather.windKmh * windGradient(plan().exitHeight));
             const plane = AIRCRAFT[aircraftOf(this.setup)];
-            if (plane.ramp) return j.runNoteRamp(windOnRun(runHeading(this.setup), weather.windFromDeg, weather.windKmh), num(plan().exitHeight), String(aloft), heading(weather.windFromDeg), plane.name);
+            const how = windOnRun(runHeading(this.setup), weather.windFromDeg, weather.windKmh);
+            if (plane.ramp) return j.runNoteRamp(how, num(plan().exitHeight), String(aloft), heading(weather.windFromDeg), plane.name);
+            if (plane.rotors) {
+              const metres = num(hoverMetres(weather.windKmh, plan().exitHeight));
+              return j.runNoteHover(how, num(plan().exitHeight), String(aloft), heading(weather.windFromDeg), plane.name, metres);
+            }
             return j.runNote(
-              windOnRun(runHeading(this.setup), weather.windFromDeg, weather.windKmh),
+              how,
               num(plan().exitHeight),
               String(aloft),
               heading(weather.windFromDeg),

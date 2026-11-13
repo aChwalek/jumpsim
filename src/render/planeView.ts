@@ -1,11 +1,12 @@
 // The jump plane, as seen from its door and from below once out: a Pilatus
-// PC-6 Porter, a Dornier Do 28 G92 or a C-130 Hercules, built from boxes at true size. The
-// cabin is open on the door's side behind the wing, and lined inside, since
-// the jumper starts in it, in that doorway or on the step under it.
+// PC-6 Porter, a Dornier Do 28 G92, a C-130 Hercules or an AS350 Écureuil
+// helicopter, built from boxes at true size. The cabin is open on the door's
+// side, and lined inside, since the jumper starts in it, in that doorway or
+// on the step under it.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { Aircraft, AircraftId, Plane } from '../sim/plane';
+import { SKID_OUT, type Aircraft, type AircraftId, type Plane } from '../sim/plane';
 
 const WHITE = 0xf1f1ee;
 const STRIPE = 0x1f4f9a;
@@ -21,6 +22,8 @@ const GREY_DARK = 0x60666c;
 const WEBBING = 0x8a2f27;
 const YELLOW = 0xd9b324;
 const GREEN_LIGHT = 0x3be05a;
+const HELI_RED = 0xb52a22;
+const HELI_BELLY = 0x2e3135;
 
 function tint(geometry: THREE.BufferGeometry, hex: number): THREE.BufferGeometry {
   const g = geometry.index ? geometry.toNonIndexed() : geometry;
@@ -102,21 +105,22 @@ function cabin(
   back: number,
   bottom: number,
   windows: number[],
-  livery: { stripe: number; belly: number },
+  livery: { stripe: number; belly: number; skin?: number },
 ): THREE.BufferGeometry[] {
   const { halfWidth: w, height: h } = a.cabin;
   const { door, doorSide: s } = a;
   const skin = 0.03;
   const top = h + 0.08;
+  const paint = livery.skin ?? WHITE;
   const parts: THREE.BufferGeometry[] = [];
   parts.push(slab(-w, w, -0.05, 0, front, back, FLOOR));
   parts.push(slab(-w - skin, w + skin, bottom, -0.05, front, back, livery.belly));
-  parts.push(slab(-w - skin, w + skin, h, top, front, back, WHITE));
+  parts.push(slab(-w - skin, w + skin, h, top, front, back, paint));
   // The wall across from the door, then the one around it.
-  parts.push(slab(...out(-s, w, w + skin), -0.05, h, front, back, WHITE));
-  parts.push(slab(...out(s, w, w + skin), -0.05, h, front, door.front, WHITE));
-  parts.push(slab(...out(s, w, w + skin), -0.05, h, door.back, back, WHITE));
-  parts.push(slab(...out(s, w, w + skin), door.top, h, door.front, door.back, WHITE));
+  parts.push(slab(...out(-s, w, w + skin), -0.05, h, front, back, paint));
+  parts.push(slab(...out(s, w, w + skin), -0.05, h, front, door.front, paint));
+  parts.push(slab(...out(s, w, w + skin), -0.05, h, door.back, back, paint));
+  parts.push(slab(...out(s, w, w + skin), door.top, h, door.front, door.back, paint));
   // The lining inside, darker, so the cabin reads as a cabin.
   parts.push(slab(...out(-s, w - 0.02, w), 0, h, front, back, LINING));
   parts.push(slab(...out(s, w - 0.02, w), 0, h, front, door.front, LINING));
@@ -325,15 +329,84 @@ function buildHercules(a: Aircraft): THREE.BufferGeometry[] {
   return parts;
 }
 
-const BUILD: Record<AircraftId, (a: Aircraft) => THREE.BufferGeometry[]> = { pc6: buildPorter, do28: buildDornier, c130: buildHercules };
-/** Radius of the propeller discs, m. */
-const PROP_RADIUS: Record<AircraftId, number> = { pc6: 1.3, do28: 1.15, c130: 2.05 };
+/**
+ * The Airbus AS350 B3 Écureuil: a rounded pod of a cabin behind a glass
+ * bubble, the engine and the gearbox in a fairing on its roof under the
+ * rotor's mast, a slim tail boom with its stabiliser, the fin, and the tail
+ * rotor on its left. On two skids, the step on the left one under the back
+ * door. In red with a white stripe; the seats in the back taken out.
+ */
+function buildEcureuil(a: Aircraft): THREE.BufferGeometry[] {
+  const w = a.cabin.halfWidth;
+  const top = a.cabin.height + 0.08;
+  const skin = 0.03;
+  const front = -1.3;
+  const back = 1.2;
+  const bottom = -0.32;
+  const hub = a.rotors!.hub;
+  const parts = cabin(a, front, back, bottom, [-0.75, 0.45], { stripe: WHITE, belly: HELI_BELLY, skin: HELI_RED });
+
+  // The two seats up front, their backs to the cabin, and the panel in the bubble.
+  for (const x of [-0.4, 0.4]) {
+    parts.push(slab(x - 0.24, x + 0.24, 0.05, 1.0, front + 0.42, front + 0.52, LINING));
+    parts.push(slab(x - 0.24, x + 0.24, 0.3, 0.4, front + 0.0, front + 0.45, LINING));
+  }
+  parts.push(slab(-0.55, 0.55, 0.35, 0.62, front - 0.45, front - 0.25, FLOOR));
+
+  // The bubble: painted below, glass from the stripe up, sloping down to the nose.
+  parts.push(taper(front, { w: w + skin, y0: bottom, y1: 0.42 }, front - 1.05, { w: 0.5, y0: -0.1, y1: 0.36 }, HELI_RED));
+  parts.push(taper(front, { w: w + skin, y0: 0.42, y1: top }, front - 1.05, { w: 0.5, y0: 0.36, y1: 0.52 }, GLASS));
+  parts.push(taper(front - 1.05, { w: 0.5, y0: -0.1, y1: 0.52 }, front - 1.3, { w: 0.28, y0: 0.0, y1: 0.38 }, HELI_RED));
+
+  // Behind the cabin, under the engine, down to the boom.
+  parts.push(taper(back, { w: w + skin, y0: bottom, y1: top }, 2.7, { w: 0.42, y0: 0.35, y1: top }, HELI_RED));
+
+  // The fairing on the roof over the gearbox and the engine, the exhaust, the mast and the rotor's head.
+  const deck = top + 0.6;
+  parts.push(taper(-0.9, { w: 0.45, y0: top, y1: top + 0.08 }, -0.25, { w: 0.62, y0: top, y1: deck }, HELI_RED));
+  parts.push(slab(-0.62, 0.62, top, deck, -0.25, 1.4, HELI_RED));
+  parts.push(taper(1.4, { w: 0.62, y0: top, y1: deck }, 2.7, { w: 0.38, y0: top - 0.05, y1: top + 0.32 }, HELI_RED));
+  parts.push(slab(-0.2, 0.2, top + 0.02, top + 0.28, 2.7, 2.85, FLOOR));
+  parts.push(rod(v(hub.x, deck - 0.05, hub.z), v(hub.x, hub.y, hub.z), 0.07, METAL));
+  parts.push(tint(new THREE.CylinderGeometry(0.24, 0.3, 0.14, 12).translate(hub.x, hub.y - 0.04, hub.z), METAL));
+
+  // The tail boom, its stabiliser with fins at the ends, the fin over it and under it, the tail skid.
+  parts.push(taper(2.7, { w: 0.3, y0: 0.62, y1: 1.18 }, 7.2, { w: 0.13, y0: 0.82, y1: 1.02 }, HELI_RED));
+  parts.push(slab(-1.05, 1.05, 0.86, 0.91, 5.7, 6.2, HELI_RED));
+  for (const side of [-1, 1]) parts.push(slab(...out(side, 1.0, 1.04), 0.76, 1.04, 5.78, 6.16, HELI_RED));
+  parts.push(fin([6.9, 0.95, 7.55, 0.95, 7.78, 2.05, 6.9, 0.95, 7.78, 2.05, 7.38, 2.05], HELI_RED));
+  parts.push(fin([7.0, 0.9, 7.55, 0.88, 7.5, 0.32], HELI_RED));
+  parts.push(rod(v(0, 0.36, 7.48), v(0, 0.2, 7.2), 0.02, METAL));
+
+  // The skids, turned up in front, on their two cross tubes.
+  const y = -0.76;
+  for (const side of [-1, 1]) {
+    const x = side * SKID_OUT;
+    parts.push(rod(v(x, y, -1.75), v(x, y, 1.55), 0.045, METAL));
+    parts.push(rod(v(x, y, -1.75), v(x, y + 0.24, -2.15), 0.045, METAL));
+    for (const z of [-0.95, 0.85]) parts.push(rod(v(x, y + 0.02, z), v(side * 0.62, bottom + 0.02, z), 0.04, METAL));
+  }
+  for (const z of [-0.95, 0.85]) parts.push(rod(v(-0.62, bottom + 0.02, z), v(0.62, bottom + 0.02, z), 0.04, METAL));
+  return parts;
+}
+
+const BUILD: Record<AircraftId, (a: Aircraft) => THREE.BufferGeometry[]> = {
+  pc6: buildPorter,
+  do28: buildDornier,
+  c130: buildHercules,
+  as350: buildEcureuil,
+};
+/** Radius of the propeller discs, m (none on a helicopter). */
+const PROP_RADIUS: Record<AircraftId, number> = { pc6: 1.3, do28: 1.15, c130: 2.05, as350: 0 };
 /** Blades on each propeller. */
-const BLADES: Record<AircraftId, number> = { pc6: 3, do28: 3, c130: 4 };
+const BLADES: Record<AircraftId, number> = { pc6: 3, do28: 3, c130: 4, as350: 0 };
 
 export class PlaneView {
   readonly object = new THREE.Group();
   private props: THREE.Group[] = [];
+  /** A helicopter's rotors: the main one turning about its mast, the tail one about the side axis. */
+  private rotor: THREE.Group | null = null;
+  private tailRotor: THREE.Group | null = null;
   private type: Aircraft | null = null;
   // Light bounced off the ground and the haze keeps the shaded side, the
   // underside of the wing, from going dark.
@@ -346,6 +419,21 @@ export class PlaneView {
     side: THREE.DoubleSide,
   });
   private readonly bladeMaterial = new THREE.MeshLambertMaterial({ color: 0x202326, transparent: true, opacity: 0.35, depthWrite: false });
+  // A rotor turns slowly enough to see its blades, over a faint blur.
+  private readonly rotorDiscMaterial = new THREE.MeshBasicMaterial({
+    color: 0x15181b,
+    transparent: true,
+    opacity: 0.07,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  private readonly rotorBladeMaterial = new THREE.MeshLambertMaterial({
+    color: 0x1d2023,
+    transparent: true,
+    opacity: 0.6,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
 
   /** Builds the plane of this type, in place of the one before. */
   private build(a: Aircraft): void {
@@ -367,12 +455,37 @@ export class PlaneView {
       this.object.add(prop);
       return prop;
     });
+    const rotors = a.rotors;
+    if (!rotors) return;
+    // The main rotor, flat over the cabin: its blades out from the mast, a disc of blur.
+    this.rotor = new THREE.Group();
+    this.rotor.add(new THREE.Mesh(new THREE.CircleGeometry(rotors.radius, 64).rotateX(-Math.PI / 2), this.rotorDiscMaterial));
+    for (let k = 0; k < rotors.blades; k++) {
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(rotors.radius - 0.2, 0.05, 0.35).translate(rotors.radius / 2 + 0.1, 0, 0), this.rotorBladeMaterial);
+      blade.rotation.y = (k * 2 * Math.PI) / rotors.blades;
+      this.rotor.add(blade);
+    }
+    this.rotor.position.set(rotors.hub.x, rotors.hub.y, rotors.hub.z);
+    this.object.add(this.rotor);
+    // The tail rotor, upright beside the fin: much faster, a blur with its blades in it.
+    const t = rotors.tail;
+    this.tailRotor = new THREE.Group();
+    this.tailRotor.add(new THREE.Mesh(new THREE.CircleGeometry(t.radius, 32).rotateY(Math.PI / 2), this.discMaterial));
+    for (let k = 0; k < t.blades; k++) {
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.03, t.radius - 0.05, 0.14).translate(0, t.radius / 2 + 0.03, 0), this.bladeMaterial);
+      blade.rotation.x = (k * 2 * Math.PI) / t.blades;
+      this.tailRotor.add(blade);
+    }
+    this.tailRotor.position.set(t.hub.x, t.hub.y, t.hub.z);
+    this.object.add(this.tailRotor);
   }
 
   private clear(): void {
     this.object.traverse((node) => (node as THREE.Mesh).geometry?.dispose());
     this.object.clear();
     this.props = [];
+    this.rotor = null;
+    this.tailRotor = null;
   }
 
   update(plane: Plane): void {
@@ -380,6 +493,9 @@ export class PlaneView {
     this.object.position.set(plane.pos.x, plane.pos.y, plane.pos.z);
     this.object.quaternion.set(plane.att.x, plane.att.y, plane.att.z, plane.att.w);
     for (const prop of this.props) prop.rotation.z = plane.prop;
+    // Clockwise seen from above; the tail rotor geared up from it.
+    if (this.rotor) this.rotor.rotation.y = -plane.prop;
+    if (this.tailRotor) this.tailRotor.rotation.x = plane.prop * plane.type.rotors!.tail.gear;
   }
 
   dispose(): void {
@@ -387,5 +503,7 @@ export class PlaneView {
     this.material.dispose();
     this.discMaterial.dispose();
     this.bladeMaterial.dispose();
+    this.rotorDiscMaterial.dispose();
+    this.rotorBladeMaterial.dispose();
   }
 }
