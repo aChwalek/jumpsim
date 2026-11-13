@@ -125,16 +125,19 @@ test('jump run goes into the wind by default, or on the heading chosen, beside t
 
 test('the jump plan is checked when read back, and the run follows the wind until a heading is chosen', () => {
   const setup = validSetup({ jump: { start: 'final', exitHeight: 9000, runDeg: -45 } });
-  expect(setup.jump).toEqual({ start: 'final', exitHeight: 4500, runDeg: 315, malfunction: 'none', exitSpot: 'low', aircraft: null });
+  expect(setup.jump).toEqual({ start: 'final', exitHeight: 4500, runDeg: 315, malfunction: 'sometimes', exitSpot: 'low', aircraft: null });
   expect(validSetup({ jump: { start: 'moon', exitHeight: 1234, malfunction: 'often' } }).jump).toEqual({
     start: 'plane',
     exitHeight: 1200,
     runDeg: null,
-    malfunction: 'none',
+    malfunction: 'sometimes',
     exitSpot: 'low',
     aircraft: null,
   });
   expect(validSetup({ jump: { malfunction: 'always' } }).jump.malfunction).toBe('always');
+  // Opening malfunctions are on unless turned off.
+  expect(defaultSetup().jump.malfunction).toBe('sometimes');
+  expect(validSetup({ jump: { malfunction: 'none' } }).jump.malfunction).toBe('none');
   const plan = defaultSetup();
   plan.weather.windFromDeg = 200;
   expect(runHeading(plan)).toBe(200);

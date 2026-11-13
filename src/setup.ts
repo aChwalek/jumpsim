@@ -190,7 +190,7 @@ export function defaultSetup(): Setup {
       helmetColor: DEFAULT_HELMET,
       suitColor: DEFAULT_SUIT,
     },
-    jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'none', exitSpot: 'low', aircraft: null },
+    jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'sometimes', exitSpot: 'low', aircraft: null },
     bots: { count: 0, mode: 'formation', lead: 'us' },
   };
 }

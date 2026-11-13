@@ -52,7 +52,8 @@ export function deployStage(jump: Jump | null, out: Pick<RigFrame, 'deploy' | 'd
   } else if (o.stage === 'bag') {
     // The pilot chute inflates and the bridle comes tight, then the bag lifts off.
     const lift = o.timing.throwOut + (reserve ? 0.15 : 0.45);
-    if (o.time < lift) {
+    // In tow, the bag never lifts off.
+    if (o.time < lift || o.towing) {
       out.deploy = 'tow';
       out.deployTime = o.time - o.timing.throwOut;
     } else {

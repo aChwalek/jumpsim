@@ -53,6 +53,7 @@ import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
 import { noBodyInputs, stepPosition, type BodyPosition } from './sim/freefall';
 import { Jump, type JumpOptions } from './sim/jump';
+import { MAIN_MALFUNCTIONS } from './sim/opening';
 import { detectTouchdown, feetHeight, worst, type Touchdown } from './sim/landing';
 import { engineHubs } from './sim/plane';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
@@ -624,7 +625,8 @@ function spawn(kind: Start): void {
   const unlucky = rate === 'always' || (rate === 'sometimes' && Math.random() < 1 / MALFUNCTION_ODDS);
   if (kind === 'plane') {
     windAt(env.wind, setup.weather, spots.plane.height, airTime);
-    const malfunction = unlucky ? 'streamer' : null;
+    // Any of what can go wrong with a main, as likely as each other.
+    const malfunction = unlucky ? MAIN_MALFUNCTIONS[Math.floor(Math.random() * MAIN_MALFUNCTIONS.length)]! : null;
     jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, {
       ...rigOptions(),
       malfunction,
@@ -1023,6 +1025,10 @@ updateSideways();
 resize();
 
 function simulate(seconds: number): void {
+  // Under line twists, every press of a toggle is a kick round that way.
+  const taps = devices.takeTaps();
+  for (let i = 0; i < taps.left; i++) jump?.kick(-1);
+  for (let i = 0; i < taps.right; i++) jump?.kick(1);
   let left = seconds;
   while (left > 1e-5 && !touchdown && !impact) {
     // Whole steps, then one short step so the sim lands exactly on the frame.
@@ -1041,6 +1047,18 @@ function simulate(seconds: number): void {
         hitWithoutCanopy(jump);
         return;
       }
+    }
+    if (!flying && jump?.handsOnToggles) {
+      // Hanging under the canopy as it opens: the toggles are in the hands
+      // already, short of wraps; the front risers wait.
+      rampControls(ramped, devices.pulls, dt);
+      ramped.frontL = ramped.frontR = 0;
+      applied.brakeL = Math.max(ramped.brakeL, devices.analogBrakeL);
+      applied.brakeR = Math.max(ramped.brakeR, devices.analogBrakeR);
+      applied.frontL = applied.frontR = 0;
+      Object.assign(hands, applied);
+      jump.holdStows(applied);
+      continue;
     }
     if (!flying && jump) {
       // The same keys move the body in freefall: the toggles wait, and the
@@ -1142,7 +1160,11 @@ function hitWithoutCanopy(j: Jump): void {
   s.vel.x = s.vel.y = s.vel.z = 0;
   land({ sink: speed, groundSpeed: 0, wet: false });
   if (j.struck) hud.showStrike(j.phase === 'opening' ? 'opening' : 'freefall', speed, j.log);
-  else hud.showImpact(j.log, j.phase === 'opening', speed, j.opening?.malfunction ?? null);
+  else {
+    // A slider brought down in time was not what went wrong: too low.
+    const o = j.opening;
+    hud.showImpact(j.log, j.phase === 'opening', speed, o && (o.malfunction !== 'sliderHang' || o.hung) ? o.malfunction : null);
+  }
   logThisJump('impact', speed, 0);
 }
 
@@ -1577,6 +1599,8 @@ function showReplay(f: ReplayFrame): void {
   Object.assign(s.pilotAtt, f.pilotAtt);
   model.deflationL = f.deflationL;
   model.deflationR = f.deflationR;
+  // The replay does not keep line twists: drawn untwisted.
+  s.twist = 0;
   rigView.setInflation(f.inflation);
   rigView.setArms(f.onRisers && !f.hasJoints);
   rigView.body.setPose(f.pose);
@@ -1973,6 +1997,27 @@ const keyOr = (code: string, onGlass: string): string => (devices.lastUsed === '
 /** Aboard a public room's load, out of the menu: the last seconds before it leaves. */
 const LOAD_CUE_S = 10;
 
+/** A toggle as the device in use pulls it: its key, the gamepad's trigger, or its side of the glass. */
+function pullKey(side: 'left' | 'right'): string {
+  if (devices.lastUsed === 'gamepad') return padIcon(side === 'left' ? 'lt' : 'rt', devices.padKind);
+  if (devices.lastUsed === 'touch') return `<kbd>${side === 'left' ? T.touch.toggleL : T.touch.toggleR}</kbd>`;
+  return `<kbd>${keyLabel(side === 'left' ? 'KeyA' : 'KeyD')}</kbd>`;
+}
+
+/**
+ * Line twists: how many turns are left, and the key to tap again and again
+ * to kick out of them (drawn going down and up), with an arrow going round
+ * the way they unwind.
+ */
+function twistCue(twist: number): string {
+  const turns = Math.abs(twist) / (2 * Math.PI);
+  // Turned to the right under the lines: out of them to the left.
+  const side = twist > 0 ? 'left' : 'right';
+  const key = pullKey(side);
+  const spin = `<span class="spin ${side}">${side === 'left' ? '↺' : '↻'}</span>`;
+  return `${T.cue.lineTwists(turns, num(turns, 1))}<span class="tapping">${spin}${key}</span><small>${T.cue.kickOut}</small>`;
+}
+
 /** What the HUD says to do next. */
 function cue(): string {
   if (flash && performance.now() < flash.until) return flash.text;
@@ -1981,7 +2026,8 @@ function cue(): string {
     if (left <= LOAD_CUE_S) return `${T.cue.loadIn(left)}<small>${T.cue.loadAboard}</small>`;
   }
   const fingers = devices.lastUsed === 'touch';
-  const mainOut = jump !== null && jump.canopy === 'main' && (jump.phase === 'canopy' || (jump.phase === 'opening' && jump.inflation !== null));
+  const mainOut =
+    jump !== null && jump.canopy === 'main' && (jump.phase === 'canopy' || (jump.phase === 'opening' && (jump.inflation !== null || jump.towing)));
   if (devices.cutawayHeld > 0 && (mainOut || !jump) && !touchdown && !arrival && singleCanopy()) {
     // One canopy and nothing under it: a BASE container has no cutaway handle.
     return `${T.cue.noCutaway}<small>${T.cue.oneCanopy}</small>`;
@@ -1995,8 +2041,26 @@ function cue(): string {
     return `${c.mainReleased}<small>${setup.gear.rsl ? c.rslPulls : c.pullReserve}</small>`;
   }
   const o = jump.opening;
+  const cutaway = c.holdToCutaway(keyOr('KeyX', T.touch.cutaway.toUpperCase()));
   if (jump.phase === 'opening' && o?.malfunction === 'streamer' && o.stage === 'inflation' && o.time > o.timing.lineStretch + 1.2) {
-    return `${c.streamer}<small>${c.holdToCutaway(keyOr('KeyX', T.touch.cutaway.toUpperCase()))}</small>`;
+    return `${c.streamer}<small>${cutaway}</small>`;
+  }
+  if (jump.towing && o && o.time > o.timing.lineStretch + 0.8) {
+    return `${c.noOpening}<small>${singleCanopy() ? c.oneCanopy : cutaway}</small>`;
+  }
+  if (jump.sliderHung && o && o.time > o.timing.lineStretch + 1.2) {
+    const pumped = o.pumps > 0 ? ` (${o.pumps})` : '';
+    return `${c.sliderHang}<small>${c.pumpToggles(keyOr('KeyS', T.touch.bothToggles))}${pumped} · ${c.elseCutaway(keyOr('KeyX', T.touch.cutaway.toUpperCase()))}</small>`;
+  }
+  if (jump.twisted && jump.canopy === 'main' && !touchdown) return twistCue(model.state.twist);
+  const fired = jump.canopy === 'main' && jump.log.malfunction === 'brakeFire' && jump.stowedL !== jump.stowedR;
+  if (fired && (jump.phase === 'canopy' || jump.handsOnToggles) && !touchdown) {
+    // The one still stowed turns the canopy: freeing it stops the turn.
+    const key = pullKey(jump.stowedL ? 'left' : 'right');
+    return `${c.brakeFire(jump.stowedL)}<small>${c.freeTheOther(key)}</small>`;
+  }
+  if (jump.phase === 'canopy' && jump.canopy === 'main' && jump.log.malfunction === 'lineover' && !touchdown) {
+    return `${c.lineover}<small>${cutaway}</small>`;
   }
   if (jump.phase === 'plane' && jump.walk) {
     const exit = c.exitIn[jump.body.position];
@@ -2373,7 +2437,8 @@ function frame(now: number): void {
   const airspeed = air.length();
   air.applyQuaternion(unlook.copy(camera.quaternion).invert());
   // The slider is most of the flapping: much less of it collapsed, none once off.
-  const streamer = !wf && jump?.phase === 'opening' && jump.opening?.malfunction === 'streamer' && inflation !== null;
+  // A canopy that never fills, a streamer or one held in by its slider, flaps all the louder.
+  const streamer = !wf && jump?.phase === 'opening' && inflation !== null && (jump.opening?.malfunction === 'streamer' || jump.sliderHung);
   const slider = wf ? wf.slider : sliderState;
   const flapping = slider === 'open' || (wf ? wf.reserve : rigView.canopy.reserve) ? 1 : slider === 'collapsed' ? 0.35 : 0.15;
   sound.update({

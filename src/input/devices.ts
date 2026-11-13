@@ -209,6 +209,14 @@ export class InputDevices {
   zoom = 1;
   /** How long the cutaway has been held, 0 to 1 once it goes. */
   cutawayHeld = 0;
+  /**
+   * Presses of the left and right toggle (key, trigger or the glass) not yet taken:
+   * counted as they come, so that a quick tap between two frames is not lost.
+   */
+  private tapsL = 0;
+  private tapsR = 0;
+  private triggerL = false;
+  private triggerR = false;
   /** A mouse button held to look closer: the right one, or the left once the mouse is captured. */
   magnify = false;
   /** Multiplies how far the mouse turns the head: less while looking closer. */
@@ -253,6 +261,8 @@ export class InputDevices {
       if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
       this.lastUsed = 'keyboard';
       this.keys.add(e.code);
+      if (e.code === 'KeyA') this.tapsL++;
+      if (e.code === 'KeyD') this.tapsR++;
       const action = e.code === 'Tab' && e.shiftKey ? 'prevTarget' : ACTIONS[e.code];
       if (action) this.onAction(action);
     });
@@ -343,6 +353,13 @@ export class InputDevices {
     const yaw = this.feetYaw;
     this.feetYaw = 0;
     return yaw;
+  }
+
+  /** The presses of each toggle since the last time, and none from then on. */
+  takeTaps(): { left: number; right: number } {
+    const taps = { left: this.tapsL, right: this.tapsR };
+    this.tapsL = this.tapsR = 0;
+    return taps;
   }
 
   /** Read the current state of every device. Call once per frame. */
@@ -457,6 +474,11 @@ export class InputDevices {
     touch.update(dt);
     this.analogBrakeL = Math.max(this.analogBrakeL, touch.brakeL);
     this.analogBrakeR = Math.max(this.analogBrakeR, touch.brakeR);
+    // A trigger or a toggle on the glass pulled past half way is a press, as a key is.
+    if (this.analogBrakeL > 0.5 && !this.triggerL) this.tapsL++;
+    if (this.analogBrakeR > 0.5 && !this.triggerR) this.tapsR++;
+    this.triggerL = this.analogBrakeL > 0.5;
+    this.triggerR = this.analogBrakeR > 0.5;
     p.frontL ||= touch.frontL;
     p.frontR ||= touch.frontR;
     b.forward = clamp(b.forward + touch.moveY, -1, 1);

@@ -45,20 +45,70 @@ export const RESERVE_HANDLE_OPENING: OpeningTiming = { throwOut: 0.25, lineStret
 export const BASE_OPENING: OpeningTiming = { throwOut: 0.3, lineStretch: 1.2, swing: 0.6, inflation: 1.7 };
 
 /**
- * What can go wrong with a main as it comes out. A streamer ("torche"): the
- * canopy leaves the bag but never fills, and trails overhead flapping. It
- * slows the fall to some 90 km/h, too slow for the AAD and far too fast to
- * land: the only way out is to cut it away and pull the reserve. An
- * off-heading opening: the canopy flies, but facing nearly the other way,
+ * What can go wrong with a main as it comes out.
+ *
+ * A streamer ("torche"): the canopy leaves the bag but never fills, and
+ * trails overhead flapping. It slows the fall to some 90 km/h, too slow for
+ * the AAD and far too fast to land: the only way out is to cut it away and
+ * pull the reserve.
+ *
+ * Line twists ("torsades"): the canopy opens, but its lines are wound round
+ * each other over the risers. The pilot spins back round under it until they
+ * are out, and cannot get at the toggles meanwhile.
+ *
+ * A lineover ("coiffante"): a line has gone over the top of the canopy and
+ * pinches one half in. It opens into a spiral that the other toggle barely
+ * holds, coming down far too fast: cut it away.
+ *
+ * A slider hang-up ("glisseur haut"): the slider stays up against the
+ * canopy, which never spreads out underneath it. Pumping both toggles may
+ * bring it down; if it does not, cut it away.
+ *
+ * No opening ("pas d'ouverture"), here a pilot chute in tow: it is out and
+ * towing, but the bag stays shut in the container. The fall barely slows:
+ * cut away, and the reserve.
+ *
+ * A brake fire ("commande qui saute"): one toggle comes out of its stow as
+ * the canopy opens, the other stays stowed, and the canopy turns that way.
+ * Freeing the other one stops it.
+ *
+ * An off-heading opening: the canopy flies, but facing nearly the other way,
  * which off a BASE object is back towards the wall.
  */
-export type Malfunction = 'streamer' | 'offHeading';
+export type Malfunction = 'streamer' | 'lineTwists' | 'lineover' | 'sliderHang' | 'noOpening' | 'brakeFire' | 'offHeading';
+/** What a main out of a skydiving container can do. */
+export const MAIN_MALFUNCTIONS: readonly Malfunction[] = ['streamer', 'lineTwists', 'lineover', 'sliderHang', 'noOpening', 'brakeFire'];
+
+/** How a malfunction goes this time. */
+export interface MalfunctionDetail {
+  /** Line twists: how far the lines are wound, rad, positive with the pilot turned to the right. */
+  twist: number;
+  /** A slider hang-up that no pumping brings down. */
+  stuck: boolean;
+}
+
 /** How far a streamer gets, as a fraction of the inflation. */
 const STREAMER_INFLATION = 0.16;
 /** Drag area of a streamer, per m² of canopy. */
 const STREAMER_AREA = 0.16;
 /** A streamer turns slowly about the airflow, rad/s. */
 const STREAMER_SPIN = 0.9;
+/** How far a canopy held in by its slider gets, as a fraction of the inflation: the middle cells full, not the tips. */
+const SLIDER_HANG_INFLATION = 0.3;
+/** Drag area of a canopy held in by its slider, per m² of canopy. */
+const SLIDER_HANG_AREA = 0.25;
+/** Full pumps of both toggles that bring a hung slider down, when it will come. */
+export const SLIDER_PUMPS = 2;
+/**
+ * How fast a canopy turns on its toggles once it flies, degrees a second, for
+ * the difference between them: as the flight model turns, 19°/s for a stowed
+ * brake against none, 120°/s for a toggle all the way down against none.
+ */
+const TURN_RATE = 120;
+const TURN_POWER = 1.6;
+/** Both toggles count as down past this, and as back up below that, of their travel. */
+const PUMP_DOWN = 0.75;
+const PUMP_UP = 0.3;
 
 /** Drag area of a pilot chute in tow, m²: a 36-inch one, partly in the wake of the back. */
 const PILOT_CHUTE = 0.35;
@@ -148,6 +198,20 @@ export class Opening {
   private readonly ahead = vec3();
   private readonly spin = quat();
   private startArea = 0;
+  /** How long the canopy has had to fill since line stretch, s: no longer than its slider lets it. */
+  private filled = 0;
+  /** Line twists: how far the lines are wound, rad; and the pilot turned that far under the canopy, short of whole turns. */
+  private readonly twist: number;
+  private readonly twistTurn = quat();
+  private readonly twisted = quat();
+  /** A hung slider: brought down at last, or not; pumps of the toggles so far, and whether they are down now. */
+  private sliderDown = false;
+  pumps = 0;
+  private pumpedDown = false;
+  private readonly stuck: boolean;
+  /** The toggles as the lines pull them, 0 to 1: the stows until the hands take them. */
+  private brakeL = STOWED_BRAKE;
+  private brakeR = STOWED_BRAKE;
 
   /**
    * `offHeadingDeg`: canopies seldom open exactly where the pilot faced;
@@ -160,10 +224,47 @@ export class Opening {
     private readonly offHeadingDeg = 0,
     /** Goes wrong this way, or opens. */
     readonly malfunction: Malfunction | null = null,
-  ) {}
+    detail: Partial<MalfunctionDetail> = {},
+  ) {
+    this.twist = malfunction === 'lineTwists' ? (detail.twist ?? 2 * 2 * Math.PI) : 0;
+    this.stuck = detail.stuck ?? false;
+    // Under whole turns of twists the pilot faces the canopy's way; the rest of a turn shows.
+    const shown = this.twist - 2 * Math.PI * Math.round(this.twist / (2 * Math.PI));
+    quatFromYaw(this.twistTurn, -shown);
+  }
 
   get done(): boolean {
     return this.stage === 'open';
+  }
+
+  /** The slider is stuck up against the canopy, holding it in. */
+  get hung(): boolean {
+    return this.malfunction === 'sliderHang' && !this.sliderDown;
+  }
+
+  /** The pilot chute is out and towing, and the bag will never leave the container. */
+  get towing(): boolean {
+    return this.malfunction === 'noOpening';
+  }
+
+  /** The toggles as the lines pull them (stows included), every step: the canopy turns on them as it opens. */
+  steer(brakeL: number, brakeR: number): void {
+    this.brakeL = Math.min(1, brakeL);
+    this.brakeR = Math.min(1, brakeR);
+  }
+
+  /**
+   * Both toggles, from 0 (hands up) to 1 (all the way down), every step:
+   * pumped down and up again, they may bring a hung slider down the lines.
+   */
+  pump(both: number): void {
+    if (!this.hung || this.stage !== 'inflation') return;
+    if (!this.pumpedDown && both > PUMP_DOWN) this.pumpedDown = true;
+    else if (this.pumpedDown && both < PUMP_UP) {
+      this.pumpedDown = false;
+      this.pumps++;
+      if (!this.stuck && this.pumps >= SLIDER_PUMPS) this.sliderDown = true;
+    }
   }
 
   step(dt: number, env: Environment): void {
@@ -173,7 +274,7 @@ export class Opening {
     const body = this.body;
     const s = this.model.state;
 
-    if (t < timing.lineStretch) {
+    if (t < timing.lineStretch || this.towing) {
       // Still falling on the belly, with the pilot chute dragging behind once out.
       this.stage = t < timing.throwOut ? 'throw' : 'bag';
       const drogue = PILOT_CHUTE * ease((t - timing.throwOut) / 0.3);
@@ -191,11 +292,23 @@ export class Opening {
 
     if (this.stage !== 'inflation') this.lineStretch(env);
     const since = t - timing.lineStretch;
+    // A slider stuck up holds the canopy in: it fills no further until it comes down.
+    this.filled = Math.min(this.filled + dt, this.hung ? SLIDER_HANG_INFLATION * timing.inflation : Infinity);
     const streamer = this.malfunction === 'streamer';
-    const tau = Math.min(streamer ? STREAMER_INFLATION : 1, since / timing.inflation);
+    const tau = Math.min(streamer ? STREAMER_INFLATION : 1, this.filled / timing.inflation);
     const rig = this.model.rig;
     const mass = rig.gravMass;
-    const target = trimmedFlight(rig, this.headingDeg, env, STOWED_BRAKE, this.target);
+    // Once it starts to fly, it turns on its toggles.
+    const flying = streamer ? 0 : ease((tau - SURGE) / (1 - SURGE));
+    const pull = this.brakeR - this.brakeL;
+    if (pull !== 0 && flying > 0) {
+      const heading = this.headingDeg + Math.sign(pull) * TURN_RATE * Math.abs(pull) ** TURN_POWER * flying * dt;
+      this.headingDeg = ((heading % 360) + 360) % 360;
+      const h = this.headingDeg * DEG;
+      set(this.ahead, Math.sin(h), 0, -Math.cos(h));
+    }
+    const brake = (this.brakeL + this.brakeR) / 2;
+    const target = trimmedFlight(rig, this.headingDeg, env, brake, this.target);
 
     // The force the canopy ends with carries the weight at its flying speed,
     // tilted forward off the airflow by its glide angle.
@@ -204,9 +317,13 @@ export class Opening {
     const az = target.vel.z - env.wind.z;
     const openArea = (2 * mass * GRAVITY) / (env.airDensity * (ax * ax + ay * ay + az * az));
     const glide = Math.atan2(-ay, Math.hypot(ax, az));
+    const fill = this.startArea + (openArea - this.startArea) * tau ** GROWTH;
     const area = streamer
       ? this.startArea + (STREAMER_AREA * rig.area - this.startArea) * ease(since / 1.2)
-      : this.startArea + (openArea - this.startArea) * tau ** GROWTH;
+      : this.malfunction === 'sliderHang'
+        ? // Held in, it drags like a canopy a quarter its size, until it fills past that once the slider is down.
+          Math.max(fill, this.startArea + (SLIDER_HANG_AREA * rig.area - this.startArea) * ease(since / 1.2))
+        : fill;
     // Through the air: flow is where the air goes past the pilot.
     const ux = env.wind.x - s.vel.x;
     const uy = env.wind.y - s.vel.y;
@@ -224,7 +341,7 @@ export class Opening {
     ly /= ln;
     lz /= ln;
     // From pure drag at line stretch to the trim's lift over drag once flying.
-    const turn = streamer ? 0 : (Math.PI / 2 - glide) * ease((tau - SURGE) / (1 - SURGE));
+    const turn = (Math.PI / 2 - glide) * flying;
     const q = 0.5 * env.airDensity * speed * speed * area;
     const drag = (q * Math.cos(turn)) / (mass * speed);
     const lift = (q * Math.sin(turn)) / mass;
@@ -238,7 +355,7 @@ export class Opening {
     // Once fully open it settles onto the steady glide by itself; a gentle
     // pull keeps the small difference between this and the flight model
     // from lasting.
-    const blend = streamer ? 0 : 1 - Math.exp(-SETTLE * ease((since / timing.inflation - 1) / 0.3) * dt);
+    const blend = streamer ? 0 : 1 - Math.exp(-SETTLE * ease((this.filled / timing.inflation - 1) / 0.3) * dt);
     s.vel.x += (target.vel.x - s.vel.x) * blend;
     s.vel.y += (target.vel.y - s.vel.y) * blend;
     s.vel.z += (target.vel.z - s.vel.z) * blend;
@@ -247,7 +364,9 @@ export class Opening {
     s.pos.z += s.vel.z * dt;
 
     this.hang = ease(since / timing.swing);
-    quatSlerp(s.pilotAtt, this.pilot0, target.pilotAtt, this.hang);
+    // Twisted lines turn the pilot round as they come tight.
+    const hanging = this.twist !== 0 ? quatMultiply(this.twisted, this.twistTurn, target.pilotAtt) : target.pilotAtt;
+    quatSlerp(s.pilotAtt, this.pilot0, hanging, this.hang);
     quatSlerp(s.att, this.canopy0, target.att, ease(tau ** 0.7));
     this.inflation = tau;
     if (streamer) {
@@ -260,8 +379,14 @@ export class Opening {
 
     // The flight model takes over once flying steadily enough not to notice.
     const off = Math.hypot(s.vel.x - target.vel.x, s.vel.y - target.vel.y, s.vel.z - target.vel.z);
-    if ((tau >= 1 && off < 0.5) || since > 2 * timing.inflation) {
-      initTrimmed(this.model, s.pos, this.headingDeg, env, STOWED_BRAKE);
+    // Turning on its toggles it never settles on a straight glide: the flight model takes the turn over.
+    if ((tau >= 1 && (off < 0.5 || Math.abs(pull) > 0.05)) || this.filled > 2 * timing.inflation) {
+      initTrimmed(this.model, s.pos, this.headingDeg, env, brake);
+      if (this.twist !== 0) {
+        // Still wound up: the flight model turns the pilot back out of it.
+        quatMultiply(s.pilotAtt, this.twistTurn, s.pilotAtt);
+        s.twist = this.twist;
+      }
       this.stage = 'open';
       this.hang = 1;
     }
@@ -285,5 +410,8 @@ export class Opening {
     attitudeFrom(this.canopy0, this.flow, this.ahead);
     this.startArea = this.body.params.bellyArea + PILOT_CHUTE + BAG;
     set(s.vel, b.vel.x, b.vel.y, b.vel.z);
+    this.filled = 0;
+    // For the lines as drawn: wound up from the start.
+    s.twist = this.twist;
   }
 }
