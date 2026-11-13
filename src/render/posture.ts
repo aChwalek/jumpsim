@@ -156,17 +156,17 @@ function box(p: Pose, input: BodyInputs): void {
   p.lean = p.bow = 0;
   // Arched hard to go down, flattened out to go up.
   p.hipL = p.hipR = -0.28 + 0.1 * back - 0.12 * down + 0.3 * up;
-  // Legs out to go forward or up, tucked to back up.
-  p.kneeL = p.kneeR = 1.25 - 0.75 * forward + 0.3 * back - 0.4 * up + 0.15 * down;
-  p.spread = 0.32 + 0.1 * up - 0.12 * down;
-  // Arms in to go forward, reaching out ahead to back up, swept back to go
-  // down; the low hand turns.
-  const reach = 0.24 - 0.14 * forward + 0.2 * back + 0.06 * up - 0.2 * down;
-  const span = 0.44 + 0.06 * up - 0.1 * down;
+  // Legs straight out to go forward, out to go up, tucked to back up.
+  p.kneeL = p.kneeR = Math.max(0.12, 1.25 - 1.1 * forward + 0.3 * back - 0.4 * up + 0.15 * down);
+  p.spread = 0.32 - 0.1 * forward + 0.1 * up - 0.12 * down;
+  // Arms swept back behind the shoulders to go forward, reaching out ahead
+  // to back up, swept back a little to go down; the low hand turns.
+  const reach = 0.24 - 0.56 * forward + 0.2 * back + 0.06 * up - 0.2 * down;
+  const span = 0.44 - 0.08 * forward + 0.06 * up - 0.1 * down;
   const dip = 0.13 * input.turn;
   const shift = 0.05 * input.slide;
-  p.handL.set(-span + shift, reach, 0.07 + dip);
-  p.handR.set(span + shift, reach, 0.07 - dip);
+  p.handL.set(-span + shift, reach, 0.07 + 0.08 * forward + dip);
+  p.handR.set(span + shift, reach, 0.07 + 0.08 * forward - dip);
   p.elbowL.set(-1, -0.25, 0.5);
   p.elbowR.set(1, -0.25, 0.5);
 }
@@ -202,7 +202,8 @@ function sit(p: Pose, input: BodyInputs): void {
   p.spread = 0.35 + 0.15 * up - 0.2 * down;
   const span = 0.5 + 0.08 * up + 0.06 * down;
   const height = -0.32 + 0.06 * up + 0.26 * down;
-  const reach = -0.12 + 0.04 * forward - 0.08 * back;
+  // The arms go back behind the body to go forward, out in front to back up.
+  const reach = -0.12 + 0.4 * forward - 0.08 * back;
   // The low hand turns.
   const dip = 0.08 * input.turn;
   const shift = 0.05 * input.slide;
@@ -213,18 +214,19 @@ function sit(p: Pose, input: BodyInputs): void {
 }
 
 function headDown(p: Pose, input: BodyInputs): void {
-  // Upside down and straight, legs up a little apart with soft knees, arms
-  // out level with the shoulders.
+  // Upside down in a daffy: one leg out in front and the other behind,
+  // knees bent, as in a stride; arms out level with the shoulders.
   const { forward, back, up, down } = drives(input);
   p.lean = p.bow = 0;
-  // Legs back to go forward, a slight pike to back up. To go up, a daffy:
-  // one leg out in front and the other behind, knees bent, as in a stride.
-  const hips = 0.1 - 0.15 * forward + 0.25 * back;
-  p.hipL = hips + 0.75 * up;
-  p.hipR = hips - 0.6 * up;
-  p.kneeL = 0.3 + 0.35 * up - 0.15 * down;
-  p.kneeR = 0.3 + 0.65 * up - 0.15 * down;
-  p.spread = 0.2 + 0.05 * up - 0.15 * down;
+  // The stride opens wider to go up. It closes to go down, the legs straight
+  // and together; and to go forward, the legs together curved back a little.
+  const stride = Math.max(0, 1 + 0.45 * up - down - forward);
+  const hips = -0.2 * forward + 0.25 * back;
+  p.hipL = hips + 0.6 * stride;
+  p.hipR = hips - 0.45 * stride;
+  p.kneeL = 0.15 + 0.35 * stride + 0.4 * forward;
+  p.kneeR = 0.15 + 0.6 * stride + 0.4 * forward;
+  p.spread = 0.1 + 0.05 * up - 0.04 * down;
   // Arms in along the body to dive faster.
   const span = 0.56 + 0.06 * up - 0.26 * down;
   const height = -0.16 - 0.16 * down;
