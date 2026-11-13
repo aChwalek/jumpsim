@@ -1007,6 +1007,8 @@ function simulate(seconds: number): void {
     updateWind();
     const flying = !jump || jump.phase === 'canopy';
     if (jump) {
+      // On trial: the arrows swing the body round little by little. Not a wingsuit, which only flies flat.
+      jump.body.progressive = settings.progressiveFly && !jump.wings;
       jump.trackIt(devices.tracking);
       // A track the gamepad turned on ends with the freefall, or at the pull.
       if (!jump.body.tracking) devices.padTrack = false;
@@ -1875,6 +1877,10 @@ function chaseFraming(): ChaseTarget {
 function flying(j: Jump): { name: string; glide: string } {
   const c = T.cue;
   const b = j.body;
+  if (b.progressive) {
+    const v = b.state.vel;
+    return { name: c.zones[b.zone], glide: b.track < 0.8 ? '' : c.glide(num(Math.hypot(v.x, v.z) / Math.max(1, -v.y), 1)) };
+  }
   if (!b.tracking) return { name: c.positions[b.position], glide: '' };
   if (j.wings && b.track < 0.8) return { name: c.wingsFilling, glide: '' };
   const name = (j.wings ? c.wingsuit : c.tracks)[b.position];
@@ -1891,7 +1897,8 @@ function keysPhase(): KeysPhase | null {
   if (!jump || jump.phase === 'canopy' || jump.phase === 'opening') return singleCanopy() ? 'baseCanopy' : 'canopy';
   if (jump.phase === 'standing') return 'ledge';
   if (jump.phase === 'plane') return 'plane';
-  return jump.wings && jump.cutawayAt === null ? 'wingsuit' : 'freefall';
+  if (jump.wings && jump.cutawayAt === null) return 'wingsuit';
+  return jump.body.progressive ? 'freefallProgressive' : 'freefall';
 }
 
 /** Aboard a public room's load, out of the menu: the last seconds before it leaves. */

@@ -1409,6 +1409,9 @@ export class Menu {
       this.choice<boolean>(t.invertLook, yesNo(), () => s.invertLook, (invertLook) => this.setSettings({ invertLook }), {
         hint: t.invertLookHint,
       }),
+      this.choice<boolean>(t.progressiveFly, yesNo(), () => s.progressiveFly, (progressiveFly) => this.setSettings({ progressiveFly }), {
+        note: () => t.progressiveFlyNote,
+      }),
       h('h3', 'section', t.keys),
       this.nav.add(this.controlsTable()),
     );
