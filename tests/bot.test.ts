@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from 'vitest';
 import { airDensityAt } from '../src/sim/atmosphere';
-import { Bot, type BotLead, SLOT_SPACING, botHeights, botSpot, roundRadius, type BotMode, type Lead } from '../src/sim/bot';
+import { Bot, type BotLead, SLOT_SPACING, botHeights, bumpBots, botSpot, roundRadius, type BotMode, type Lead } from '../src/sim/bot';
 import { FlightModel, neutralControls, type Environment } from '../src/sim/flightModel';
 import { noBodyInputs, type BodyInputs } from '../src/sim/freefall';
 import { Jump } from '../src/sim/jump';
@@ -11,6 +11,7 @@ import { DEFAULT_RIG, deriveRig, reserveConfig } from '../src/sim/rig';
 import { SIM_DT } from '../src/sim/telemetry';
 import { validSetup } from '../src/setup';
 import type { Suit } from '../src/sim/suit';
+import { BODY_RADIUS, STUN_FROM } from '../src/sim/midair';
 import { vec3 } from '../src/sim/vec';
 
 const flat = () => 0;
@@ -18,6 +19,9 @@ const rig = deriveRig(DEFAULT_RIG);
 const reserve = deriveRig(reserveConfig(DEFAULT_RIG.exitWeightKg));
 const run = { x: 0, z: 0, height: 4000, headingDeg: 0, indicatedAirspeed: 40 };
 const FRAME = 1 / 60;
+
+/** Blows between bots hard enough to throw one into a tumble, over the last `fly`. */
+let knocks = 0;
 
 /** A jump with `n` bots, we with `input` held all the way and pulling at 900 m; `each` is called every frame. */
 function fly(mode: BotMode, n: number, each: (t: number, us: FlightModel, bots: Bot[], jump: Jump) => void, input: BodyInputs = noBodyInputs(), windX = 0, suit?: Suit, lead?: BotLead) {
@@ -30,6 +34,7 @@ function fly(mode: BotMode, n: number, each: (t: number, us: FlightModel, bots: 
   const bots = Array.from({ length: n }, (_, index) => new Bot(rig, env, { index, of: n, mode, run, spot: 'low', landing, groundAt: flat, options: { reserve, rsl: true, suit }, random, lead }));
   const air: Environment = { wind: env.wind, airDensity: env.airDensity };
   let down = false;
+  knocks = 0;
   for (let i = 0; i < 600 / FRAME && !bots.every((b) => b.touchdown); i++) {
     const us: Lead = { pos: model.state.pos, vel: model.state.vel, out: jump.phase !== 'plane', falling: jump.phase === 'freefall', headingDeg: jump.headingDeg(), position: jump.body.position };
     const leader = bots.find((b) => b.leads) ?? null;
@@ -37,6 +42,8 @@ function fly(mode: BotMode, n: number, each: (t: number, us: FlightModel, bots: 
       air.airDensity = airDensityAt(b.model.state.pos.y);
       b.step(FRAME, air, us, leader && b !== leader ? leader.lead : null);
     }
+    // As in the game: they run into each other.
+    for (const [i, a] of bots.entries()) for (const b of bots.slice(i + 1)) if ((bumpBots(a, b, FRAME) ?? 0) >= STUN_FROM) knocks++;
     if (i === 60) jump.act();
     if (jump.phase === 'freefall' && jump.height() < 900) jump.act();
     for (let k = 0; k < FRAME / SIM_DT && !down; k++) {
@@ -253,5 +260,38 @@ describe('bots', () => {
     expect(validSetup({ bots: { count: 3, mode: 'track' } }).bots).toEqual({ count: 3, mode: 'track', lead: 'us' });
     expect(validSetup({ bots: { count: 99, mode: 'swarm' } }).bots).toEqual({ count: 4, mode: 'formation', lead: 'us' });
     expect(validSetup({ bots: { count: 2, mode: 'vertical', lead: 'bot' } }).bots).toEqual({ count: 2, mode: 'vertical', lead: 'bot' });
+  });
+
+  test('in the air they run into each other: apart, both limp from a hard blow, what one loses the other gains', () => {
+    let closing: number | null = null;
+    fly('formation', 2, (t, _, [a, b]) => {
+      if (closing !== null || t < 20 || a!.inAir !== 'falling' || b!.inAir !== 'falling') return;
+      const at = (bot: Bot) => bot.model.pilotPoint(vec3(), bot.model.rig.pilotPos);
+      const pa = at(a!);
+      const pb = at(b!);
+      const va = a!.model.state.vel;
+      const vb = b!.model.state.vel;
+      // B put just beside A, coming at it at 10 m/s.
+      b!.jump.bump(vec3(pa.x - pb.x + 0.6, pa.y - pb.y, pa.z - pb.z), vec3(va.x - vb.x - 10, va.y - vb.y, va.z - vb.z));
+      const sum = { x: va.x + vb.x, y: va.y + vb.y, z: va.z + vb.z };
+      closing = bumpBots(a!, b!, 0);
+      expect(closing).toBeCloseTo(10);
+      expect(a!.jump.stunned).toBe(true);
+      expect(b!.jump.stunned).toBe(true);
+      // Out of each other, going apart, and as much speed between them as before.
+      expect(at(b!).x - at(a!).x).toBeCloseTo(2 * BODY_RADIUS);
+      expect(vb.x - va.x).toBeGreaterThan(0);
+      expect(va.x + vb.x).toBeCloseTo(sum.x);
+      expect(va.y + vb.y).toBeCloseTo(sum.y);
+      expect(va.z + vb.z).toBeCloseTo(sum.z);
+    });
+    expect(closing).not.toBeNull();
+  });
+
+  test('flown as they mean to, they do not knock each other into a tumble', () => {
+    for (const mode of ['formation', 'vertical', 'track'] as const) {
+      fly(mode, 6, () => {});
+      expect(knocks, mode).toBe(0);
+    }
   });
 });
