@@ -16,6 +16,7 @@ import type { Controls } from '../sim/flightModel';
 import type { RigParams } from '../sim/rig';
 import { RING, SHOULDER } from './body';
 import { Deployment } from './deployment';
+import { suspensionLines } from './lines';
 import { DEFAULT_SUIT, OUTFIT_COLORS } from './outfit';
 import { GEAR_LAYER, type Lighting } from './scene';
 
@@ -312,9 +313,7 @@ export class CanopyView {
     }
     this.linesGeometry = new THREE.BufferGeometry();
     this.linesGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.lines.length * PIECES * 6), 3));
-    const lineMesh = new THREE.LineSegments(this.linesGeometry, new THREE.LineBasicMaterial({ color: 0x1c1c1c }));
-    lineMesh.frustumCulled = false;
-    this.object.add(lineMesh);
+    this.object.add(suspensionLines(this.linesGeometry, light.fabric));
 
     // The slider: a square of fabric on the four line groups.
     this.slider = new THREE.BufferGeometry();
@@ -380,7 +379,7 @@ export class CanopyView {
 
     // The pilot chute in the darkest colour of the canopy, as most come.
     const darkest = palette.reduce((a, b) => (new THREE.Color(a).getHSL({ h: 0, s: 0, l: 0 }).l <= new THREE.Color(b).getHSL({ h: 0, s: 0, l: 0 }).l ? a : b));
-    this.deployment = new Deployment(reserve, reserve ? 0xe8e8e2 : darkest);
+    this.deployment = new Deployment(reserve, reserve ? 0xe8e8e2 : darkest, light.fabric);
 
     // Line lengths: what they measure flying, slider down, hands up.
     this.measureLines();
