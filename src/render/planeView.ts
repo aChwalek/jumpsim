@@ -1,5 +1,5 @@
 // The jump plane, as seen from its door and from below once out: a Pilatus
-// PC-6 Porter or a Dornier Do 28 G92, built from boxes at true size. The
+// PC-6 Porter, a Dornier Do 28 G92 or a C-130 Hercules, built from boxes at true size. The
 // cabin is open on the door's side behind the wing, and lined inside, since
 // the jumper starts in it, in that doorway or on the step under it.
 
@@ -16,6 +16,11 @@ const GLASS = 0x1b2530;
 const METAL = 0x6d7278;
 const TYRE = 0x1a1a1a;
 const RED = 0xc8202a;
+const GREY = 0x7d848a;
+const GREY_DARK = 0x60666c;
+const WEBBING = 0x8a2f27;
+const YELLOW = 0xd9b324;
+const GREEN_LIGHT = 0x3be05a;
 
 function tint(geometry: THREE.BufferGeometry, hex: number): THREE.BufferGeometry {
   const g = geometry.index ? geometry.toNonIndexed() : geometry;
@@ -240,9 +245,91 @@ function buildDornier(a: Aircraft): THREE.BufferGeometry[] {
   return parts;
 }
 
-const BUILD: Record<AircraftId, (a: Aircraft) => THREE.BufferGeometry[]> = { pc6: buildPorter, do28: buildDornier };
+/** One half of a wing out along +x (`side` 1) or -x, from the root to the tip, its chord along z. */
+function wingHalf(side: 1 | -1, span: number, root: { w: number; y0: number; y1: number }, tip: { w: number; y0: number; y1: number }, z: number, hex: number) {
+  // Built along z, then turned a quarter round to lie along x.
+  return taper(0, root, span, tip, hex)
+    .rotateY((side * Math.PI) / 2)
+    .translate(0, 0, z);
+}
+
+/**
+ * The Lockheed C-130 Hercules: a deep box of a hold under a high wing with
+ * four turboprops, the ramp at the back lowered level with the floor and the
+ * cargo door up into the upswept tail, so the back of the hold is open. In
+ * grey, the hold lined, its seats folded up against the walls, the green light
+ * over the hinge of the ramp.
+ */
+function buildHercules(a: Aircraft): THREE.BufferGeometry[] {
+  const { halfWidth: w, height: h } = a.cabin;
+  const r = a.ramp!;
+  const W = w + 0.6;
+  const belly = -1.2;
+  const roof = h + 0.5;
+  const parts: THREE.BufferGeometry[] = [];
+
+  // The floor of the hold, its rails, and the ramp with its treads and a yellow edge.
+  parts.push(slab(-w, w, -0.06, 0, r.front, r.hinge, FLOOR));
+  for (const x of [-0.85, 0.85]) parts.push(slab(x - 0.06, x + 0.06, 0, 0.015, r.front, r.end - 0.2, METAL));
+  parts.push(slab(-w, w, -0.14, 0, r.hinge, r.end, GREY_DARK));
+  for (let z = r.hinge + 0.3; z < r.end - 0.2; z += 0.35) parts.push(slab(-w + 0.1, w - 0.1, 0, 0.012, z, z + 0.06, FLOOR));
+  parts.push(slab(-w, w, 0, 0.016, r.end - 0.18, r.end, YELLOW));
+
+  // The shell: under the floor, the walls either side from the front of the hold to the end of the ramp, the roof.
+  parts.push(slab(-W, W, belly, -0.06, r.front, r.hinge, GREY));
+  parts.push(taper(r.hinge, { w: W, y0: belly, y1: -0.14 }, r.end, { w: W - 0.2, y0: -0.4, y1: -0.14 }, GREY));
+  for (const side of [-1, 1]) {
+    parts.push(slab(...out(side, w, W), -0.14, roof, r.front, r.end, GREY));
+    // The lining, ribs every metre and a half, and the seats folded up against it.
+    parts.push(slab(...out(side, w - 0.02, w), 0, h, r.front, r.end, LINING));
+    for (let z = r.front + 0.8; z < r.end; z += 1.5) parts.push(slab(...out(side, w - 0.07, w), 0, h, z, z + 0.08, METAL));
+    parts.push(slab(...out(side, w - 0.12, w - 0.02), 0.45, 1.35, r.front + 1.0, r.hinge - 0.6, WEBBING));
+    // Portholes down the side, and the paratroop door just ahead of the ramp.
+    const x = out(side, W, W + 0.005);
+    for (let z = r.front + 1.2; z < r.hinge - 3; z += 2.2) parts.push(slab(...x, 1.55, 1.9, z, z + 0.32, GLASS));
+    parts.push(slab(...x, 0.05, 1.95, r.hinge - 2.2, r.hinge - 1.2, GREY_DARK));
+    // The sponsons that take the main gear up, low on the sides under the wing.
+    parts.push(slab(...out(side, W - 0.1, W + 0.5), belly + 0.1, 0.6, -2.8, 2.6, GREY));
+  }
+  parts.push(slab(-W, W, h, roof, r.front, r.end, GREY));
+  parts.push(slab(-w, w, h - 0.02, h, r.front, r.end, LINING));
+  parts.push(slab(-w, w, 0, h, r.front, r.front + 0.02, LINING));
+  // The light over the hinge of the ramp: green, it is time.
+  parts.push(slab(-0.12, 0.12, h - 0.14, h - 0.02, r.hinge - 0.05, r.hinge + 0.05, GREEN_LIGHT));
+
+  // The flight deck ahead and above the hold, its windscreen, the nose.
+  const deck = { w: W - 0.15, y0: belly + 0.2, y1: roof - 0.05 };
+  parts.push(taper(r.front, { w: W, y0: belly, y1: roof }, r.front - 2.8, deck, GREY));
+  const brow = { w: W - 0.6, y0: belly + 0.5, y1: roof - 0.75 };
+  parts.push(taper(r.front - 2.8, deck, r.front - 3.8, brow, GREY));
+  parts.push(slab(-1.45, 1.45, roof - 0.85, roof - 0.15, r.front - 3.7, r.front - 2.9, GLASS));
+  parts.push(taper(r.front - 3.8, brow, r.front - 5.7, { w: 0.45, y0: 0.4, y1: 1.4 }, GREY_DARK));
+
+  // The tail: swept up from the end of the ramp over the opening, the tall fin, the tailplane.
+  parts.push(taper(r.end, { w: W, y0: h - 0.6, y1: roof }, r.end + 8.3, { w: 0.35, y0: roof - 0.3, y1: roof + 0.25 }, GREY));
+  const fz = r.end + 3;
+  parts.push(fin([fz, roof, fz + 5.6, roof, fz + 5.9, roof + 7.2, fz, roof, fz + 5.9, roof + 7.2, fz + 3.3, roof + 7.2], GREY));
+  parts.push(slab(-8.1, 8.1, roof - 0.05, roof + 0.1, fz + 2.4, fz + 5.5, GREY));
+
+  // The wing on top, the four engines under its leading edge.
+  for (const side of [-1, 1] as const) {
+    parts.push(wingHalf(side, 20.2, { w: 2.1, y0: roof, y1: roof + 0.5 }, { w: 1.0, y0: roof + 0.2, y1: roof + 0.4 }, -1.5, GREY));
+  }
+  for (const hub of a.propellers) {
+    const y = hub.y;
+    const nacelle = { w: 0.5, y0: y - 0.6, y1: y + 0.5 };
+    parts.push(taper(hub.z + 0.25, { w: 0.32, y0: y - 0.3, y1: y + 0.3 }, hub.z + 1.2, nacelle, GREY).translate(hub.x, 0, 0));
+    parts.push(taper(hub.z + 1.2, nacelle, 1.6, { w: 0.35, y0: y - 0.4, y1: roof + 0.3 }, GREY).translate(hub.x, 0, 0));
+    parts.push(tint(new THREE.ConeGeometry(0.28, 0.5, 12).rotateX(-Math.PI / 2).translate(hub.x, y, hub.z + 0.02), METAL));
+  }
+  return parts;
+}
+
+const BUILD: Record<AircraftId, (a: Aircraft) => THREE.BufferGeometry[]> = { pc6: buildPorter, do28: buildDornier, c130: buildHercules };
 /** Radius of the propeller discs, m. */
-const PROP_RADIUS: Record<AircraftId, number> = { pc6: 1.3, do28: 1.15 };
+const PROP_RADIUS: Record<AircraftId, number> = { pc6: 1.3, do28: 1.15, c130: 2.05 };
+/** Blades on each propeller. */
+const BLADES: Record<AircraftId, number> = { pc6: 3, do28: 3, c130: 4 };
 
 export class PlaneView {
   readonly object = new THREE.Group();
@@ -265,14 +352,15 @@ export class PlaneView {
     this.clear();
     this.type = a;
     this.object.add(new THREE.Mesh(mergeGeometries(BUILD[a.id](a))!, this.material));
-    // Each propeller: a blur of a disc with three blades in it.
+    // Each propeller: a blur of a disc with its blades in it.
     const r = PROP_RADIUS[a.id];
+    const blades = BLADES[a.id];
     this.props = a.propellers.map((hub) => {
       const prop = new THREE.Group();
       prop.add(new THREE.Mesh(new THREE.CircleGeometry(r, 40), this.discMaterial));
-      for (let k = 0; k < 3; k++) {
+      for (let k = 0; k < blades; k++) {
         const blade = new THREE.Mesh(new THREE.BoxGeometry(0.15, r - 0.05, 0.03).translate(0, r / 2 + 0.03, 0), this.bladeMaterial);
-        blade.rotation.z = (k * 2 * Math.PI) / 3;
+        blade.rotation.z = (k * 2 * Math.PI) / blades;
         prop.add(blade);
       }
       prop.position.set(hub.x, hub.y, hub.z);

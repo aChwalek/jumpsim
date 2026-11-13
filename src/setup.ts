@@ -9,7 +9,7 @@ import { isSmoke, type SmokeKind } from './render/smoke';
 import { DEFAULT_HELMET, DEFAULT_SUIT, OUTFIT_COLORS, isOutfitColor, type Outfit, type OutfitColor } from './render/outfit';
 import { BOTS_MAX, BOT_LEADS, BOT_MODES, type BotLead, type BotMode } from './sim/bot';
 import type { Container } from './sim/jump';
-import { EXIT_SPOTS, type ExitSpot } from './sim/plane';
+import { AIRCRAFT_IDS, EXIT_SPOTS, type AircraftId, type ExitSpot } from './sim/plane';
 import { DEFAULT_RIG, deriveRig, reserveConfig, rigConfig, type CanopyKind, type RigParams } from './sim/rig';
 import { isSuitKind, isSuitLevel, type Suit, type SuitKind, type SuitLevel } from './sim/suit';
 import { WIND_MAX_KMH, type GustLevel, type SkyKind, type Weather } from './sim/weather';
@@ -107,7 +107,12 @@ export interface JumpPlan {
   malfunction: MalfunctionRate;
   /** Where in the plane the jumper waits for the exit. */
   exitSpot: ExitSpot;
+  /** The plane to jump from, or null for the one the drop zone flies. */
+  aircraft: AircraftId | null;
 }
+
+/** The plane jumped from: the one picked, or the drop zone's own. */
+export const aircraftOf = (setup: Pick<Setup, 'dz' | 'jump'>): AircraftId => setup.jump.aircraft ?? dzInfo(setup.dz).aircraft;
 
 /** Jumpers flown by the sim, for company on a jump on our own: how many, and what they fly. */
 export interface BotsPlan {
@@ -185,7 +190,7 @@ export function defaultSetup(): Setup {
       helmetColor: DEFAULT_HELMET,
       suitColor: DEFAULT_SUIT,
     },
-    jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'none', exitSpot: 'low' },
+    jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'none', exitSpot: 'low', aircraft: null },
     bots: { count: 0, mode: 'formation', lead: 'us' },
   };
 }
@@ -237,6 +242,7 @@ export function validSetup(saved: unknown): Setup {
   if (finite(j.runDeg)) setup.jump.runDeg = validHeading(j.runDeg);
   if (oneOf(j.malfunction, MALFUNCTION_RATES)) setup.jump.malfunction = j.malfunction;
   if (oneOf(j.exitSpot, EXIT_SPOTS)) setup.jump.exitSpot = j.exitSpot;
+  if (oneOf(j.aircraft, AIRCRAFT_IDS)) setup.jump.aircraft = j.aircraft;
   const b = (s.bots ?? {}) as Partial<Record<keyof BotsPlan, unknown>>;
   if (finite(b.count)) setup.bots.count = Math.min(BOTS_MAX, Math.max(0, Math.round(b.count)));
   if (oneOf(b.mode, BOT_MODES)) setup.bots.mode = b.mode;

@@ -24,6 +24,7 @@ import { logJump, type LogEntry, type Outcome } from './logbook';
 import { QUALITY_LEVELS, loadSettings, saveSettings } from './settings';
 import {
   MALFUNCTION_ODDS,
+  aircraftOf,
   cloneSetup,
   kindName,
   loadSetup,
@@ -609,13 +610,22 @@ function spawn(kind: Start): void {
   airTime = 0;
   dropBots();
   resetCanopies();
-  const spots = spawnsFor(dz, setup.weather.windFromDeg, { headingDeg: runHeading(setup), height: setup.jump.exitHeight });
+  const spots = spawnsFor(dz, setup.weather.windFromDeg, {
+    headingDeg: runHeading(setup),
+    height: setup.jump.exitHeight,
+    aircraft: aircraftOf(setup),
+  });
   const rate = setup.jump.malfunction;
   const unlucky = rate === 'always' || (rate === 'sometimes' && Math.random() < 1 / MALFUNCTION_ODDS);
   if (kind === 'plane') {
     windAt(env.wind, setup.weather, spots.plane.height, airTime);
     const malfunction = unlucky ? 'streamer' : null;
-    jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction, spot: setup.jump.exitSpot });
+    jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, {
+      ...rigOptions(),
+      malfunction,
+      spot: setup.jump.exitSpot,
+      onFoot: true,
+    });
     // Company on a jump alone: out of the same plane, right after us, in a suit like ours.
     if (!net && setup.bots.count > 0) {
       bots = new Bots(scene, light, env, {
@@ -709,6 +719,7 @@ function takePosition(position: BodyPosition): void {
 function onFoot(): boolean {
   if (replay || ragdoll) return false;
   if (arrival) return arrival.canWalk && !(gather !== null && gather < 1);
+  if (jump?.phase === 'plane') return jump.walk !== null;
   return jump?.phase === 'standing' && jump.runUp !== null && !jump.runUp.standing;
 }
 
@@ -720,16 +731,22 @@ const viewDir = new THREE.Vector3();
  * goes there and the sides go round the target, as in any game. Looking
  * straight down or up says nothing about where that is.
  */
-function faceTheView(feet: RunUp | null): void {
+function faceTheView(feet: RunUp | null, fromDeg = 0): void {
   if (!feet) return;
   camera.getWorldDirection(viewDir);
   if (Math.hypot(viewDir.x, viewDir.z) < 0.2) return;
-  feet.headingDeg = ((Math.atan2(viewDir.x, -viewDir.z) / DEG) % 360 + 360) % 360;
+  feet.headingDeg = ((Math.atan2(viewDir.x, -viewDir.z) / DEG - fromDeg) % 360 + 360) % 360;
+}
+
+/** The feet on top of the object, or in the hold of the plane (their heading then from its nose, `fromDeg`). */
+function jumpFeet(): { feet: RunUp | null; fromDeg: number } {
+  if (jump?.phase === 'plane' && jump.walk) return { feet: jump.walk, fromDeg: jump.plane!.headingDeg };
+  return { feet: jump?.runUp ?? null, fromDeg: 0 };
 }
 
 /** The feet the mouse turns: on the ground, up on them first if sitting. */
 function feetToTurn(): RunUp | null {
-  return arrival ? arrival.getUp() : (jump?.runUp ?? null);
+  return arrival ? arrival.getUp() : jumpFeet().feet;
 }
 
 /** What the gamepad's right stick and B, Y, X are for at this moment of the jump. */
@@ -1010,7 +1027,7 @@ function simulate(seconds: number): void {
       jump.trackIt(devices.tracking);
       // A track the gamepad turned on ends with the freefall, or at the pull.
       if (!jump.body.tracking) devices.padTrack = false;
-      jump.step(dt, jump.phase === 'standing' ? devices.feet : devices.body, env);
+      jump.step(dt, jump.afoot ? devices.feet : devices.body, env);
       if (jump.impact) {
         hitWithoutCanopy(jump);
         return;
@@ -1831,7 +1848,12 @@ function chaseFraming(): ChaseTarget {
   t.focus.set(s.pos.x, s.pos.y, s.pos.z);
   const inflation = jump ? jump.inflation : 1;
   const falling = jump !== null && (jump.phase === 'freefall' || (jump.phase === 'opening' && inflation === null));
-  if (jump && jump.phase === 'plane') {
+  if (jump && jump.phase === 'plane' && jump.walk) {
+    // Behind, a little above, in the hold: down it to the ramp.
+    t.heading = jump.headingDeg() * DEG;
+    t.distance = 3.5;
+    t.above = 0.25;
+  } else if (jump && jump.phase === 'plane') {
     // From behind the wing on the door's side, to see the jumper in it.
     t.heading = (runHeading(setup) - 38 * jump.plane!.type.doorSide) * DEG;
     t.distance = 9;
@@ -1885,7 +1907,7 @@ function keysPhase(): KeysPhase | null {
   if (watching) return watching.free ? 'replayFree' : 'replay';
   if (touchdown || arrival || impact) return 'ground';
   if (!jump || jump.phase === 'canopy' || jump.phase === 'opening') return singleCanopy() ? 'baseCanopy' : 'canopy';
-  if (jump.phase === 'standing') return 'ledge';
+  if (jump.afoot) return 'ledge';
   if (jump.phase === 'plane') return 'plane';
   return jump.wings && jump.cutawayAt === null ? 'wingsuit' : 'freefall';
 }
@@ -1916,6 +1938,11 @@ function cue(): string {
   const o = jump.opening;
   if (jump.phase === 'opening' && o?.malfunction === 'streamer' && o.stage === 'inflation' && o.time > o.timing.lineStretch + 1.2) {
     return `${c.streamer}<small>${c.holdToCutaway(keyLabel('KeyX'))}</small>`;
+  }
+  if (jump.phase === 'plane' && jump.walk) {
+    const exit = c.exitIn[jump.body.position];
+    const go = jump.onRamp ? c.offTheRamp : c.runToRamp(keyLabel('KeyW'));
+    return `${c.greenLight}<small>${exit ? `${exit} · ` : ''}${go}</small>`;
   }
   if (jump.phase === 'plane') {
     const exit = c.exitIn[jump.body.position];
@@ -2107,7 +2134,13 @@ function frame(now: number): void {
     }
     if (feetYaw !== 0) feetToTurn()?.turnBy(feetYaw);
     // Locked, the camera of the last frame says where the body faces; on the ground once walking.
-    if (locked && onFoot()) faceTheView(arrival ? arrival.walker : (jump?.runUp ?? null));
+    if (locked && onFoot()) {
+      if (arrival) faceTheView(arrival.walker);
+      else {
+        const { feet, fromDeg } = jumpFeet();
+        faceTheView(feet, fromDeg);
+      }
+    }
     if (arrival) {
       airTime += seconds;
       // On the feet again: walking, but not while gathering the canopy up.
@@ -2155,7 +2188,7 @@ function frame(now: number): void {
     if (jump && jump.canopy === 'reserve' && !rigView.canopy.reserve) attachReserve();
     rigView.setInflation(inflation);
     rigView.setArms(onRisers);
-    const run = jump?.phase === 'standing' ? jump.runUp : null;
+    const run = jump?.afoot ? jumpFeet().feet : null;
     const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : run ? [run.legL, run.legR] : undefined;
     updateLegs(moving, pose === 'hanging' && !touchdown);
     const shown = posture.update(moving, pose, FREEFALL_STANCES.has(pose) ? devices.body : still, legs, legCues);
