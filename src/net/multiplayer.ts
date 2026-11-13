@@ -12,6 +12,7 @@ import { ROOM_NAME } from './protocol';
 import { RemoteJumper, type RemoteFrame } from './remote';
 import { RoomState, cleanName, nextLoad, publicDz, readRoomMessage, sharedPart, type RoomMessage, type SharedSetup } from './room';
 import { SNAPSHOT_BYTES, decodeSnapshot, emptySnapshot, encodeSnapshot, type Snapshot } from './snapshot';
+import type { OtherJumper } from '../replay/track';
 
 /** Snapshots sent a second. */
 const SEND_RATE = 15;
@@ -233,13 +234,13 @@ export class Multiplayer {
     this.mesh.broadcastState(encodeSnapshot(this.out, this.sendBuffer));
   }
 
-  /** Draws the others: only those at our drop zone. */
-  update(f: Omit<RemoteFrame, 'now' | 'light'>, dz: DzId): void {
+  /** Draws the others: only those at our drop zone; `shown` false hides them all. */
+  update(f: Omit<RemoteFrame, 'now' | 'light'>, dz: DzId, shown = true): void {
     const now = performance.now();
     const frame: RemoteFrame = { ...f, now, light: this.light() };
     for (const { jumper, hello } of this.remotes.values()) {
       const heard = now - jumper.buffer.lastHeard < SILENT_MS;
-      jumper.update(frame, heard && hello !== null && hello.dz === dz);
+      jumper.update(frame, shown && heard && hello !== null && hello.dz === dz);
     }
     for (const [id, { jumper }] of this.remotes) {
       if (jumper.exited) this.events.exited(this.state.players.get(id)?.name || '…');
@@ -264,6 +265,15 @@ export class Multiplayer {
       if (pos) seen.push({ id: p.id, name: p.name || '…', pos });
     }
     return seen;
+  }
+
+  members(): OtherJumper[] {
+    const out: OtherJumper[] = [];
+    for (const [id, { jumper, hello }] of this.remotes) {
+      const snap = jumper.drawn;
+      if (snap && hello) out.push({ id, name: this.nameOf(id), gear: hello.gear, snap });
+    }
+    return out;
   }
 
   /** A player's name as shown. */

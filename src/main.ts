@@ -1414,7 +1414,11 @@ function drawWatching(w: Watching, dt: number): void {
   windAt(watchEnv.wind, weather, height, f.t);
   watchEnv.airDensity = airDensityAt(f.pos.y);
   watchWind.set(watchEnv.wind.x, watchEnv.wind.y, watchEnv.wind.z);
-  w.view.update(f, { dt, jumped: w.jumped, wind: watchWind, airDensity: watchEnv.airDensity, groundAt: solid, light, smokeLitAt: w.smokeLitAt });
+  w.view.update(
+    f,
+    { dt, jumped: w.jumped, wind: watchWind, airDensity: watchEnv.airDensity, groundAt: solid, light, smokeLitAt: w.smokeLitAt },
+    w.player.others,
+  );
 }
 
 /** The camera of the replay: the outside one, framing as it did on the jump; the mouse takes it round. */
@@ -1535,7 +1539,7 @@ function recordTrack(pose: Pose, inflation: number | null, onRisers: boolean, he
     Object.assign(r.fallTo, free.fallTo);
   }
   if (heap > 0) trackRecorder.setLanding(heapFrom, fallTo);
-  trackRecorder.push(f);
+  trackRecorder.push(f, others()?.members());
 }
 
 /** Draws the jumper as the replay has them. */
@@ -2197,10 +2201,11 @@ function frame(now: number): void {
   if (replay) smoke.object.visible = false;
   if (net) {
     if (!replay) sendJumper(net, pose, onRisers, inflation, elapsed);
-    net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, setup.dz);
+    // While a jump is watched again, the others of now are not in it.
+    net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, setup.dz, !watching);
     if (net.players !== playersShown) showGear();
   } else if (bots) {
-    bots.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, light);
+    bots.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, light, !watching);
     for (const name of bots.exited.splice(0)) showExit(name);
   }
   if (jump?.plane) planeView.update(jump.plane);
@@ -2242,6 +2247,7 @@ function frame(now: number): void {
   }
   sky.position.copy(camera.position);
   others()?.drawMarkers(camera, target?.kind === 'player' ? target.id : null);
+  watching?.view.drawMarkers(camera);
   drawPointMarker();
   // The windsock and the flags follow the gusts at their own height.
   if (live && setup.weather.gusts !== 'none') {

@@ -3,6 +3,7 @@ import { T } from './i18n';
 import { Markers, type MarkerTarget } from './net/markers';
 import { RemoteJumper, type RemoteFrame } from './net/remote';
 import { emptySnapshot, type Snapshot } from './net/snapshot';
+import type { OtherJumper } from './replay/track';
 import { CANOPY_COLORS, type CanopyColorId } from './render/canopyColors';
 import { deployStage, jumpStance } from './render/jumpPose';
 import { OUTFIT_COLOR_IDS } from './render/outfit';
@@ -23,6 +24,8 @@ export interface Others {
   inSight(): { id: string; name: string; pos: THREE.Vector3 }[];
   nameOf(id: string): string;
   drawMarkers(camera: THREE.PerspectiveCamera, targeted?: string | null): void;
+  /** Those drawn at the last frame, as drawn: for the replay of the jump. */
+  members(): OtherJumper[];
 }
 
 export interface BotsSpec {
@@ -48,6 +51,7 @@ const pick = <T>(from: readonly T[]): T => from[Math.floor(Math.random() * from.
 interface Flown {
   id: string;
   name: string;
+  gear: Gear;
   bot: Bot;
   jumper: RemoteJumper;
   env: Environment;
@@ -98,7 +102,7 @@ export class Bots implements Others {
       const jumper = new RemoteJumper(scene);
       jumper.setGear(gear, light);
       jumper.live = emptySnapshot();
-      this.flown.push({ id: `bot-${index}`, name: names[index % names.length]!, bot, jumper, env: { wind: vec3(), airDensity: env.airDensity }, out: false });
+      this.flown.push({ id: `bot-${index}`, name: names[index % names.length]!, gear, bot, jumper, env: { wind: vec3(), airDensity: env.airDensity }, out: false });
     }
   }
 
@@ -119,14 +123,23 @@ export class Bots implements Others {
     }
   }
 
-  /** Draws them as they are now. */
-  update(frame: Omit<RemoteFrame, 'now' | 'light'>, light: Lighting): void {
+  /** Draws them as they are now; `shown` false hides them all. */
+  update(frame: Omit<RemoteFrame, 'now' | 'light'>, light: Lighting, shown = true): void {
     const f: RemoteFrame = { ...frame, now: performance.now(), light };
     for (const { bot, jumper } of this.flown) {
       fill(jumper.live!, bot);
       // Gone in without a canopy (which the AAD sees to), or packed up and off the landing area.
-      jumper.update(f, !bot.jump.impact && bot.landedFor < GONE_AFTER);
+      jumper.update(f, shown && !bot.jump.impact && bot.landedFor < GONE_AFTER);
     }
+  }
+
+  members(): OtherJumper[] {
+    const out: OtherJumper[] = [];
+    for (const { id, name, gear, jumper } of this.flown) {
+      const snap = jumper.drawn;
+      if (snap) out.push({ id, name, gear, snap });
+    }
+    return out;
   }
 
   /** The bot that leads, if one does: who to keep an eye on. */
