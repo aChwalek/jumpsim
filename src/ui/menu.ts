@@ -1,9 +1,12 @@
-// The menu. The home screen sums up the jump in four cards (gear, drop zone,
-// weather, jump); each opens its own screen to change it. The corner holds
-// the language, the logbook and the settings. Beside the panel, the drop zone
-// from above with the pattern and jump run the setup gives (dzMap.ts).
-// Everything can be reached with the mouse, the keyboard or a gamepad (see
-// nav.ts). What changes the scenery is shown at once behind the menu.
+// The menu. On the left, the jump summed up in five lines (drop zone, gear,
+// jump, team, weather); each opens its own screen to change it. On the right,
+// always there: the drop zone and the height, the jumper and the others ready
+// to board in front of their plane (crewView.ts), and the button to jump.
+// While the drop zone or the weather is being changed, the drop zone from
+// above with the pattern and jump run takes the jumpers' place (dzMap.ts).
+// The corner holds the language, the logbook and the settings. Everything
+// can be reached with the mouse, the keyboard or a gamepad (see nav.ts).
+// What changes the scenery is shown at once behind the menu.
 //
 // Every word comes from the dictionary of the language in use (../i18n):
 // changing the language builds the screens again.
@@ -19,6 +22,7 @@ import './menu.css';
 import { LANGS, T, heading, lang, num, setLanguage, type Lang } from '../i18n';
 import { HOUR_MAX, HOUR_MIN, formatHour, sunPosition } from '../render/daylight';
 import { CANOPY_COLORS, type CanopyColorId } from '../render/canopyColors';
+import { CrewView, type CrewLook, type CrewMember } from '../render/crewView';
 import { SMOKE_BURN, SMOKE_COLORS, SMOKE_KINDS, type SmokeColor, type SmokeKind } from '../render/smoke';
 import { OUTFIT_COLORS, OUTFIT_COLOR_IDS, type OutfitColor } from '../render/outfit';
 import { OUTCOME_GROUPS, clearLogbook, loadLogbook, logStats, type LogEntry } from '../logbook';
@@ -98,18 +102,19 @@ import type { SharedSetup } from '../net/room';
 
 export type { Start } from '../setup';
 
-type Category = 'gear' | 'dz' | 'weather' | 'jump';
+type Category = 'dz' | 'gear' | 'jump' | 'team' | 'weather';
 type ScreenId = 'home' | Category | 'settings' | 'logbook';
 
 const CATEGORIES: { id: Category; icon: string }[] = [
-  { id: 'gear', icon: ICON_CANOPY },
   { id: 'dz', icon: ICON_DZ },
-  { id: 'weather', icon: ICON_WEATHER },
+  { id: 'gear', icon: ICON_CANOPY },
   { id: 'jump', icon: ICON_PLANE },
+  { id: 'team', icon: ICON_PEOPLE },
+  { id: 'weather', icon: ICON_WEATHER },
 ];
 
-/** Screens the map stands beside. */
-const WITH_MAP: ReadonlySet<ScreenId> = new Set<ScreenId>(['home', 'gear', 'dz', 'weather', 'jump']);
+/** Screens where the map takes the jumpers' place on the right. */
+const WITH_MAP: ReadonlySet<ScreenId> = new Set<ScreenId>(['dz', 'weather']);
 
 interface Option<T> {
   value: T;
@@ -313,14 +318,18 @@ export class Menu {
   onReady: (ready: boolean) => void = () => {};
   /** Leading a room: everyone goes now, ready or not. */
   onStartNow: () => void = () => {};
-  /** The drop zone from above, beside the panel. */
+  /** The drop zone from above, on the right while the drop zone or the weather is changed. */
   readonly map = new DzMap();
+  /** The jumper and the others, in front of their plane, on the right the rest of the time. */
+  private readonly crew = new CrewView();
 
   private readonly root: HTMLElement;
   private readonly nav: Nav;
   private readonly setup: Setup;
   private readonly screens = new Map<ScreenId, HTMLElement>();
-  private readonly cards = new Map<Category, HTMLButtonElement>();
+  private readonly lines = new Map<Category, HTMLButtonElement>();
+  /** Where the jumpers or the map show, on the right. */
+  private stage!: HTMLElement;
   private updaters: (() => void)[] = [];
   /** What shows the time to the next load: redrawn while it counts down. */
   private ticking: (() => void)[] = [];
@@ -377,7 +386,7 @@ export class Menu {
   open(canCancel: boolean, screen: 'home' | 'logbook' = 'home'): void {
     this.setResumable(canCancel);
     this.isOpen = true;
-    this.root.style.display = 'flex';
+    this.root.style.display = 'grid';
     this.nav.holdUntilReleased();
     if (screen !== 'logbook') return this.show('home', canCancel ? this.resume : this.jump);
     this.show('logbook');
@@ -420,7 +429,37 @@ export class Menu {
   refresh(): void {
     for (const update of this.updaters) update();
     this.map.update(this.setup);
+    this.crew.show(this.crewLook());
     this.nav.refresh();
+  }
+
+  /** Who stands on the right: us, and the others in the room, or the bots that jump with us. */
+  private crewLook(): CrewLook {
+    const { gear, jump, bots } = this.setup;
+    const room = this.room;
+    const canopies = (Object.keys(CANOPY_COLORS) as CanopyColorId[]).filter((c) => c !== gear.color);
+    const outfit = (n: number): OutfitColor => OUTFIT_COLOR_IDS[n % OUTFIT_COLOR_IDS.length]!;
+    // The others in colours of their own; bots in our suit, as they jump, players as they may.
+    const other = (i: number, sameSuit: boolean): Gear => ({
+      ...gear,
+      color: canopies[i % canopies.length]!,
+      helmetColor: outfit(i * 3 + 1),
+      suitColor: outfit(i * 5 + 4),
+      smoke: 'none',
+      container: 'sport',
+      ...(sameSuit ? {} : { suit: 'jumpsuit' as const }),
+    });
+    const members: CrewMember[] = [];
+    if (room) {
+      const self = room.players.find((p) => p.self);
+      members.push({ gear, name: self?.name || T.menu.room.you, ready: self?.ready ?? room.ready });
+      room.players.filter((p) => !p.self).forEach((p, i) => members.push({ gear: other(i, false), name: p.name || '…', ready: p.ready }));
+    } else {
+      members.push({ gear });
+      const count = jump.start === 'plane' ? bots.count : 0;
+      for (let i = 0; i < count; i++) members.push({ gear: other(i, true) });
+    }
+    return { members, aircraft: jump.start === 'plane' ? aircraftOf(this.setup) : null };
   }
 
   /** Shows the room on the home screen; null when not in one. */
@@ -482,18 +521,17 @@ export class Menu {
   /** Builds every screen, in the language in use. */
   private build(): void {
     this.screens.clear();
-    this.cards.clear();
+    this.lines.clear();
     this.updaters = [];
     this.ticking = [];
     this.panel = h('div', 'panel');
-    this.resume = button('resume', T.menu.resume);
-    this.jump = button('jump');
 
     this.screens.set('home', this.buildHome());
-    this.screens.set('gear', this.buildGear());
     this.screens.set('dz', this.buildDz());
-    this.screens.set('weather', this.buildWeather());
+    this.screens.set('gear', this.buildGear());
     this.screens.set('jump', this.buildJump());
+    this.screens.set('team', this.buildTeam());
+    this.screens.set('weather', this.buildWeather());
     this.screens.set('settings', this.buildSettings());
     this.logbookBody = h('div', 'body logbook');
     this.screens.set('logbook', this.buildLogbook());
@@ -514,7 +552,62 @@ export class Menu {
     this.cornerLogbook.addEventListener('click', () => this.toggleScreen('logbook'));
     this.cornerSettings.addEventListener('click', () => this.toggleScreen('settings'));
     corner.append(this.nav.add(this.cornerLanguage), this.nav.add(this.cornerLogbook), this.nav.add(this.cornerSettings));
-    this.root.replaceChildren(this.panel, this.map.el, corner);
+    const brand = html(`<header class="menu-brand">${LOGO}<div><h1>jumpsim</h1><p>${T.menu.tagline}</p></div></header>`);
+    this.root.replaceChildren(brand, this.panel, this.buildSide(), corner);
+  }
+
+  /**
+   * The right side, whatever the screen: where and how high, who jumps and
+   * from what (or the map), and the button to go.
+   */
+  private buildSide(): HTMLElement {
+    const name = h('h2', 'side-dz');
+    const height = h('p', 'side-height');
+    const head = h('header', 'side-head', name, height);
+    this.updaters.push(() => {
+      const info = dzInfo(this.setup.dz);
+      const { start, exitHeight } = this.setup.jump;
+      const j = T.menu.jump;
+      name.innerHTML = `<span>${info.name}</span>${info.icao ? `<small class="chip">${info.icao}</small>` : ''}`;
+      const [metres, what] =
+        start === 'plane'
+          ? [exitHeight, j.aircraftNames[aircraftOf(this.setup)]]
+          : start === 'base'
+            ? [info.base?.height ?? 0, j.starts.base]
+            : [start === 'pattern' ? info.starts.pattern : info.starts.final, j.starts[start]];
+      height.innerHTML = `<b>${num(metres)}</b><span class="unit">m</span><span class="what">${what}</span>`;
+    });
+
+    const hint = h('span', 'stage-hint', T.menu.dragHint);
+    // The name and the height over the jumpers' heads, in the sky behind them.
+    this.stage = h('div', 'stage', this.crew.el, head, hint, this.map.el);
+
+    this.resume = button('resume', T.menu.resume);
+    this.jump = button('jump');
+    this.resume.addEventListener('click', () => this.cancel());
+    this.jump.addEventListener('click', () => this.go());
+    const showJump = (): void => {
+      const start = this.setup.jump.start;
+      const room = this.room;
+      this.jump.classList.toggle('ready', !!room?.ready);
+      const r = T.menu.room;
+      let [icon, label, sub] = [start === 'plane' ? ICON_PLANE : ICON_CANOPY, start === 'plane' || start === 'base' ? T.menu.jumpButton : T.menu.go, ''];
+      if (room?.loadAt) {
+        // A public room: aboard the next load, or not.
+        [icon, label, sub] = [ICON_PLANE, room.ready ? r.aboard : r.board, r.loadSub(timeTo(room.loadAt))];
+      } else if (room && !room.publicDz) {
+        // A public BASE site has no rotation: the button jumps, as alone.
+        const count = r.readyCount(room.players.filter((p) => p.ready).length, Math.max(1, room.players.length));
+        [icon, label, sub] = [ICON_PEOPLE, room.ready ? r.waiting : r.imReady, count];
+      }
+      this.jump.innerHTML = `<span class="go-icon">${icon}</span><span class="go-label">${label}</span>${
+        sub ? `<span class="go-sub">${sub}</span>` : ''
+      }<i class="btn pad">Start</i>`;
+    };
+    this.updaters.push(showJump);
+    this.ticking.push(showJump);
+    const go = h('div', 'go', this.nav.add(this.resume), this.nav.add(this.jump));
+    return h('aside', 'side', this.stage, go);
   }
 
   /** Switches the language and builds the screens again, where they were. */
@@ -537,7 +630,10 @@ export class Menu {
     this.screen = id;
     for (const [key, el] of this.screens) el.hidden = key !== id;
     this.root.dataset.screen = id;
-    this.map.setShown(WITH_MAP.has(id));
+    const map = WITH_MAP.has(id);
+    this.map.setShown(map);
+    this.stage.classList.toggle('with-map', map);
+    this.crew.setActive(this.isOpen && !map);
     this.cornerSettings.classList.toggle('on', id === 'settings');
     this.cornerLogbook.classList.toggle('on', id === 'logbook');
     if (id === 'logbook') this.fillLogbook();
@@ -548,7 +644,7 @@ export class Menu {
     if (!target && id === 'home') {
       // Back home, the focus goes back to where the screen just left was opened from.
       const opener = from === 'settings' ? this.cornerSettings : from === 'logbook' ? this.cornerLogbook : null;
-      target = this.cards.get(from as Category) ?? opener ?? (this.canCancel ? this.resume : this.jump);
+      target = this.lines.get(from as Category) ?? opener ?? (this.canCancel ? this.resume : this.jump);
     }
     // Elsewhere it goes to the first line, not to the back button.
     target ??= screen.querySelector<HTMLElement>('.body [data-nav]:not(.disabled)');
@@ -574,6 +670,7 @@ export class Menu {
   private close(): void {
     this.isOpen = false;
     this.root.style.display = 'none';
+    this.crew.setActive(false);
     (document.activeElement as HTMLElement | null)?.blur();
   }
 
@@ -816,72 +913,43 @@ export class Menu {
 
   private buildHome(): HTMLElement {
     const screen = h('section', 'screen screen-home');
-    const head = html(`<header class="title-bar">${LOGO}<div><h1>jumpsim</h1><p>${T.menu.tagline}</p></div></header>`);
-    const grid = h('div', 'cards');
+    const list = h('div', 'lines');
     for (const c of CATEGORIES) {
-      const sum = h('div', 'sum');
-      const top = html(
-        `<span class="cat-head">${c.icon}<span class="cat">${T.menu.categories[c.id]}</span><span class="more">${T.menu.edit}${ICON_MORE}</span></span>`,
-      );
-      const card = button(`cat-card cat-${c.id}`, top, sum);
-      card.addEventListener('click', () => this.show(c.id));
-      this.cards.set(c.id, card);
-      grid.append(this.nav.add(card));
-      const more = top.querySelector<HTMLElement>('.more')!;
+      const label = html(`<span class="line-label">${c.icon}<span>${T.menu.lines[c.id]}</span></span>`);
+      const main = h('span', 'line-main');
+      const aside = h('span', `line-aside aside-${c.id}`);
+      const more = h('span', 'line-more');
+      const line = button(`line line-${c.id}`, label, main, aside, more);
+      line.dataset.key = `line-${c.id}`;
+      line.addEventListener('click', () => this.show(c.id));
+      this.lines.set(c.id, line);
+      list.append(this.nav.add(line));
+      // The drop zone's small picture from above, at the end of its line.
+      const thumb = c.id === 'dz' ? h('img', 'thumb') : null;
+      if (thumb) {
+        thumb.alt = '';
+        thumb.addEventListener('error', () => thumb.classList.add('missing'));
+        aside.append(thumb);
+      }
       this.updaters.push(() => {
-        sum.innerHTML = this.summary(c.id);
+        main.innerHTML = this.summary(c.id);
+        if (thumb) {
+          const src = thumbUrl(this.setup.dz);
+          if (thumb.getAttribute('src') !== src) {
+            thumb.classList.remove('missing');
+            thumb.src = src;
+          }
+        } else aside.innerHTML = this.aside(c.id);
         // In a room, whoever leads sets these.
         const locked = this.isShut(c.id);
-        card.classList.toggle('locked', locked);
-        more.innerHTML = locked ? `${ICON_LOCK}${T.menu.room.locked}` : `${T.menu.edit}${ICON_MORE}`;
+        line.classList.toggle('locked', locked);
+        more.innerHTML = locked ? ICON_LOCK : ICON_MORE;
+        line.title = locked ? T.menu.room.hostSets(this.room?.hostName || '…') : '';
       });
     }
-    this.resume.addEventListener('click', () => this.cancel());
-    this.jump.addEventListener('click', () => this.go());
-    const showJump = (): void => {
-      const { start, exitHeight } = this.setup.jump;
-      const info = dzInfo(this.setup.dz);
-      const room = this.room;
-      this.jump.classList.toggle('ready', !!room?.ready);
-      if (room?.loadAt) {
-        // A public room: aboard the next load, or not.
-        const r = T.menu.room;
-        this.jump.innerHTML = `<span class="go-icon">${ICON_PLANE}</span><span class="go-label">${
-          room.ready ? r.aboard : r.board
-        }</span><span class="go-sub">${r.loadSub(timeTo(room.loadAt))}</span><i class="btn pad">Start</i>`;
-        return;
-      }
-      // A public BASE site has no rotation: the button jumps, as alone.
-      if (room && !room.publicDz) {
-        const r = T.menu.room;
-        const count = r.readyCount(room.players.filter((p) => p.ready).length, Math.max(1, room.players.length));
-        this.jump.innerHTML = `<span class="go-icon">${ICON_PEOPLE}</span><span class="go-label">${
-          room.ready ? r.waiting : r.imReady
-        }</span><span class="go-sub">${count}</span><i class="btn pad">Start</i>`;
-        return;
-      }
-      const sub =
-        start === 'plane'
-          ? `${num(exitHeight)} m · ${info.name}`
-          : start === 'base'
-            ? `BASE ${num(info.base?.height ?? 0)} m · ${info.name}`
-            : start === 'pattern'
-              ? T.menu.goPattern(num(info.starts.pattern))
-              : T.menu.goFinal(num(info.starts.final));
-      const jumping = start === 'plane' || start === 'base';
-      this.jump.innerHTML = `<span class="go-icon">${start === 'plane' ? ICON_PLANE : ICON_CANOPY}</span><span class="go-label">${
-        jumping ? T.menu.jumpButton : T.menu.go
-      }</span><span class="go-sub">${sub}</span><i class="btn pad">Start</i>`;
-    };
-    this.updaters.push(showJump);
-    this.ticking.push(showJump);
-    const go = h('div', 'go', this.nav.add(this.resume), this.nav.add(this.jump));
     const m = T.menu.hints;
     screen.append(
-      head,
-      grid,
-      this.buildRoom(),
-      go,
+      list,
       hints(
         `${m.home}<span class="resume-hint">${m.homeResume}</span>`,
         `${m.homePad}<span class="resume-hint">${m.homePadResume}</span>${m.homePadMore}`,
@@ -1002,83 +1070,102 @@ export class Menu {
     return !!room?.isHost && !room.publicDz && room.online && room.players.length > 1 && room.players.some((p) => !p.ready);
   }
 
-  /** What a home card says. */
+  /** What a line of the home screen says: big, then a line under. */
   private summary(c: Category): string {
-    const { dz, hour, weather, gear, jump } = this.setup;
+    const { dz, hour, weather, gear, jump, bots } = this.setup;
     const info = dzInfo(dz);
+    const line = (big: string, sub: string): string => `<span class="big">${big}</span><span class="sub">${sub}</span>`;
     switch (c) {
+      case 'dz':
+        return line(`${info.name}${info.icao ? `<small class="chip">${info.icao}</small>` : ''}`, info.club ?? T.dz.made);
       case 'gear': {
-        const rig = rigFor(gear);
         const g = T.menu.gear;
-        return `
-          <span class="big">${gear.canopyAreaFt2}<small class="unit">ft²</small> <small>${kindName(gear.kind)}</small>${swatch(gear.color)}</span>
-          <span>${gear.exitWeightKg} kg · ${num(rig.wingLoading, 2)} lb/ft² · ${loadingLabel(rig.wingLoading)}</span>
-          <span class="dim">${gear.suit !== 'jumpsuit' ? `${g.suitLine[gear.suit](gear.suitLevel)} · ` : ''}${g.containerLine[gear.container]} · ${
-            g.altimeterLine[gear.altimeter]
-          } · ${gear.audible ? g.audibleOn : g.audibleOff} · ${g.sliderLine[gear.slider]}${
-            gear.container === 'sport' && gear.rsl ? ' · RSL' : ''
-          }${gear.smoke !== 'none' ? ` · ${g.smokeLine(g.smokes[gear.smoke])}` : ''}</span>`;
+        const rig = rigFor(gear);
+        const suit = gear.suit !== 'jumpsuit' ? g.suitLine[gear.suit](gear.suitLevel) : '';
+        return line(
+          `${gear.canopyAreaFt2}<small class="unit">ft²</small> <small>${kindName(gear.kind)}</small>`,
+          [g.containerLine[gear.container], suit, `${gear.exitWeightKg} kg · ${num(rig.wingLoading, 2)} lb/ft²`].filter(Boolean).join(' · '),
+        );
       }
-      case 'dz': {
-        return `
-          <span class="big">${info.name}${info.icao ? `<small class="chip">${info.icao}</small>` : ''}</span>
-          <span>${info.club ?? T.dz.made}</span>
-          <span class="dim">${info.note}</span>`;
+      case 'jump': {
+        const j = T.menu.jump;
+        if (jump.start === 'base') {
+          const pack = info.loaded();
+          return line(
+            `${num(info.base?.height ?? 0)}<small class="unit">m</small> <small>${j.starts.base}</small>`,
+            info.base?.standing ? j.baseStand : j.baseLine(num(pack?.base?.runUp ?? 25)),
+          );
+        }
+        if (jump.start !== 'plane') {
+          const spot = jump.start === 'pattern' ? info.starts.pattern : info.starts.final;
+          return line(`${num(spot)}<small class="unit">m</small> <small>${j.starts[jump.start]}</small>`, j.underCanopy[jump.start]);
+        }
+        const run = runHeading(this.setup);
+        const plane = AIRCRAFT[aircraftOf(this.setup)];
+        const where = plane.ramp ? j.aircraftNames[plane.id] : `${j.aircraftNames[plane.id]} · ${spotNames(plane)[jump.exitSpot]}`;
+        return line(
+          `${num(jump.exitHeight)}<small class="unit">m</small> <small>${where}</small>`,
+          plane.rotors
+            ? j.hoverLine(num(hoverMetres(weather.windKmh, jump.exitHeight)), heading(run))
+            : j.runLine(heading(run), windOnRun(run, weather.windFromDeg, weather.windKmh)),
+        );
+      }
+      case 'team': {
+        const t = T.menu.team;
+        const room = this.room;
+        if (room) {
+          const r = T.menu.room;
+          const ready = room.players.filter((p) => p.ready).length;
+          const players = Math.max(1, room.players.length);
+          return line(
+            room.publicDz ? r.publicName(dzInfo(room.publicDz).name) : r.name(room.room),
+            room.online ? `${t.players(players)} · ${r.readyCount(ready, players)}` : r.connecting,
+          );
+        }
+        if (jump.start !== 'plane') return line(t.solo, bots.count ? t.planeOnly : t.soloNote);
+        if (!bots.count) return line(t.solo, t.soloNote);
+        const suit = suitOf(gear);
+        const mode = hasWings(suit) ? 'track' : bots.mode;
+        const led = leaderLed(bots.mode, suit) || bots.lead === 'bot';
+        return line(`${t.withBots(bots.count)} <small>${T.menu.jump.botModes[mode]}</small>`, led ? t.leadBot : t.leadUs);
       }
       case 'weather': {
         const w = T.menu.weather;
-        const sky = w.skies[weather.sky];
-        const sun = sunPosition(info.lat, info.lon, hour, info.utcOffsetH);
         const gust = gustPeakKmh(weather);
         const wind =
           weather.windKmh === 0
             ? w.calm
             : w.windLine(heading(weather.windFromDeg), compassPoint(weather.windFromDeg), String(weather.windKmh), gust > weather.windKmh ? String(gust) : null);
-        const sunLine =
-          weather.sky === 'overcast'
-            ? w.sunHidden
-            : w.sunLine(num(Math.max(0, sun.elevationDeg)), sunOnFinal(sun.azimuthDeg, landingHeading(info, weather.windFromDeg)));
-        return `
-          <span class="big">${formatHour(hour)} <small>${sky}</small></span>
-          <span class="wind">${windArrow(weather.windFromDeg, weather.windKmh === 0)}${wind}</span>
-          <span class="dim">${sunLine}</span>`;
-      }
-      case 'jump': {
-        const j = T.menu.jump;
-        if (jump.start === 'base') {
-          const dz = dzInfo(this.setup.dz).loaded();
-          return `
-            <span class="big">${num(info.base?.height ?? 0)}<small class="unit">m</small> <small>${j.starts.base}</small></span>
-            <span>${info.base?.standing ? j.baseStand : j.baseLine(num(dz?.base?.runUp ?? 25))}</span>
-            <span class="dim">${j.baseNote[this.setup.gear.container]}</span>`;
-        }
-        if (jump.start !== 'plane') {
-          const spot = jump.start === 'pattern' ? info.starts.pattern : info.starts.final;
-          return `
-            <span class="big">${num(spot)}<small class="unit">m</small> <small>${j.starts[jump.start]}</small></span>
-            <span>${j.underCanopy[jump.start]}</span>
-            <span class="dim">${j.noPlane}</span>`;
-        }
-        const run = runHeading(this.setup);
-        const aloft = Math.round(weather.windKmh * windGradient(jump.exitHeight));
-        const plane = AIRCRAFT[aircraftOf(this.setup)];
-        const place = plane.ramp ? j.aircraftNames[plane.id] : spotNames(plane)[jump.exitSpot];
-        const line = plane.rotors
-          ? j.hoverLine(num(hoverMetres(weather.windKmh, jump.exitHeight)), heading(run))
-          : j.runLine(heading(run), windOnRun(run, weather.windFromDeg, weather.windKmh));
-        return `
-          <span class="big">${num(jump.exitHeight)}<small class="unit">m</small> <small>${j.starts.plane} · ${place}</small></span>
-          <span>${line}</span>
-          <span class="dim">${j.aloftLine(String(aloft), String(Math.round(freefallSeconds(jump.exitHeight))))}</span>`;
+        return line(`${formatHour(hour)} <small>${w.skies[weather.sky]}</small>`, wind);
       }
     }
+  }
+
+  /** What stands at the end of a line: the canopy's colours, the wind's arrow. */
+  private aside(c: Category): string {
+    const { gear, weather } = this.setup;
+    if (c === 'gear') return swatch(gear.color);
+    if (c === 'weather') return windArrow(weather.windFromDeg, weather.windKmh === 0);
+    return '';
   }
 
   private buildGear(): HTMLElement {
     const { screen, body } = this.screenShell('gear', null);
     const gear = (): Gear => this.setup.gear;
     const g = T.menu.gear;
+    const section = (title: string): HTMLElement => h('h3', 'section', title);
     body.append(
+      // The container first: a reserve or not.
+      section(g.sections.container),
+      this.choice(g.container, options(CONTAINERS, (c) => g.containers[c]), () => gear().container, (container) => this.setGear({ container }), {
+        note: () => g.containerNote[gear().container](String(reserveSize(gear().exitWeightKg))),
+      }),
+      this.choice<boolean>(g.rsl, yesNo(), () => gear().rsl, (rsl) => this.setGear({ rsl }), {
+        hint: g.rslHint,
+        note: () => g.rslNote(String(reserveSize(gear().exitWeightKg)), gear().rsl, keyLabel('KeyX')),
+        disabled: () => gear().container === 'base',
+      }),
+      section(g.sections.canopy),
       this.choice<CanopyKind>(
         g.kind,
         (Object.keys(CANOPY_SIZES) as CanopyKind[]).map((k) => ({ value: k, label: kindName(k) })),
@@ -1100,6 +1187,28 @@ export class Menu {
         (color) => this.setGear({ color }),
         { value: () => T.setup.colors[gear().color], cls: 'colors' },
       ),
+      section(g.sections.suit),
+      this.choice<SuitKind>(g.suit, options(SUIT_KINDS, (k) => g.suits[k]), () => gear().suit, (suit) => this.setGear({ suit }), {
+        note: () => {
+          const { glide, across, down } = suitGlide(suitOf(gear()), gear().exitWeightKg);
+          return g.suitNote[gear().suit](num(glide, 1), num(across), num(down), T.keys.shift);
+        },
+      }),
+      this.choice<SuitLevel>(g.suitLevel, options(SUIT_LEVELS, String), () => gear().suitLevel, (suitLevel) => this.setGear({ suitLevel }), {
+        hint: g.suitLevelHint,
+        disabled: () => gear().suit === 'jumpsuit',
+      }),
+      section(g.sections.colors),
+      this.choice<OutfitColor>(g.suitColor, outfitChoices, () => gear().suitColor, (suitColor) => this.setGear({ suitColor }), {
+        value: () => g.outfitColors[gear().suitColor],
+        note: () => (hasWings(suitOf(gear())) ? g.suitColorNote : ''),
+        cls: 'outfits',
+      }),
+      this.choice<OutfitColor>(g.helmet, outfitChoices, () => gear().helmetColor, (helmetColor) => this.setGear({ helmetColor }), {
+        value: () => g.outfitColors[gear().helmetColor],
+        cls: 'outfits',
+      }),
+      section(g.sections.more),
       this.slider(
         g.weight,
         { min: WEIGHT_MIN, max: WEIGHT_MAX, step: 1, big: 5 },
@@ -1115,25 +1224,6 @@ export class Menu {
           },
         },
       ),
-      this.choice<SuitKind>(g.suit, options(SUIT_KINDS, (k) => g.suits[k]), () => gear().suit, (suit) => this.setGear({ suit }), {
-        note: () => {
-          const { glide, across, down } = suitGlide(suitOf(gear()), gear().exitWeightKg);
-          return g.suitNote[gear().suit](num(glide, 1), num(across), num(down), T.keys.shift);
-        },
-      }),
-      this.choice<SuitLevel>(g.suitLevel, options(SUIT_LEVELS, String), () => gear().suitLevel, (suitLevel) => this.setGear({ suitLevel }), {
-        hint: g.suitLevelHint,
-        disabled: () => gear().suit === 'jumpsuit',
-      }),
-      this.choice<OutfitColor>(g.suitColor, outfitChoices, () => gear().suitColor, (suitColor) => this.setGear({ suitColor }), {
-        value: () => g.outfitColors[gear().suitColor],
-        note: () => (hasWings(suitOf(gear())) ? g.suitColorNote : ''),
-        cls: 'outfits',
-      }),
-      this.choice<OutfitColor>(g.helmet, outfitChoices, () => gear().helmetColor, (helmetColor) => this.setGear({ helmetColor }), {
-        value: () => g.outfitColors[gear().helmetColor],
-        cls: 'outfits',
-      }),
       this.choice<AltimeterKind>(
         g.altimeterRow,
         options(['none', 'analog', 'digital'] as const, (a) => g.altimeter[a]),
@@ -1143,14 +1233,6 @@ export class Menu {
       this.choice<boolean>(g.audible, yesNo(), () => gear().audible, (audible) => this.setGear({ audible }), { hint: g.audibleHint }),
       this.choice<SliderKind>(g.slider, options(SLIDER_KINDS, (k) => g.sliders[k]), () => gear().slider, (slider) => this.setGear({ slider }), {
         note: () => g.sliderNote[gear().slider](keyLabel('KeyG')),
-      }),
-      this.choice(g.container, options(CONTAINERS, (c) => g.containers[c]), () => gear().container, (container) => this.setGear({ container }), {
-        note: () => g.containerNote[gear().container](String(reserveSize(gear().exitWeightKg))),
-      }),
-      this.choice<boolean>(g.rsl, yesNo(), () => gear().rsl, (rsl) => this.setGear({ rsl }), {
-        hint: g.rslHint,
-        note: () => g.rslNote(String(reserveSize(gear().exitWeightKg)), gear().rsl, keyLabel('KeyX')),
-        disabled: () => gear().container === 'base',
       }),
       this.choice<SmokeKind>(
         g.smoke,
@@ -1266,9 +1348,6 @@ export class Menu {
     const noPlane = (): boolean => plan().start !== 'plane';
     const ramp = (): boolean => AIRCRAFT[aircraftOf(this.setup)].ramp !== undefined;
     const heli = (): boolean => AIRCRAFT[aircraftOf(this.setup)].rotors !== undefined;
-    const noBots = (): boolean => noPlane() || this.room !== null;
-    const wings = (): boolean => hasWings(suitOf(this.setup.gear));
-    const led = (): boolean => leaderLed(this.setup.bots.mode, suitOf(this.setup.gear));
     const j = T.menu.jump;
     const compass = new Compass();
     this.updaters.push(() => compass.set(this.setup.weather.windFromDeg, this.setup.weather.windKmh, runHeading(this.setup)));
@@ -1328,26 +1407,6 @@ export class Menu {
           disabled: () => noPlane() || ramp(),
         },
       ),
-      this.slider(j.bots, { min: 0, max: BOTS_MAX, step: 1, big: 1 }, () => this.setup.bots.count, (count) => this.setBots({ count }), {
-        hint: j.botsHint,
-        value: () => (this.setup.bots.count ? String(this.setup.bots.count) : j.botsNone),
-        note: () => (this.room ? j.botsRoom : j.botsNote),
-        disabled: noBots,
-      }),
-      this.choice<BotMode>(j.botMode, options(BOT_MODES, (m) => j.botModes[m]), () => (wings() ? 'track' : this.setup.bots.mode), (mode) => this.setBots({ mode }), {
-        note: () => {
-          const { pull, breakOff } = botHeights(plan().exitHeight);
-          if (wings()) return j.botModeNote.wings(num(breakOff), num(pull));
-          return j.botModeNote[this.setup.bots.mode](num(breakOff), num(pull));
-        },
-        // In wings there is always a leader: nothing to choose.
-        disabled: () => noBots() || this.setup.bots.count === 0 || wings(),
-      }),
-      this.choice<BotLead>(j.botLead, options(BOT_LEADS, (l) => j.botLeads[l]), () => (led() ? 'bot' : this.setup.bots.lead), (lead) => this.setBots({ lead }), {
-        note: () => j.botLeadNote[led() ? 'track' : this.setup.bots.lead],
-        // A track, and anything in wings, is behind a bot: nothing to choose.
-        disabled: () => noBots() || this.setup.bots.count === 0 || led(),
-      }),
       this.choice<boolean>(
         j.runAxis,
         [
@@ -1399,6 +1458,43 @@ export class Menu {
           disabled: () => noPlane() && plan().start !== 'base',
         },
       ),
+    );
+    screen.append(this.detailHints());
+    return screen;
+  }
+
+  /** Who jumps with us: bots on a jump of our own, or a room to jump with others. */
+  private buildTeam(): HTMLElement {
+    const { screen, body } = this.screenShell('team', null);
+    const j = T.menu.jump;
+    const plan = (): JumpPlan => this.setup.jump;
+    const noBots = (): boolean => plan().start !== 'plane' || this.room !== null;
+    const wings = (): boolean => hasWings(suitOf(this.setup.gear));
+    const led = (): boolean => leaderLed(this.setup.bots.mode, suitOf(this.setup.gear));
+    body.append(
+      h('h3', 'section', T.menu.team.botsSection),
+      this.slider(j.bots, { min: 0, max: BOTS_MAX, step: 1, big: 1 }, () => this.setup.bots.count, (count) => this.setBots({ count }), {
+        hint: j.botsHint,
+        value: () => (this.setup.bots.count ? String(this.setup.bots.count) : j.botsNone),
+        note: () => (this.room ? j.botsRoom : j.botsNote),
+        disabled: noBots,
+      }),
+      this.choice<BotMode>(j.botMode, options(BOT_MODES, (m) => j.botModes[m]), () => (wings() ? 'track' : this.setup.bots.mode), (mode) => this.setBots({ mode }), {
+        note: () => {
+          const { pull, breakOff } = botHeights(plan().exitHeight);
+          if (wings()) return j.botModeNote.wings(num(breakOff), num(pull));
+          return j.botModeNote[this.setup.bots.mode](num(breakOff), num(pull));
+        },
+        // In wings there is always a leader: nothing to choose.
+        disabled: () => noBots() || this.setup.bots.count === 0 || wings(),
+      }),
+      this.choice<BotLead>(j.botLead, options(BOT_LEADS, (l) => j.botLeads[l]), () => (led() ? 'bot' : this.setup.bots.lead), (lead) => this.setBots({ lead }), {
+        note: () => j.botLeadNote[led() ? 'track' : this.setup.bots.lead],
+        // A track, and anything in wings, is behind a bot: nothing to choose.
+        disabled: () => noBots() || this.setup.bots.count === 0 || led(),
+      }),
+      h('h3', 'section', T.menu.room.title),
+      this.buildRoom(),
     );
     screen.append(this.detailHints());
     return screen;

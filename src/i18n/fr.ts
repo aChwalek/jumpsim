@@ -335,8 +335,10 @@ export const fr = {
 
   menu: {
     tagline: 'simulateur de pilotage sous voile',
-    categories: { gear: 'GEAR', dz: 'DZ', weather: 'MÉTÉO', jump: 'JUMP' },
-    edit: 'Modifier',
+    categories: { dz: 'DZ', gear: 'GEAR', jump: 'JUMP', team: 'TEAM', weather: 'MÉTÉO' },
+    /** On the lines of the home screen. */
+    lines: { dz: 'DROPZONE', gear: 'GEAR', jump: 'JUMP', team: 'TEAM', weather: 'MÉTÉO' },
+    dragHint: 'Glisse pour tourner autour',
     back: 'Retour',
     resume: 'Reprendre le saut',
     jumpButton: 'Sauter',
@@ -378,11 +380,8 @@ export const fr = {
       readyCount: (n: number, total: number) => `${n}/${total} prêts`,
       startNow: 'Lancer sans attendre',
       startNowWarn: (names: string) => `Pas encore prêts : ${names}. Clique encore pour lancer quand même.`,
-      locked: 'Hôte',
     },
     go: 'Partir',
-    goPattern: (h: string) => `en circuit · ${h} m`,
-    goFinal: (h: string) => `en finale · ${h} m`,
     logbook: 'Carnet',
     logbookTitle: 'Carnet de sauts et statistiques',
     settings: 'Réglages',
@@ -408,10 +407,8 @@ export const fr = {
 
     gear: {
       altimeter: { none: 'Aucun', analog: 'À aiguille', digital: 'Digital' },
-      altimeterLine: { none: 'Sans altimètre', analog: 'Altimètre à aiguille', digital: 'Altimètre digital' },
-      audibleOn: 'altison',
-      audibleOff: 'sans altison',
-      kind: 'VOILE',
+      sections: { container: 'SAC', canopy: 'VOILE', suit: 'COMBINAISON', colors: 'COULEURS', more: 'LE RESTE' },
+      kind: 'TYPE',
       kindNote: {
         classic: 'Voile 9 caissons classique, de l\'école au swoop.',
         triCell: 'Voile tri-cell croisée : petite, rapide, pour le swoop.',
@@ -425,7 +422,6 @@ export const fr = {
       altimeterRow: 'ALTIMÈTRE',
       audible: 'ALTISON',
       audibleHint: 'bips sous voile à 300, 200 et 100 m',
-      sliderLine: { fixed: 'glisseur fixe', collapsible: 'glisseur rétractable', removable: 'glisseur amovible' },
       slider: 'GLISSEUR',
       sliders: { fixed: 'Fixe', collapsible: 'Rétractable', removable: 'Amovible' },
       sliderNote: {
@@ -433,9 +429,9 @@ export const fr = {
         collapsible: (k: string) => `${k} (manette : X) sous voile pour le replier sur les maillons : moins de traînée, moins de bruit.`,
         removable: (k: string) => `${k} (manette : X) sous voile pour l'enlever et le ranger : la voile vole un peu plus vite.`,
       },
-      container: 'SAC',
+      container: 'TYPE',
       containers: { sport: 'Normal', base: 'BASE' },
-      containerLine: { sport: 'sac normal', base: 'sac BASE' },
+      containerLine: { sport: 'Sac normal', base: 'Sac BASE' },
       containerNote: {
         sport: (size: string) => `Principale, secours ${size} ft² et déclencheur de sécurité (coupé en BASE).`,
         base: (_size: string) => 'Une seule voile, pliée pour s\'ouvrir vite, grand extracteur en main : pas de secours, pas de libération.',
@@ -447,10 +443,9 @@ export const fr = {
       smoke: 'FUMIGÈNE',
       smokeHint: 'à la cheville droite',
       smokes: { none: 'Aucun', red: 'Rouge', orange: 'Orange', yellow: 'Jaune', green: 'Vert', blue: 'Bleu', purple: 'Violet' },
-      smokeLine: (color: string) => `fumigène ${color.toLowerCase()}`,
       smokeNote: (on: boolean, s: string) =>
         on ? `Allumé à la sortie (ou dès le départ sous voile), il fume ${s} s : la traînée suit le vent.` : 'Pas de fumigène.',
-      suit: 'COMBINAISON',
+      suit: 'TYPE',
       suits: { jumpsuit: 'Normale', track: 'Tracking', wingsuit: 'Wingsuit' },
       suitLine: { jumpsuit: '', track: (level: number) => `combi de track niv. ${level}`, wingsuit: (level: number) => `wingsuit niv. ${level}` },
       suitLevel: 'NIVEAU',
@@ -463,7 +458,7 @@ export const fr = {
         wingsuit: (glide: string, across: string, down: string, _k: string) =>
           `Ailes entre les bras et le corps et entre les jambes : vol à plat dès qu'elles sont gonflées, sur le ventre ou le dos (← / →), jamais debout. Finesse ${glide}, ${across} km/h en avant, ${down} km/h de chute. Espace : lâcher les ailes et ouvrir.`,
       },
-      suitColor: 'COULEUR DE COMBI',
+      suitColor: 'COMBINAISON',
       suitColorNote: 'Ses ailes gardent la couleur de la voile.',
       helmet: 'CASQUE',
       outfitColors: {
@@ -492,8 +487,6 @@ export const fr = {
       calm: 'Vent calme',
       windLine: (from: string, point: string, kmh: string, gust: string | null) =>
         `Vent du ${from} (${point}) · ${kmh} km/h${gust ? `, rafales ${gust}` : ''}`,
-      sunHidden: 'Soleil caché',
-      sunLine: (elevation: string, where: string) => `Soleil à ${elevation}°, ${where}`,
       sunOnFinal: {
         ahead: 'face à toi en finale',
         behind: 'dans le dos en finale',
@@ -523,15 +516,9 @@ export const fr = {
         pattern: 'Départ sous voile, au début de la vent arrière',
         final: 'Départ sous voile, en finale',
       },
-      noPlane: 'Pas d\'avion ni de chute',
       baseLine: (run: string) => `Course d'élan de ${run} m jusqu'au bord`,
       baseStand: 'Debout sur le bord du tablier, sans élan',
-      baseNote: {
-        sport: 'Sac normal : secours, déclencheur coupé',
-        base: 'Sac BASE : une seule voile, pas de secours',
-      },
       runLine: (hdg: string, how: string) => `Axe ${hdg}, ${how}`,
-      aloftLine: (kmh: string, seconds: string) => `Vent en altitude ${kmh} km/h · environ ${seconds} s de chute`,
       windOnRun: {
         calm: 'sans vent',
         head: 'face au vent',
@@ -591,7 +578,7 @@ export const fr = {
       },
       spotNoteSkid: 'Dehors sur le patin, sous la porte, accroché au cadre : il suffit de lâcher.',
       spotKeys: (fwd: string, back: string) => `Dans l'avion, ${fwd} / ${back} pour changer de place.`,
-      bots: 'SAUTANTS IA',
+      bots: 'NOMBRE',
       botsHint: 'en saut solo',
       botsNone: 'Aucun',
       botsNote: 'Ils sortent juste après toi, de l\'avion seulement, dans la même combinaison que toi.',
@@ -615,6 +602,17 @@ export const fr = {
         wings: (breakOff: string, pull: string) =>
           `En wingsuit, toujours derrière un leader : il part à 90° à droite de l'axe puis tourne autour de la zone, et t'attend ; les autres en V derrière lui. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
       },
+    },
+
+    team: {
+      botsSection: 'SAUTANTS IA',
+      solo: 'Solo',
+      soloNote: 'Ajoute des sautants IA, ou saute à plusieurs dans une salle',
+      planeOnly: 'Les sautants IA ne sortent que d\'avion',
+      withBots: (n: number) => `${n} sautant${n > 1 ? 's' : ''} IA`,
+      leadUs: 'Ils se placent autour de toi',
+      leadBot: 'Derrière un leader IA',
+      players: (n: number) => `${n} parachutiste${n > 1 ? 's' : ''}`,
     },
 
     map: {
