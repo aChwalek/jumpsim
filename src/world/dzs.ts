@@ -8,7 +8,7 @@ import { createRealDz, type RealDzData, type RealDzLook } from './real';
 import { LOOKS } from './realDzs';
 import { TOWER_HEIGHT, createTowerZone } from './tower';
 
-export type DzId = 'valbrise' | 'tower' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadeloupe' | 'lauterbrunnen' | 'limska' | 'millau' | 'brento';
+export type DzId = 'valbrise' | 'tower' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadeloupe' | 'deland' | 'lauterbrunnen' | 'limska' | 'millau' | 'brento';
 
 export interface DzInfo {
   id: DzId;
@@ -138,6 +138,7 @@ export const DZS: DzInfo[] = [
   real('chambery', 'Savoie Parachutisme', 'LFLB', 'france', () => import('./data/chambery')),
   real('empuriabrava', 'Skydive Empuriabrava', 'LEAP', 'spain', () => import('./data/empuriabrava')),
   real('guadeloupe', 'Caraïbe Parachutisme', 'TFFC', 'france', () => import('./data/guadeloupe')),
+  real('deland', 'Skydive DeLand', 'KDED', 'usa', () => import('./data/deland')),
   // High Nose: the height down to the landing field, as in tools/dz/lauterbrunnen.json.
   real('lauterbrunnen', 'High Nose', undefined, 'swiss', () => import('./data/lauterbrunnen'), { height: 545 }),
   // The A9 viaduct: the road's height above the landing field, as built into data/limska.ts.
