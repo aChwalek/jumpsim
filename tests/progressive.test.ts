@@ -6,6 +6,9 @@ import { describe, expect, test } from 'vitest';
 import { airDensityAt } from '../src/sim/atmosphere';
 import { FlightModel, type Environment } from '../src/sim/flightModel';
 import { BODY_SHAPES, Freefall, freefallParams, noBodyInputs, type BodyInputs, type BodyPosition, type FlightZone } from '../src/sim/freefall';
+import { STANCE_CODES } from '../src/net/snapshot';
+import { jumpStance } from '../src/render/jumpPose';
+import type { Stance } from '../src/render/posture';
 import { Jump } from '../src/sim/jump';
 import { DEFAULT_RIG, deriveRig } from '../src/sim/rig';
 import { SIM_DT } from '../src/sim/telemetry';
@@ -194,6 +197,19 @@ describe('positions flown progressively', () => {
     expect(rotate(vec3(), up.body.state.att, vec3(0, -1, 0)).y).toBeGreaterThan(0.999);
   });
 
+  test('the pilot sets how fast the arrows swing the body', () => {
+    const toHeadDown = (sweep: number) => {
+      const { body, env } = flying(true);
+      body.sweep = sweep;
+      return swingTo(body, env, 'headDown', { flip: 1 });
+    };
+    const usual = toHeadDown(1);
+    expect(usual).toBeGreaterThan(0.8);
+    expect(usual).toBeLessThan(1.4);
+    expect(toHeadDown(0.5)).toBeGreaterThan(1.5 * usual);
+    expect(toHeadDown(2)).toBeLessThan(0.7 * usual);
+  });
+
   test('flown the usual way again, the body is in the position it was closest to', () => {
     const { body, env } = flying(true);
     swingTo(body, env, 'headDown', { flip: 1 });
@@ -228,6 +244,20 @@ describe('a jump flown progressively', () => {
     step(1);
     expect(jump.body.position).toBe('belly');
     expect(jump.body.maneuvering).toBe(false);
+  });
+
+  test('each stretch of the way round is held its own way', () => {
+    const { jump, step } = inFreefall();
+    const held: Stance[] = [];
+    for (let t = 0; t < 3.4 && jump.body.zone !== 'sit'; t += SIM_DT) {
+      step(SIM_DT, { flip: 1 });
+      const stance = jumpStance(jump);
+      if (stance !== held.at(-1)) held.push(stance);
+    }
+    expect(held).toEqual(['belly', 'track', 'angle', 'headDown', 'backAngle', 'track', 'back', 'sitAngle', 'sit']);
+    // Every one of them goes to the others in the room and into the replay.
+    for (const stance of held) expect(STANCE_CODES[stance], stance).toBeTypeOf('number');
+    expect(new Set(Object.values(STANCE_CODES)).size).toBe(Object.keys(STANCE_CODES).length);
   });
 
   test('space in a track: back flat first, then the pull, whatever the arrows do', () => {

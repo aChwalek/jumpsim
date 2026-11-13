@@ -574,6 +574,7 @@ export const fr = {
       invertLook: 'REGARD INVERSÉ',
       invertLookHint: 'souris et stick droit',
       progressiveFly: 'POSITIONS PROGRESSIVES',
+      progressiveRate: 'INTENSITÉ DES TRANSITIONS',
       progressiveFlyNote:
         'À l\'essai. En chute, ↑ ↓ ← → maintenues font pivoter le corps petit à petit, et il reste où on le lâche : ↑ à plat → track → trace → tête en bas → trace dos → dos → trace assis → assis ; ← / → roule sur le côté puis sur le dos. Lâché près d\'une position, il s\'y cale.',
       keys: 'TOUCHES',

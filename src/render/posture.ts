@@ -13,12 +13,19 @@ import { blendPose, copyPose, makePose, type Pose } from './body';
  * plane; `…Right` for one on its right. `door` is crouched on the sill.
  */
 export type DoorStance = 'door' | 'doorHigh' | 'step' | 'inside';
-/** `track`: stretched out to glide, a track flat, an angle upright; drawn the same, the body's attitude does the rest. */
+/**
+ * `track`: stretched out to glide, a track flat, an angle upright; drawn the same, the body's attitude does the rest.
+ * Flown progressively, the angles have their own: `angle` head low on the belly side, `backAngle` head low on the
+ * back, `sitAngle` feet first.
+ */
 export type Stance =
   | DoorStance
   | `${DoorStance}Right`
   | BodyPosition
   | 'track'
+  | 'angle'
+  | 'backAngle'
+  | 'sitAngle'
   | 'throw'
   | 'hanging'
   | 'ground'
@@ -32,7 +39,7 @@ export const doorStance = (spot: ExitSpot, side: -1 | 1): Stance =>
   side < 0 ? DOOR_STANCES[spot] : `${DOOR_STANCES[spot]}Right`;
 
 /** The stances that follow the freefall inputs. */
-export const FREEFALL_STANCES: ReadonlySet<Stance> = new Set(['belly', 'back', 'sit', 'headDown', 'track']);
+export const FREEFALL_STANCES: ReadonlySet<Stance> = new Set(['belly', 'back', 'sit', 'headDown', 'track', 'angle', 'backAngle', 'sitAngle']);
 
 /** Hip angle of the legs hanging in the harness, rad forward. */
 const HANGING_HIPS = 0.21;
@@ -52,6 +59,9 @@ const SETTLE: Record<Stance, number> = {
   sit: 0.3,
   headDown: 0.3,
   track: 0.5,
+  angle: 0.4,
+  backAngle: 0.4,
+  sitAngle: 0.4,
   throw: 0.12,
   hanging: 0.35,
   ground: 0.15,
@@ -178,15 +188,16 @@ function backFly(p: Pose, input: BodyInputs): void {
 
 function sit(p: Pose, input: BodyInputs): void {
   // Sitting on the air: thighs level, shins down, knees apart, arms out to
-  // the sides with the hands at the hips.
+  // the sides with the hands at the hips. To go down faster, standing up on
+  // it: legs straight under the body, arms out level with the shoulders.
   const { forward, back, up, down } = drives(input);
   p.lean = p.bow = 0;
-  p.hipL = p.hipR = 1.45 - 0.1 * back;
+  p.hipL = p.hipR = 1.45 - 0.1 * back - 1.25 * down;
   // Shins pushed forward to go forward, drawn under to back up.
-  p.kneeL = p.kneeR = 1.45 - 0.5 * forward + 0.25 * back;
+  p.kneeL = p.kneeR = (1.45 - 0.5 * forward + 0.25 * back) * (1 - 0.88 * down);
   p.spread = 0.35 + 0.15 * up - 0.2 * down;
-  const span = 0.5 + 0.08 * up - 0.15 * down;
-  const height = -0.32 + 0.06 * up - 0.06 * down;
+  const span = 0.5 + 0.08 * up + 0.06 * down;
+  const height = -0.32 + 0.06 * up + 0.26 * down;
   const reach = -0.12 + 0.04 * forward - 0.08 * back;
   // The low hand turns.
   const dip = 0.08 * input.turn;
@@ -202,10 +213,14 @@ function headDown(p: Pose, input: BodyInputs): void {
   // out level with the shoulders.
   const { forward, back, up, down } = drives(input);
   p.lean = p.bow = 0;
-  // Legs back to go forward, a slight pike to back up; split to go up.
-  p.hipL = p.hipR = 0.1 - 0.15 * forward + 0.25 * back;
-  p.kneeL = p.kneeR = 0.3 + 0.35 * up - 0.15 * down;
-  p.spread = 0.2 + 0.25 * up - 0.15 * down;
+  // Legs back to go forward, a slight pike to back up. To go up, a daffy:
+  // one leg out in front and the other behind, knees bent, as in a stride.
+  const hips = 0.1 - 0.15 * forward + 0.25 * back;
+  p.hipL = hips + 0.75 * up;
+  p.hipR = hips - 0.6 * up;
+  p.kneeL = 0.3 + 0.35 * up - 0.15 * down;
+  p.kneeR = 0.3 + 0.65 * up - 0.15 * down;
+  p.spread = 0.2 + 0.05 * up - 0.15 * down;
   // Arms in along the body to dive faster.
   const span = 0.56 + 0.06 * up - 0.26 * down;
   const height = -0.16 - 0.16 * down;
@@ -237,6 +252,62 @@ function track(p: Pose, input: BodyInputs): void {
   p.handR.set(span + shift, height, 0.12 - dip);
   p.elbowL.set(-1, 0, 0.4);
   p.elbowR.set(1, 0, 0.4);
+}
+
+function angle(p: Pose, input: BodyInputs): void {
+  // Head low on the belly side, steeper and faster than a track: the arms
+  // swept back but out from the body, hands behind the hips, to steer with;
+  // the legs a little apart, knees soft.
+  const { forward, back, up, down } = drives(input);
+  p.lean = p.bow = 0;
+  // Pushed, straighter and narrower; eased off, the knees come in and the arms go out.
+  p.hipL = p.hipR = -0.06 - 0.04 * forward + 0.18 * back;
+  p.kneeL = p.kneeR = 0.38 - 0.24 * forward + 0.2 * back + 0.15 * up;
+  p.spread = 0.15 + 0.1 * up - 0.07 * down;
+  const span = 0.44 - 0.1 * forward + 0.1 * back + 0.08 * up - 0.14 * down;
+  const height = -0.34 - 0.08 * forward + 0.12 * back;
+  const dip = 0.1 * input.turn;
+  const shift = 0.05 * input.slide;
+  p.handL.set(-span + shift, height, 0.2 + dip);
+  p.handR.set(span + shift, height, 0.2 - dip);
+  p.elbowL.set(-1, 0.1, 0.5);
+  p.elbowR.set(1, 0.1, 0.5);
+}
+
+function backAngle(p: Pose, input: BodyInputs): void {
+  // Head low on the back: the hips a little piked and the knees soft, the
+  // feet towards the sky, arms low and out from the sides, palms on the air.
+  const { forward, back, up, down } = drives(input);
+  p.lean = p.bow = 0;
+  p.hipL = p.hipR = 0.32 - 0.14 * forward + 0.2 * back;
+  p.kneeL = p.kneeR = 0.3 - 0.15 * forward + 0.25 * back + 0.15 * up;
+  p.spread = 0.14 + 0.1 * up - 0.06 * down;
+  const span = 0.46 + 0.08 * up - 0.16 * down;
+  const height = -0.3 - 0.08 * forward + 0.1 * back;
+  const dip = 0.1 * input.turn;
+  const shift = 0.05 * input.slide;
+  p.handL.set(-span + shift, height, -0.06 - dip);
+  p.handR.set(span + shift, height, -0.06 + dip);
+  p.elbowL.set(-1, 0.1, 0.4);
+  p.elbowR.set(1, 0.1, 0.4);
+}
+
+function sitAngle(p: Pose, input: BodyInputs): void {
+  // Feet first, leaning back on the air: the legs out ahead, nearly
+  // straight, the arms out to the sides a little behind the shoulders.
+  const { forward, back, up, down } = drives(input);
+  p.lean = p.bow = 0;
+  p.hipL = p.hipR = 0.55 - 0.2 * forward + 0.35 * back;
+  p.kneeL = p.kneeR = 0.28 - 0.14 * forward + 0.4 * back;
+  p.spread = 0.16 + 0.12 * up - 0.08 * down;
+  const span = 0.54 + 0.06 * up - 0.18 * down;
+  const height = -0.14 - 0.1 * down;
+  const dip = 0.08 * input.turn;
+  const shift = 0.05 * input.slide;
+  p.handL.set(-span + shift, height + dip, 0.08);
+  p.handR.set(span + shift, height - dip, 0.08);
+  p.elbowL.set(-1, -0.2, 0.4);
+  p.elbowR.set(1, -0.2, 0.4);
 }
 
 function wingsuit(p: Pose, input: BodyInputs, level: SuitLevel): void {
@@ -412,6 +483,15 @@ export class Posture {
       case 'track':
         if (this.wings) wingsuit(t, input, this.wings);
         else track(t, input);
+        break;
+      case 'angle':
+        angle(t, input);
+        break;
+      case 'backAngle':
+        backAngle(t, input);
+        break;
+      case 'sitAngle':
+        sitAngle(t, input);
         break;
       case 'throw':
         throwOut(t);

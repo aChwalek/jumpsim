@@ -404,6 +404,8 @@ export class Freefall {
    * where it is let go. The position and the track then follow from `aim`.
    */
   progressive = false;
+  /** How fast ↑ ↓ ← → swing the body, as a multiple of the usual: the pilot's taste. */
+  sweep = 1;
   /** The body axis held on the airflow, the one the air leaves by. A position's own, flown the usual way. */
   readonly aim = vec3(0, 0, 1);
   /** What the body shows the air round the loop, flown progressively: at this angle, rad, these areas. */
@@ -558,7 +560,7 @@ export class Freefall {
     const h = this.held;
     const flip = Math.sign(input.flip ?? 0);
     const roll = Math.sign(input.roll ?? 0);
-    const sweep = (held: number): number => SWEEP_SLOW + (SWEEP_FAST - SWEEP_SLOW) * Math.min(1, held / SWEEP_RAMP);
+    const sweep = (held: number): number => this.sweep * (SWEEP_SLOW + (SWEEP_FAST - SWEEP_SLOW) * Math.min(1, held / SWEEP_RAMP));
     const w = set(this.swing, 0, 0, 0);
     if (flip) {
       // On one flank a somersault changes nothing either: the head goes down, or up.

@@ -1,3 +1,4 @@
+import type { Freefall } from '../sim/freefall';
 import type { Jump } from '../sim/jump';
 import type { RigFrame } from './rigView';
 import { doorStance, type Stance } from './posture';
@@ -15,13 +16,37 @@ export function jumpStance(jump: Jump | null): Stance {
     case 'freefall':
       // Just cut away: the hands are still on the handles.
       if (jump.cutawayAt !== null && jump.time - jump.cutawayAt < 0.45) return 'cutaway';
-      return jump.body.track > 0.5 ? 'track' : jump.body.position;
+      return jump.body.progressive ? swungStance(jump.body) : jump.body.track > 0.5 ? 'track' : jump.body.position;
     case 'opening':
       if (jump.inflation !== null) return 'hanging';
       if (jump.canopy === 'reserve') return jump.log.reserveBy === 'hand' ? 'reserve' : 'belly';
       return jump.opening?.stage === 'throw' ? 'throw' : 'belly';
     default:
       return 'hanging';
+  }
+}
+
+/**
+ * Flown progressively: each stretch of the way round is held its own way.
+ * The angles, head low on the belly side, on the back, and feet first; the
+ * tracks stretched out, whichever side is down; the positions as ever.
+ */
+function swungStance(body: Freefall): Stance {
+  const stretched = body.track > 0.5;
+  switch (body.zone) {
+    case 'angle':
+      return 'angle';
+    case 'backAngle':
+      return 'backAngle';
+    case 'sitAngle':
+      return stretched ? 'sitAngle' : body.position;
+    case 'track':
+    case 'backTrack':
+    case 'side':
+    case 'sideTrack':
+      return stretched ? 'track' : body.position;
+    default:
+      return body.position;
   }
 }
 

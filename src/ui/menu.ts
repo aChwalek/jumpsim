@@ -23,7 +23,7 @@ import { SMOKE_BURN, SMOKE_COLORS, SMOKE_KINDS, type SmokeColor, type SmokeKind 
 import { OUTFIT_COLORS, OUTFIT_COLOR_IDS, type OutfitColor } from '../render/outfit';
 import { OUTCOME_GROUPS, clearLogbook, loadLogbook, logStats, type LogEntry } from '../logbook';
 import { clearTracks, storedTracks, trackId } from '../replay/store';
-import { QUALITY_LEVELS, SENSITIVITY_MAX, SENSITIVITY_MIN, type Settings } from '../settings';
+import { PROGRESSIVE_RATE_MAX, PROGRESSIVE_RATE_MIN, QUALITY_LEVELS, SENSITIVITY_MAX, SENSITIVITY_MIN, type Settings } from '../settings';
 import {
   CANOPY_SIZES,
   EXIT_HEIGHT_MAX,
@@ -1412,6 +1412,13 @@ export class Menu {
       this.choice<boolean>(t.progressiveFly, yesNo(), () => s.progressiveFly, (progressiveFly) => this.setSettings({ progressiveFly }), {
         note: () => t.progressiveFlyNote,
       }),
+      this.slider(
+        t.progressiveRate,
+        { min: PROGRESSIVE_RATE_MIN, max: PROGRESSIVE_RATE_MAX, step: 0.1, big: 0.5 },
+        () => s.progressiveRate,
+        (v) => this.setSettings({ progressiveRate: Math.round(v * 10) / 10 }),
+        { value: () => `${Math.round(s.progressiveRate * 100)} %`, disabled: () => !s.progressiveFly },
+      ),
       h('h3', 'section', t.keys),
       this.nav.add(this.controlsTable()),
     );

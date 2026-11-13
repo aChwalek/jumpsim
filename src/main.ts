@@ -1009,6 +1009,7 @@ function simulate(seconds: number): void {
     if (jump) {
       // On trial: the arrows swing the body round little by little. Not a wingsuit, which only flies flat.
       jump.body.progressive = settings.progressiveFly && !jump.wings;
+      jump.body.sweep = settings.progressiveRate;
       jump.trackIt(devices.tracking);
       // A track the gamepad turned on ends with the freefall, or at the pull.
       if (!jump.body.tracking) devices.padTrack = false;
