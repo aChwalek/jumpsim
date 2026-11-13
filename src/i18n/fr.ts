@@ -250,6 +250,23 @@ export const fr = {
     targetLockPad: 'appui : verrou, sans cible recentrer · maintenu : cible',
   },
 
+  touch: {
+    exit: 'Sauter',
+    pull: 'Ouvrir',
+    reserve: 'Secours',
+    gather: 'Ramasser',
+    track: 'Track',
+    cutaway: 'Libérer',
+    slider: 'Glisseur',
+    menu: 'Menu',
+    camera: 'Caméra',
+    stick: 'Stick gauche',
+    keepHolding: 'garde le doigt dessus',
+    skip: 'Passer',
+    runAndJump: 'stick gauche pour prendre de l’élan · SAUTER',
+    jumpOut: 'stick gauche ou SAUTER',
+  },
+
   logbook: {
     groups: { upright: 'Debout', run: 'Couru', slide: 'Glissé', hard: 'Dur', crash: 'Crash' },
     outcomes: {

@@ -62,6 +62,7 @@ import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
 import { padIcon, type KeysPhase, type PadControl } from './ui/keys';
 import { Menu } from './ui/menu';
+import { TouchControls, type TouchLayout } from './ui/touchControls';
 import { Markers, type MarkerTarget } from './net/markers';
 import { Bots, type Others } from './bots';
 import type { Lead } from './sim/bot';
@@ -79,6 +80,7 @@ const gearCamera = createGearCamera();
 const { scene, sky, light } = createScene();
 const hud = new Hud();
 const devices = new InputDevices(canvas);
+const touchControls = new TouchControls(document.getElementById('touch')!, devices);
 const sound = new Sound();
 const altisonic = new Altisonic();
 
@@ -1916,6 +1918,46 @@ function keysPhase(): KeysPhase | null {
   return jump.wings && jump.cutawayAt === null ? 'wingsuit' : 'freefall';
 }
 
+/** What a touch screen has on it right now: nothing behind the menu, or while another device is used. */
+function touchLayout(): TouchLayout | null {
+  const phase = devices.lastUsed === 'touch' ? keysPhase() : null;
+  if (!phase) return null;
+  const t = T.touch;
+  const none = { main: null, cross: false, track: null, cutaway: false, slider: false };
+  switch (phase) {
+    case 'replay':
+      return { ...none, mode: 'look' };
+    case 'replayFree':
+      return { ...none, mode: 'walk' };
+    case 'ground': {
+      if (replay) return { ...none, mode: 'look', main: t.skip };
+      const canGather = !!arrival?.canWalk && gather === null && !rigView.detached && arrival.time > 2;
+      return { ...none, mode: onFoot() ? 'walk' : 'look', main: canGather ? t.gather : null };
+    }
+    case 'canopy':
+    case 'baseCanopy': {
+      const underMain = (!jump || (jump.phase === 'canopy' && jump.canopy === 'main')) && !touchdown && !arrival;
+      const slider = underMain && sliderState === 'open' && setup.gear.slider !== 'fixed';
+      return { ...none, mode: 'canopy', cutaway: phase === 'canopy' && jump !== null, slider };
+    }
+    case 'ledge':
+    case 'plane':
+      return { ...none, mode: 'walk', main: t.exit, cross: true };
+    case 'freefall':
+    case 'wingsuit':
+      return {
+        ...none,
+        mode: 'freefall',
+        main: jump?.cutawayAt != null ? t.reserve : t.pull,
+        cross: true,
+        track: phase === 'freefall' ? devices.padTrack : null,
+      };
+  }
+}
+
+/** A key by its name, or on a touch screen what is on the glass instead. */
+const keyOr = (code: string, onGlass: string): string => (devices.lastUsed === 'touch' ? onGlass : keyLabel(code));
+
 /** Aboard a public room's load, out of the menu: the last seconds before it leaves. */
 const LOAD_CUE_S = 10;
 
@@ -1926,13 +1968,14 @@ function cue(): string {
     const left = Math.ceil((net.nextLoadAt - Date.now()) / 1000);
     if (left <= LOAD_CUE_S) return `${T.cue.loadIn(left)}<small>${T.cue.loadAboard}</small>`;
   }
+  const fingers = devices.lastUsed === 'touch';
   const mainOut = jump !== null && jump.canopy === 'main' && (jump.phase === 'canopy' || (jump.phase === 'opening' && jump.inflation !== null));
   if (devices.cutawayHeld > 0 && (mainOut || !jump) && !touchdown && !arrival && singleCanopy()) {
     // One canopy and nothing under it: a BASE container has no cutaway handle.
     return `${T.cue.noCutaway}<small>${T.cue.oneCanopy}</small>`;
   }
   if (devices.cutawayHeld > 0 && devices.cutawayHeld < 1 && mainOut && !touchdown) {
-    return `${T.cue.cuttingAway}<small>${T.cue.keepHolding(keyLabel('KeyX'))}</small>`;
+    return `${T.cue.cuttingAway}<small>${fingers ? T.touch.keepHolding : T.cue.keepHolding(keyLabel('KeyX'))}</small>`;
   }
   if (!jump || impact) return '';
   const c = T.cue;
@@ -1941,20 +1984,21 @@ function cue(): string {
   }
   const o = jump.opening;
   if (jump.phase === 'opening' && o?.malfunction === 'streamer' && o.stage === 'inflation' && o.time > o.timing.lineStretch + 1.2) {
-    return `${c.streamer}<small>${c.holdToCutaway(keyLabel('KeyX'))}</small>`;
+    return `${c.streamer}<small>${c.holdToCutaway(keyOr('KeyX', T.touch.cutaway.toUpperCase()))}</small>`;
   }
   if (jump.phase === 'plane' && jump.walk) {
     const exit = c.exitIn[jump.body.position];
-    const go = jump.onRamp ? c.offTheRamp : c.runToRamp(keyLabel('KeyW'));
+    const go = jump.onRamp ? c.offTheRamp : c.runToRamp(keyOr('KeyW', T.touch.stick));
     return `${c.greenLight}<small>${exit ? `${exit} · ` : ''}${go}</small>`;
   }
   if (jump.phase === 'plane') {
     const exit = c.exitIn[jump.body.position];
-    return `${c.greenLight}<small>${c.spots[jump.spot]} · ${exit ? `${exit} · ` : ''}${c.spaceToExit}</small>`;
+    return `${c.greenLight}<small>${c.spots[jump.spot]}${exit || !fingers ? ' · ' : ''}${[exit, fingers ? '' : c.spaceToExit].filter(Boolean).join(' · ')}</small>`;
   }
   if (jump.phase === 'standing') {
     const exit = c.exitIn[jump.body.position];
-    const go = jump.runUp?.standing ? c.jumpOut(keyLabel('KeyW')) : c.runAndJump(keyLabel('KeyW'));
+    const standing = jump.runUp?.standing;
+    const go = fingers ? (standing ? T.touch.jumpOut : T.touch.runAndJump) : standing ? c.jumpOut(keyLabel('KeyW')) : c.runAndJump(keyLabel('KeyW'));
     return `${c.onTop}<small>${exit ? `${exit} · ` : ''}${go}</small>`;
   }
   if (jump.phase === 'freefall' && jump.base) {
@@ -1962,12 +2006,12 @@ function cue(): string {
     const delay = c.delay(num(jump.time, 1));
     if (jump.pullWhenFlat) return `${delay}<small>${c.flat} · ${c.toPull}</small>`;
     const { name, glide } = flying(jump);
-    return `${delay}<small>${[name, glide, c.spaceToPull].filter(Boolean).join(' · ')}</small>`;
+    return `${delay}<small>${[name, glide, fingers ? '' : c.spaceToPull].filter(Boolean).join(' · ')}</small>`;
   }
   if (jump.phase === 'freefall') {
     if (jump.pullWhenFlat) return `${c.flat}<small>${c.toPull}</small>`;
     const { name, glide } = flying(jump);
-    if (jump.time > 1.5) return `${name}<small>${[glide, c.spaceToPull].filter(Boolean).join(' · ')}</small>`;
+    if (jump.time > 1.5) return `${name}<small>${[glide, fingers ? '' : c.spaceToPull].filter(Boolean).join(' · ')}</small>`;
     return name;
   }
   if (jump.stowed && !touchdown) {
@@ -1993,7 +2037,8 @@ function guideCue(): string {
   // The key that goes there, or on the gamepad the bumper, or the left stick and which way to push it.
   const pad = devices.lastUsed === 'gamepad';
   const how = (code: string, control: PadControl, push = ''): string =>
-    pad ? `<i>${padIcon(control, devices.padKind)}${push}</i>` : `<kbd>${keyLabel(code)}</kbd>`;
+    // On a touch screen the arrow says enough.
+    devices.lastUsed === 'touch' ? '' : pad ? `<i>${padIcon(control, devices.padKind)}${push}</i>` : `<kbd>${keyLabel(code)}</kbd>`;
   const say = (text: string, m: number, by: string): string => `<span>${text} ${Math.round(Math.abs(m))} m${by}</span>`;
   const parts = [
     Math.abs(g.up) < GUIDE_LEVEL ? `<span class="ok">${t.level}</span>` : g.up > 0 ? say(`▲ ${t.up}`, g.up, how('KeyR', 'lb')) : say(`▼ ${t.down}`, g.up, how('KeyF', 'rb')),
@@ -2101,6 +2146,7 @@ function frame(now: number): void {
 
   devices.padMode = padMode();
   devices.feetTurn = onFoot() && !locked;
+  touchControls.update(touchLayout());
   devices.poll();
   const feetYaw = devices.takeFeetYaw();
   // After the devices: Start may just have opened the menu, which then ignores it until let go.

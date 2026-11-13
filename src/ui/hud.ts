@@ -265,6 +265,8 @@ export class Hud {
     const args = `${phase}|${input}|${pad}`;
     if (args === this.lastKeysArgs) return;
     this.lastKeysArgs = args;
+    // On a touch screen the instruments leave the corners to the thumbs.
+    this.root.classList.toggle('touch', input === 'touch');
     const html = phase ? keysHtml(phase, input, pad) : '';
     if (html === this.lastKeys) return;
     this.keys.innerHTML = this.lastKeys = html;

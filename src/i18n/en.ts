@@ -246,6 +246,23 @@ export const en: Strings = {
     targetLockPad: 'press: lock, no target recentre · hold: target',
   },
 
+  touch: {
+    exit: 'Jump',
+    pull: 'Pull',
+    reserve: 'Reserve',
+    gather: 'Gather',
+    track: 'Track',
+    cutaway: 'Cut away',
+    slider: 'Slider',
+    menu: 'Menu',
+    camera: 'Camera',
+    stick: 'Left stick',
+    keepHolding: 'keep your finger on it',
+    skip: 'Skip',
+    runAndJump: 'left stick to run up · JUMP',
+    jumpOut: 'left stick or JUMP',
+  },
+
   logbook: {
     groups: { upright: 'Stood up', run: 'Ran out', slide: 'Slid in', hard: 'Hard', crash: 'Crash' },
     outcomes: {
