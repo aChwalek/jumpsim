@@ -48,6 +48,8 @@ const VIEW = -0.2;
 const PITCH = 0.14;
 /** The top of the plane at most this far over the camera's height, seen from it (a tangent, 5°): under the name. */
 const PLANE_TOP = 0.0875;
+/** The plane's nose at most this far from the middle of the picture, as a share of half its width. */
+const NOSE_EDGE = 0.72;
 /** The slow turn on its own: how far either way, rad, and how long it takes, s. */
 const SWAY = 0.16;
 const SWAY_PERIOD = 26;
@@ -189,6 +191,10 @@ export class CrewView {
   private crewHalfWidth = 0.5;
   private crewDepth = 0;
   private readonly v = new THREE.Vector3();
+  /** The camera where it stands before any turn, to place the plane by. */
+  private readonly still = new THREE.PerspectiveCamera(FOV, 1, 0.1, 600);
+  /** The picture's width for its height. */
+  private aspect = 1;
 
   constructor() {
     this.el.className = 'crew';
@@ -316,12 +322,17 @@ export class CrewView {
     plane.pos.z = -centre.z;
     this.planeView.update(plane);
     this.plane = plane;
+    // The front of the body itself, without the propellers' or the rotor's discs, in the holder's frame.
+    this.world.updateMatrixWorld(true);
+    const body = new THREE.Box3().setFromObject(this.planeView.object.children[0] ?? this.planeView.object);
+    this.planeHolder.userData.nose = new THREE.Vector3((body.min.x + body.max.x) / 2, body.min.y + (body.max.y - body.min.y) * 0.35, body.min.z);
     this.planeShadow.scale.set(size.x * 0.9, 1, size.z * 0.9);
-    // The door seen from its side, three-quarters from behind; a ramp from behind.
+    // Three-quarters from the front, nose towards the camera, the door's side (or a Hercules' nose) seen.
     const type = plane.type;
-    this.planeHolder.rotation.y = VIEW + (type.ramp ? 0.55 : -type.doorSide * (Math.PI / 2 - 0.5));
+    this.planeHolder.rotation.y = VIEW + (type.ramp ? Math.PI - 0.6 : -type.doorSide * (Math.PI / 2 + 0.5));
     this.planeHolder.userData.reach = Math.max(size.x, size.z) / 2;
     this.planeHolder.userData.tall = size.y;
+    this.planeHolder.userData.size = size;
     this.placePlane();
   }
 
@@ -335,7 +346,43 @@ export class CrewView {
     const eye = this.wantedAim + PITCH * this.wantedDistance;
     const away = Math.max(this.wantedDistance + 5 + reach * 1.5, (tall - eye) / PLANE_TOP);
     const behind = away - this.wantedDistance;
-    this.planeHolder.position.set(-Math.sin(VIEW) * behind, 0, -this.crewDepth / 2 - Math.cos(VIEW) * behind);
+    const at = (aside: number): void => {
+      this.planeHolder.position.set(
+        -Math.sin(VIEW) * behind + Math.cos(VIEW) * aside,
+        0,
+        -this.crewDepth / 2 - Math.cos(VIEW) * behind - Math.sin(VIEW) * aside,
+      );
+    };
+    at(0);
+    // Moved across to the middle of the picture as seen, three-quarters from
+    // the front, the nose nearer and bigger than the tail; and if it is too
+    // long to be seen whole, the tail cut rather than the nose.
+    const size = this.planeHolder.userData.size as THREE.Vector3 | undefined;
+    if (!size) return;
+    const camera = this.still;
+    camera.aspect = this.aspect;
+    camera.position.set(Math.sin(VIEW) * this.wantedDistance, eye, -this.crewDepth / 2 + Math.cos(VIEW) * this.wantedDistance);
+    camera.lookAt(0, this.wantedAim, -this.crewDepth / 2);
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();
+    this.planeHolder.updateMatrix();
+    let left = Infinity;
+    let right = -Infinity;
+    for (const x of [-size.x / 2, size.x / 2])
+      for (const y of [0, size.y])
+        for (const z of [-size.z / 2, size.z / 2]) {
+          const p = this.v.set(x, y, z).applyMatrix4(this.planeHolder.matrix).project(camera);
+          left = Math.min(left, p.x);
+          right = Math.max(right, p.x);
+        }
+    const front = (this.planeHolder.userData.nose as THREE.Vector3 | undefined) ?? this.v.set(0, size.y * 0.3, -size.z / 2);
+    const nose = this.v.copy(front).applyMatrix4(this.planeHolder.matrix).project(camera).x;
+    let shift = (left + right) / 2;
+    const seen = nose - shift;
+    if (Math.abs(seen) > NOSE_EDGE) shift += seen - Math.sign(seen) * NOSE_EDGE;
+    // Half the picture's width, m, as far away as the plane.
+    const across = away * Math.tan(((FOV / 2) * Math.PI) / 180) * this.aspect;
+    at(-shift * across);
   }
 
   private setTags(members: CrewMember[]): void {
@@ -355,6 +402,7 @@ export class CrewView {
 
   /** Where the camera has to stand to have the whole crew in the picture, at this width for a height. */
   private frameCrew(aspect: number): void {
+    this.aspect = aspect;
     const half = Math.tan(((FOV / 2) * Math.PI) / 180);
     const high = TALL / CREW_SHARE / 2 / half;
     const wide = (this.crewHalfWidth + MARGIN) / (half * Math.max(0.3, aspect));
