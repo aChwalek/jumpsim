@@ -8,7 +8,7 @@ and downloads, once, into the cache:
   - relief: Mapzen/AWS Terrain Tiles (Terrarium PNG; SRTM, EU-DEM, GEBCO...);
   - imagery: orthophotos (IGN BD ORTHO in France and overseas, PNOA in Spain,
     SWISSIMAGE in Switzerland, DGU DOF5 in Croatia, the Province of Trento's
-    2015 flight in Trentino) near the field,
+    2015 flight in Trentino, NAIP in the United States) near the field,
     Sentinel-2 cloudless (EOX) out to the horizon;
   - OpenStreetMap through Overpass: buildings, trees, woods, water, coastline.
 
@@ -169,6 +169,10 @@ SOURCES = {
     # Trentino: the Province of Trento's orthophoto of 2015 (20 cm), a WMS too.
     'pat': 'https://siat.provincia.tn.it/geoserver/stem/ecw-rgb-2015/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap'
            '&LAYERS=ecw-rgb-2015&STYLES=&CRS=EPSG:3857&BBOX={bbox}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg',
+    # United States: the USDA's NAIP (0.6 m, public domain) through the USGS
+    # National Map, an ArcGIS image server asked one web mercator tile at a time.
+    'naip': 'https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer/exportImage?bbox={bbox}'
+            '&bboxSR=3857&imageSR=3857&size=256,256&format=jpg&f=image',
 }
 
 
