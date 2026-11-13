@@ -56,7 +56,7 @@ export interface BodyInputs {
   fall: number;
   /** ↑ / ↓ held: somersaults one after the other, forwards (1) or backwards (-1). */
   flip?: number;
-  /** ← / → held: rolls (half turns upright) one after the other, to the left (-1) or right (1). */
+  /** ← / → held: half rolls (cartwheels upright) one after the other, to the left (-1) or right (1). */
   roll?: number;
 }
 
@@ -214,7 +214,7 @@ export interface FreefallParams {
   settle: number;
   /** Fastest the body swings round from one position to another, rad/s. */
   swingRate: number;
-  /** A half roll flat, or a half turn upright, on ← / →, rad/s. */
+  /** A half roll flat, or a half cartwheel upright, on ← / →, rad/s. */
   rollRate: number;
   /** Somersaults on ↑ / ↓, a quarter at a time, rad/s. */
   flipRate: number;
@@ -295,12 +295,12 @@ export class Freefall {
    */
   private flipSign = 1;
   /**
-   * A roll flat, a half turn upright or a somersault under way: what is left
+   * A roll or a somersault under way: what is left
    * of it, rad, about `axis` in the pilot frame, and how fast it goes now.
    * A roll or a somersault takes the body off the airflow: it is not settled
    * back onto it until it is over.
    */
-  private readonly maneuver: { axis: Vec3; left: number; rate: number; kind: 'roll' | 'turn' | 'flip' } = {
+  private readonly maneuver: { axis: Vec3; left: number; rate: number; kind: 'roll' | 'flip' } = {
     axis: vec3(),
     left: 0,
     rate: 0,
@@ -339,28 +339,26 @@ export class Freefall {
   }
 
   /**
-   * ← / → (`dir` -1 / 1). Flat, a half roll that way onto the other side:
-   * twice in a row on the belly is a barrel roll. Upright, a half turn about
-   * the head to face the other way.
+   * ← / → (`dir` -1 / 1): a half roll that way onto the other side. Flat,
+   * about the head, belly ↔ back: twice in a row on the belly is a barrel
+   * roll. Upright, a half cartwheel about where the eyes look, sitting ↔
+   * head down: twice is a whole cartwheel.
    */
   rollOver(dir: -1 | 1): void {
     const m = this.maneuver;
-    const flat = this.position === 'belly' || this.position === 'back';
-    const kind = flat ? 'roll' : 'turn';
-    if (m.left !== 0 && m.kind !== kind) return;
-    if (flat) {
-      // About the head, always the same way for the same key, so that a
-      // second press carries on round: → on the belly, the right hand goes down.
+    if (m.left !== 0 && m.kind !== 'roll') return;
+    // Always the same way about the body for the same key, so that a second
+    // press carries on round. → on the belly, the right hand goes down;
+    // sitting, the head goes over to the right.
+    if (this.position === 'belly' || this.position === 'back') {
       set(m.axis, 0, 1, 0);
-      m.left += dir * Math.PI;
       this.position = this.position === 'belly' ? 'back' : 'belly';
     } else {
-      // About the axis that is up for the eyes, the way a turn goes.
-      const f = this.shape.forward;
-      set(m.axis, 0, f.z, -f.y);
-      m.left += dir * Math.PI;
+      set(m.axis, 0, 0, -1);
+      this.position = this.position === 'sit' ? 'headDown' : 'sit';
     }
-    m.kind = kind;
+    m.left += dir * Math.PI;
+    m.kind = 'roll';
   }
 
   /**
@@ -380,7 +378,7 @@ export class Freefall {
     this.position = stepPosition(this.position, dir > 0 ? 'up' : 'down');
   }
 
-  /** A roll, a half turn or a somersault under way. */
+  /** A roll or a somersault under way. */
   get maneuvering(): boolean {
     return this.maneuver.left !== 0;
   }
@@ -398,13 +396,10 @@ export class Freefall {
     h.flip = flip ? h.flip + dt : 0;
     h.roll = roll ? h.roll + dt : 0;
     // The same way as the one under way, about half of it left.
-    const due = (kind: 'roll' | 'turn' | 'flip', sign: number, step: number): boolean =>
+    const due = (kind: 'roll' | 'flip', sign: number, step: number): boolean =>
       m.left === 0 || (m.kind === kind && Math.sign(m.left) === sign && Math.abs(m.left) < step / 2);
     if (flip && h.flip >= SPIN_HOLD && due('flip', -flip, Math.PI / 2)) this.flip(flip as -1 | 1);
-    else if (roll && h.roll >= SPIN_HOLD) {
-      const flat = this.position === 'belly' || this.position === 'back';
-      if (due(flat ? 'roll' : 'turn', roll, Math.PI)) this.rollOver(roll as -1 | 1);
-    }
+    else if (roll && h.roll >= SPIN_HOLD && due('roll', roll, Math.PI)) this.rollOver(roll as -1 | 1);
   }
 
   /** Angle between the body and its position on the airflow, rad: 0 once settled. */
@@ -477,7 +472,7 @@ export class Freefall {
     let wz = 0;
     const m = this.maneuver;
     this.carryOn(dt, input);
-    if (speed > 3 && !(m.left !== 0 && m.kind !== 'turn')) {
+    if (speed > 3 && m.left === 0) {
       // A body broader across the air than along it glides towards its low
       // edge, a slender one towards its leading end: they tilt opposite ways.
       const flowArea = along(shape.area, shape.downstream);

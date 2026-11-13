@@ -344,7 +344,7 @@ describe('stepPosition', () => {
   });
 });
 
-describe('rolls and half turns', () => {
+describe('rolls and cartwheels', () => {
   function settledIn(position: BodyPosition) {
     const model = new FlightModel(deriveRig(DEFAULT_RIG));
     const env: Environment = { wind: vec3(), airDensity: airDensityAt(4000) };
@@ -387,16 +387,54 @@ describe('rolls and half turns', () => {
     expect(Math.abs(((jump.body.headingDeg() - heading + 540) % 360) - 180)).toBeLessThan(20);
   });
 
-  test('← / → upright turns round to face the other way, still upright', () => {
-    for (const position of ['sit', 'headDown'] as const) {
-      const { jump, run } = settledIn(position);
-      const heading = jump.body.headingDeg();
-      jump.roll(1);
-      run(2);
-      expect(jump.body.position).toBe(position);
-      expect(jump.body.offPosition()).toBeLessThan(0.3);
-      expect(Math.abs(((jump.body.headingDeg() - heading + 540) % 360) - 180)).toBeGreaterThan(160);
+  test('← / → upright cartwheels over the side: sit ↔ head down, facing the same way', () => {
+    for (const [from, to] of [
+      ['sit', 'headDown'],
+      ['headDown', 'sit'],
+    ] as const) {
+      for (const dir of [1, -1] as const) {
+        const { jump, run } = settledIn(from);
+        const heading = jump.body.headingDeg();
+        const head = () => rotate(vec3(), jump.body.state.att, vec3(0, 1, 0));
+        jump.roll(dir);
+        expect(jump.body.position).toBe(to);
+        // Over the side, not the front or the back: the head goes through level.
+        let level = 1;
+        for (let t = 0; t < 1.5; t += 0.02) {
+          run(0.02);
+          level = Math.min(level, Math.abs(head().y));
+        }
+        expect(level).toBeLessThan(0.1);
+        run(1);
+        expect(jump.body.maneuvering).toBe(false);
+        expect(jump.body.offPosition()).toBeLessThan(0.3);
+        expect(Math.abs(((jump.body.headingDeg() - heading + 540) % 360) - 180)).toBeLessThan(20);
+      }
     }
+  });
+
+  test('→ sitting: the head goes over to the right hand', () => {
+    const { jump, run } = settledIn('sit');
+    const right = rightHand(jump);
+    jump.roll(1);
+    run(0.5);
+    const head = rotate(vec3(), jump.body.state.att, vec3(0, 1, 0));
+    expect(head.x * right.x + head.y * right.y + head.z * right.z).toBeGreaterThan(0.7);
+  });
+
+  test('→ held upright: cartwheel after cartwheel', () => {
+    const { jump } = settledIn('sit');
+    jump.roll(1);
+    const held = { ...noBodyInputs(), roll: 1 };
+    let flips = 0;
+    let last = rotate(vec3(), jump.body.state.att, vec3(0, 1, 0)).y;
+    for (let t = 0; t < 3; t += SIM_DT) {
+      jump.step(SIM_DT, held, { wind: vec3(), airDensity: airDensityAt(3500) });
+      const y = rotate(vec3(), jump.body.state.att, vec3(0, 1, 0)).y;
+      if (Math.sign(y) !== Math.sign(last)) flips++;
+      last = y;
+    }
+    expect(flips).toBeGreaterThanOrEqual(4);
   });
 
   test('← held: barrel rolls one after the other, stopping on a side when let go', () => {
