@@ -8,6 +8,7 @@ import { FlightModel, type Environment } from '../src/sim/flightModel';
 import { BODY_SHAPES, Freefall, freefallParams, noBodyInputs, type BodyInputs, type BodyPosition, type FlightZone } from '../src/sim/freefall';
 import { STANCE_CODES } from '../src/net/snapshot';
 import { jumpStance } from '../src/render/jumpPose';
+import { neckFor, neckOf } from '../src/render/neck';
 import type { Stance } from '../src/render/posture';
 import { Jump } from '../src/sim/jump';
 import { DEFAULT_RIG, deriveRig } from '../src/sim/rig';
@@ -242,6 +243,43 @@ describe('positions flown progressively', () => {
     expect(usual).toBeLessThan(1.4);
     expect(toHeadDown(0.5)).toBeGreaterThan(1.5 * usual);
     expect(toHeadDown(2)).toBeLessThan(0.7 * usual);
+  });
+
+  test('head low on the back the eyes go where the body goes, not back past the knees', () => {
+    /** Where the eyes look, world frame, once the neck has come round. */
+    const eyes = (body: Freefall) => {
+      const face = rotate(vec3(), body.state.att, vec3(0, 0, -1));
+      const crown = rotate(vec3(), body.state.att, vec3(0, 1, 0));
+      const n = neckOf(body);
+      const neck = neckFor(face.y, crown.y, n.gaze, n.prefer, n.lo, n.hi);
+      return rotate(vec3(), body.state.att, vec3(0, Math.sin(neck), -Math.cos(neck)));
+    };
+    /** How much of the look is along the way the body goes over the ground, -1 to 1. */
+    const along = (body: Freefall) => {
+      const v = body.state.vel;
+      const look = eyes(body);
+      return (look.x * v.x + look.z * v.z) / Math.hypot(v.x, v.z);
+    };
+    const { body, env } = flying(true);
+    // On the belly in a track: ahead, just under the horizon.
+    headLow(body, env, 60);
+    fly(body, env, 20);
+    expect(along(body)).toBeGreaterThan(0.85);
+    expect(eyes(body).y).toBeLessThan(0);
+    // Rolled over onto the back, still going the same way: the eyes still go there, over the top of the head.
+    swingTo(body, env, 'backTrack', { roll: 1 }, 0.5);
+    fly(body, env, 20);
+    expect(body.position).toBe('back');
+    expect(along(body)).toBeGreaterThan(0.6);
+    expect(Math.abs(eyes(body).y)).toBeLessThan(0.75);
+    // The same held the usual way looks back past the knees.
+    body.progressive = false;
+    expect(along(body)).toBeLessThan(-0.6);
+    body.progressive = true;
+    // Flat on the back and feet first, past the knees it is: that is where it goes now.
+    swingTo(body, env, 'sitAngle', { flip: 1 }, 0.4);
+    fly(body, env, 20);
+    expect(along(body)).toBeGreaterThan(0.6);
   });
 
   test('flown the usual way again, the body is in the position it was closest to', () => {

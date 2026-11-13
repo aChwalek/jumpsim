@@ -13,6 +13,7 @@ import { CanopyView, type SliderState } from './render/canopyView';
 import { ChaseCamera, type ChaseTarget } from './render/chaseCamera';
 import { cycle, lockedChase, pickPlayer, pickPoint, type Target } from './render/lockOn';
 import { deployStage, jumpStance } from './render/jumpPose';
+import { DOOR_GAZE, FREEFALL_GAZE, neckFor, neckOf } from './render/neck';
 import { FREEFALL_STANCES, LegSwing, Posture, type LegCues, type Stance } from './render/posture';
 import { RigView, type RigFrame } from './render/rigView';
 import { RagdollView } from './render/ragdollView';
@@ -1642,59 +1643,22 @@ const HEAD_PITCH_FOLLOW = 0.35;
 const NECK_RANGE = 25 * DEG;
 const headPitch = (bodyPitch: number): number =>
   bodyPitch - (1 - HEAD_PITCH_FOLLOW) * NECK_RANGE * Math.tanh(bodyPitch / NECK_RANGE);
-/**
- * Flat on the air the head comes up, eyes on the horizon as students are
- * taught, as far as the neck goes; in the door they look out and down.
- */
-const FREEFALL_GAZE = -20 * DEG;
-const DOOR_GAZE = -12 * DEG;
-const NECK_UP = 75 * DEG;
-const NECK_DOWN = -40 * DEG;
 /** How far up the eyes go to check the canopy as it opens. */
 const GLANCE = 62 * DEG;
 const MAX_PITCH = 85 * DEG;
 
-/**
- * Where the neck takes the eyes in each freefall position: the pitch of the
- * line of sight it goes for, the neck angle it would rather have when two
- * would do, and how far it goes, rad, positive towards the top of the head.
- */
-const NECKS: Record<BodyPosition, { gaze: number; prefer: number; lo: number; hi: number }> = {
-  belly: { gaze: FREEFALL_GAZE, prefer: 60 * DEG, lo: NECK_DOWN, hi: NECK_UP },
-  // Chin to the chest and the shoulders curled, to look out past the knees
-  // at the horizon beyond the feet.
-  back: { gaze: FREEFALL_GAZE, prefer: -75 * DEG, lo: -75 * DEG, hi: NECK_UP },
-  // The knees just in sight under the horizon.
-  sit: { gaze: -20 * DEG, prefer: 0, lo: NECK_DOWN, hi: NECK_UP },
-  // The horizon upside down: ground on top, sky underneath.
-  headDown: { gaze: -10 * DEG, prefer: 0, lo: NECK_DOWN, hi: NECK_UP },
-};
 /** Time for the neck to come round when the body changes position, s. */
 const NECK_LAG = 0.2;
 /** Most the neck turns, rad/s: past that it lags behind rather than whip the eyes round. */
 const NECK_RATE = 180 * DEG;
+/**
+ * Positions flown progressively: the body is let go anywhere round the loop,
+ * so the neck comes round more calmly, s and rad/s.
+ */
+const NECK_LAG_SWUNG = 0.35;
+const NECK_RATE_SWUNG = 90 * DEG;
 /** The neck's angle in freefall, rad, eased from one position to the next; null to take it at once. */
 let neck: number | null = null;
-
-/**
- * The neck angle that tips the face onto the pitch `gaze`, given how high
- * the face (`f`) and the top of the head (`h`) point: of the two that do, the
- * nearer `prefer`, within the neck's range.
- */
-function neckFor(f: number, h: number, gaze: number, prefer: number, lo: number, hi: number): number {
-  const r = Math.hypot(f, h);
-  let a = prefer;
-  if (r > 0.05) {
-    // f cos a + h sin a = r cos(a - phi) = sin(gaze)
-    const phi = Math.atan2(h, f);
-    const c = Math.acos(Math.max(-1, Math.min(1, Math.sin(gaze) / r)));
-    const wrap = (x: number) => Math.atan2(Math.sin(x), Math.cos(x));
-    const a1 = wrap(phi + c);
-    const a2 = wrap(phi - c);
-    a = Math.abs(a1 - prefer) <= Math.abs(a2 - prefer) ? a1 : a2;
-  }
-  return Math.max(lo, Math.min(hi, a));
-}
 
 /** Where the pilot's eyes look, from the body's attitude and the mouse. */
 function aimCamera(dt: number): void {
@@ -1722,8 +1686,13 @@ function aimCamera(dt: number): void {
     crown.set(0, 1, 0).applyQuaternion(look);
     // In the door or on top of the object, the eyes are out ahead and down.
     const aboard = !jump || jump.phase === 'plane' || jump.phase === 'standing';
-    const position = jump && !aboard ? jump.body.position : 'belly';
-    const n = NECKS[position];
+    const body = jump && !aboard ? jump.body : null;
+    const position = body ? body.position : 'belly';
+    // Flown progressively, head low on the back (a back angle, a back track)
+    // the body goes head first: the eyes go over the top of the head to where
+    // it goes, as on the belly, not past the knees to where it came from.
+    const swung = body !== null && body.progressive;
+    const n = neckOf(body);
     const out = jump && !aboard ? Math.min(1, jump.time / 1.5) : 0;
     const gaze = position === 'belly' ? DOOR_GAZE + (FREEFALL_GAZE - DOOR_GAZE) * out : n.gaze;
     // In a somersault or a roll the neck holds still and the eyes go round
@@ -1733,8 +1702,8 @@ function aimCamera(dt: number): void {
     const wanted = spinning && neck !== null ? neck : neckFor(face.y, crown.y, gaze, n.prefer, n.lo, n.hi);
     if (neck === null) neck = wanted;
     else {
-      const most = NECK_RATE * dt;
-      neck += Math.max(-most, Math.min(most, (wanted - neck) * (1 - Math.exp(-dt / NECK_LAG))));
+      const most = (swung ? NECK_RATE_SWUNG : NECK_RATE) * dt;
+      neck += Math.max(-most, Math.min(most, (wanted - neck) * (1 - Math.exp(-dt / (swung ? NECK_LAG_SWUNG : NECK_LAG)))));
     }
     flatView.copy(look).multiply(turn.setFromAxisAngle(AXIS_X, neck));
     lookEuler.set(devices.lookPitch, -devices.lookYaw, 0);
