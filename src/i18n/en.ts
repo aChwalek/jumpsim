@@ -158,6 +158,8 @@ export const en: Strings = {
     sliderStays: 'it stays down on the links',
     onTop: 'AT THE EXIT',
     runAndJump: (fwd: string) => `${fwd} to run up · Space to jump`,
+    runToRamp: (fwd: string) => `${fwd} to run down the hold · off the end of the ramp`,
+    offTheRamp: 'Space to jump · or run off the end',
     jumpOut: (fwd: string) => `${fwd} or Space to jump`,
     delay: (s: string) => `${s} s`,
     target: 'TARGET',
@@ -489,6 +491,17 @@ export const en: Strings = {
       malfunctionOff: 'The main always opens fine.',
       malfunctionOn: (k: string) => `The main may streamer: hold ${k} to cut it away, then the reserve.`,
       malfunctionBase: 'BASE: the canopy may open the other way, facing the wall: turn at once.',
+      aircraft: 'PLANE',
+      aircraftDz: (name: string) => `DZ (${name})`,
+      aircraftNames: { pc6: 'PC-6', do28: 'Do 28', c130: 'C-130' },
+      aircraftNote: {
+        pc6: 'Single turboprop, jump door on the right, flown slow on jump run.',
+        do28: 'Twin turboprop, big jump door on the left.',
+        c130: 'Four turboprops and a ramp at the back: run down the hold and off the end of it. Jump run is flown faster.',
+      },
+      rampNote: 'Out of the ramp, no place to take: walk or run about the hold, and go off the end.',
+      runNoteRamp: (how: string, height: string, kmh: string, from: string, plane: string) =>
+        `${how} · wind at ${height} m: ${kmh} km/h from ${from} · ${plane}: out of the ramp, over the target along the run`,
       exitSpot: 'PLACE AT THE DOOR',
       spots: { inside: 'Inside', high: 'High', low: 'Low', step: 'Step' },
       spotNote: {

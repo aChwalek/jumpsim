@@ -50,6 +50,7 @@ import {
   type SliderKind,
   MALFUNCTION_ODDS,
   MALFUNCTION_RATES,
+  aircraftOf,
   SLIDER_KINDS,
   CONTAINERS,
   startsAt,
@@ -57,7 +58,7 @@ import {
   type Setup,
   type Start,
 } from '../setup';
-import { AIRCRAFT, EXIT_SPOTS, type ExitSpot } from '../sim/plane';
+import { AIRCRAFT, AIRCRAFT_IDS, EXIT_SPOTS, type AircraftId, type ExitSpot } from '../sim/plane';
 import { BOTS_MAX, BOT_LEADS, BOT_MODES, botHeights, leaderLed, type BotLead, type BotMode } from '../sim/bot';
 import { SUIT_KINDS, SUIT_LEVELS, hasWings, suitGlide, type SuitKind, type SuitLevel } from '../sim/suit';
 import { reserveSize, type CanopyKind } from '../sim/rig';
@@ -1060,7 +1061,7 @@ export class Menu {
         const run = runHeading(this.setup);
         const aloft = Math.round(weather.windKmh * windGradient(jump.exitHeight));
         return `
-          <span class="big">${num(jump.exitHeight)}<small class="unit">m</small> <small>${j.starts.plane} · ${j.spots[jump.exitSpot]}</small></span>
+          <span class="big">${num(jump.exitHeight)}<small class="unit">m</small> <small>${j.starts.plane} · ${AIRCRAFT[aircraftOf(this.setup)].ramp ? j.aircraftNames[aircraftOf(this.setup)] : j.spots[jump.exitSpot]}</small></span>
           <span>${j.runLine(heading(run), windOnRun(run, weather.windFromDeg, weather.windKmh))}</span>
           <span class="dim">${j.aloftLine(String(aloft), String(Math.round(freefallSeconds(jump.exitHeight))))}</span>`;
       }
@@ -1257,6 +1258,7 @@ export class Menu {
     const { screen, body } = this.screenShell('jump', null);
     const plan = (): JumpPlan => this.setup.jump;
     const noPlane = (): boolean => plan().start !== 'plane';
+    const ramp = (): boolean => AIRCRAFT[aircraftOf(this.setup)].ramp !== undefined;
     const noBots = (): boolean => noPlane() || this.room !== null;
     const wings = (): boolean => hasWings(suitOf(this.setup.gear));
     const led = (): boolean => leaderLed(this.setup.bots.mode, suitOf(this.setup.gear));
@@ -1294,9 +1296,19 @@ export class Menu {
           disabled: noPlane,
         },
       ),
+      this.choice<AircraftId | null>(
+        j.aircraft,
+        () => [
+          { value: null, label: j.aircraftDz(j.aircraftNames[dzInfo(this.setup.dz).aircraft]) },
+          ...options(AIRCRAFT_IDS, (a) => j.aircraftNames[a]),
+        ],
+        () => plan().aircraft,
+        (aircraft) => this.setJump({ aircraft }),
+        { note: () => j.aircraftNote[aircraftOf(this.setup)], disabled: noPlane },
+      ),
       this.choice<ExitSpot>(j.exitSpot, options(EXIT_SPOTS, (s) => j.spots[s]), () => plan().exitSpot, (exitSpot) => this.setJump({ exitSpot }), {
-        note: () => `${j.spotNote[plan().exitSpot]} ${j.spotKeys(keyLabel('KeyW'), keyLabel('KeyS'))}`,
-        disabled: noPlane,
+        note: () => (ramp() ? j.rampNote : `${j.spotNote[plan().exitSpot]} ${j.spotKeys(keyLabel('KeyW'), keyLabel('KeyS'))}`),
+        disabled: () => noPlane() || ramp(),
       }),
       this.slider(j.bots, { min: 0, max: BOTS_MAX, step: 1, big: 1 }, () => this.setup.bots.count, (count) => this.setBots({ count }), {
         hint: j.botsHint,
@@ -1338,7 +1350,8 @@ export class Menu {
           note: () => {
             const { weather } = this.setup;
             const aloft = Math.round(weather.windKmh * windGradient(plan().exitHeight));
-            const plane = AIRCRAFT[dzInfo(this.setup.dz).aircraft];
+            const plane = AIRCRAFT[aircraftOf(this.setup)];
+            if (plane.ramp) return j.runNoteRamp(windOnRun(runHeading(this.setup), weather.windFromDeg, weather.windKmh), num(plan().exitHeight), String(aloft), heading(weather.windFromDeg), plane.name);
             return j.runNote(
               windOnRun(runHeading(this.setup), weather.windFromDeg, weather.windKmh),
               num(plan().exitHeight),

@@ -162,6 +162,8 @@ export const fr = {
     sliderStays: 'il reste sur les maillons',
     onTop: "À L'EXIT",
     runAndJump: (fwd: string) => `${fwd} pour prendre de l'élan · Espace pour sauter`,
+    runToRamp: (fwd: string) => `${fwd} pour courir dans la soute · sortie au bout de la rampe`,
+    offTheRamp: 'Espace pour sauter · ou cours jusqu\'au bout',
     jumpOut: (fwd: string) => `${fwd} ou Espace pour sauter`,
     delay: (s: string) => `${s} s`,
     target: 'CIBLE',
@@ -493,6 +495,17 @@ export const fr = {
       malfunctionOff: 'La principale s\'ouvre toujours bien.',
       malfunctionOn: (k: string) => `La principale peut partir en torche : ${k} maintenu pour libérer, puis le secours.`,
       malfunctionBase: 'En BASE, la voile peut s\'ouvrir à 180°, face à la paroi : tourne tout de suite.',
+      aircraft: 'AVION',
+      aircraftDz: (name: string) => `DZ (${name})`,
+      aircraftNames: { pc6: 'PC-6', do28: 'Do 28', c130: 'C-130' },
+      aircraftNote: {
+        pc6: 'Monoturbine, porte à droite, largage à basse vitesse.',
+        do28: 'Bimoteur, grande porte à gauche.',
+        c130: 'Quatre turbopropulseurs et une rampe arrière : cours dans la soute et saute au bout. Largage plus rapide.',
+      },
+      rampNote: 'Par la rampe, pas de place à prendre : marche ou cours dans la soute, et sors par le bout.',
+      runNoteRamp: (how: string, height: string, kmh: string, from: string, plane: string) =>
+        `${how} · vent à ${height} m : ${kmh} km/h du ${from} · ${plane} : sortie par la rampe, la cible dans l'axe`,
       exitSpot: 'PLACE À LA PORTE',
       spots: { inside: 'Intérieur', high: 'Haut de porte', low: 'Bas de porte', step: 'Step' },
       spotNote: {

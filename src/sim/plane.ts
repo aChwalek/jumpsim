@@ -21,7 +21,8 @@ export interface JumpRun {
   aircraft?: AircraftId;
 }
 
-export type AircraftId = 'pc6' | 'do28';
+export type AircraftId = 'pc6' | 'do28' | 'c130';
+export const AIRCRAFT_IDS: readonly AircraftId[] = ['pc6', 'do28', 'c130'];
 
 /**
  * Where the jumper waits for the exit, the places of a four-way exit:
@@ -60,6 +61,14 @@ export interface Aircraft {
   spots: Record<ExitSpot, DoorSpot>;
   /** Hubs of the propellers. */
   propellers: Vec3[];
+  /**
+   * A hold open at the back, its ramp down level with the floor: the jumper
+   * walks about in it, and goes off the end of the ramp. The floor from the
+   * front bulkhead to the hinge of the ramp, then the ramp to its end, m.
+   */
+  ramp?: { front: number; hinge: number; end: number };
+  /** Its own jump run speed, m/s indicated, whatever the drop zone flies. */
+  indicatedAirspeed?: number;
 }
 
 /**
@@ -86,6 +95,22 @@ function doorSpots(a: Pick<Aircraft, 'cabin' | 'doorSide' | 'door' | 'step'>, cr
   };
 }
 
+/**
+ * On a ramp, the places are on its floor, upright and facing out the back:
+ * at its end in the middle (`low`), at its end to the left and to the right
+ * (`high`, `step`), and a little way up it (`inside`). Off them, a step out.
+ */
+function rampSpots(halfWidth: number, end: number): Record<ExitSpot, DoorSpot> {
+  const eye = 1.66;
+  const out = { out: 0, ahead: -1.6, up: 0.4 };
+  return {
+    inside: { eye: vec3(0, eye, end - 2.2), yawDeg: 180, push: { out: 0, ahead: -3.2, up: 0.5 } },
+    high: { eye: vec3(-halfWidth * 0.55, eye, end - 0.7), yawDeg: 180, push: out },
+    low: { eye: vec3(0, eye, end - 0.6), yawDeg: 180, push: out },
+    step: { eye: vec3(halfWidth * 0.55, eye, end - 0.7), yawDeg: 180, push: out },
+  };
+}
+
 const PC6 = { cabin: { halfWidth: 0.82, height: 1.42 }, doorSide: 1, door: { front: 0.55, back: 1.85, top: 1.3 }, step: { top: -0.4, out: 0.42, front: 0.6, back: 1.15 } } as const;
 const DO28 = { cabin: { halfWidth: 0.72, height: 1.5 }, doorSide: -1, door: { front: 0.1, back: 1.5, top: 1.38 }, step: { top: -0.36, out: 0.42, front: 0.15, back: 0.7 } } as const;
 
@@ -107,6 +132,22 @@ export const AIRCRAFT: Record<AircraftId, Aircraft> = {
     spots: doorSpots(DO28, 1.14),
     propellers: [vec3(-2.05, 0.55, -3.75), vec3(2.05, 0.55, -3.75)],
   },
+  // Lockheed C-130 Hercules: four turboprops on a high wing over a hold 3 m
+  // wide and 12 m long, its ramp lowered level with the floor at the back.
+  // Jump run is flown faster than in the small planes.
+  c130: {
+    id: 'c130',
+    name: 'Lockheed C-130 Hercules',
+    cabin: { halfWidth: 1.56, height: 2.74 },
+    doorSide: 1,
+    // The opening at the back: from the hinge of the ramp to its end.
+    door: { front: 5.4, back: 8.5, top: 2.74 },
+    step: { top: 0, out: 0, front: 8.5, back: 8.5 },
+    spots: rampSpots(1.56, 8.5),
+    propellers: [vec3(-9.9, 2.75, -5.4), vec3(-5.1, 2.6, -5.6), vec3(5.1, 2.6, -5.6), vec3(9.9, 2.75, -5.4)],
+    ramp: { front: -6.9, hinge: 5.4, end: 8.5 },
+    indicatedAirspeed: 57,
+  },
 };
 
 /** Nose-up attitude of the plane flying slow on jump run. */
@@ -125,14 +166,17 @@ export class Plane {
   /** Propeller angle, rad. */
   prop = 0;
   readonly type: Aircraft;
+  /** Compass heading of the run, degrees. */
+  readonly headingDeg: number;
 
   private readonly tmp = vec3();
   private readonly pitch = quat();
 
   constructor(run: JumpRun, wind: Vec3, groundHeight = 0) {
     this.type = AIRCRAFT[run.aircraft ?? 'pc6'];
+    this.headingDeg = run.headingDeg;
     const heading = run.headingDeg * DEG;
-    const tas = trueAirspeed(run.indicatedAirspeed, groundHeight + run.height);
+    const tas = trueAirspeed(this.type.indicatedAirspeed ?? run.indicatedAirspeed, groundHeight + run.height);
     set(this.vel, Math.sin(heading) * tas + wind.x, 0, -Math.cos(heading) * tas + wind.z);
     quatFromYaw(this.level, -heading);
     quatMultiply(this.att, this.level, quatFromAxisAngle(this.pitch, AXIS_X, PITCH));
@@ -146,7 +190,7 @@ export class Plane {
     this.pos.x += this.vel.x * dt;
     this.pos.y += this.vel.y * dt;
     this.pos.z += this.vel.z * dt;
-    // Three-blade propellers at about 1700 rpm.
+    // Propellers at about 1700 rpm.
     this.prop = (this.prop + 180 * dt) % (2 * Math.PI);
   }
 

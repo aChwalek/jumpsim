@@ -300,7 +300,7 @@ export function runLeadIn(downwind: number, headingDeg: number, windFromDeg: num
 export function spawnsFor(
   dz: DzPack,
   windFromDeg: number,
-  run: { headingDeg?: number; height?: number } = {},
+  run: { headingDeg?: number; height?: number; aircraft?: AircraftId } = {},
 ): { pattern: Spawn; final: Spawn; plane: JumpRun } {
   const { x, z } = dz.target;
   const p = dz.pattern;
@@ -325,7 +325,10 @@ export function spawnsFor(
   const ahead = { x: Math.sin(h), z: -Math.cos(h) };
   const right = { x: Math.cos(h), z: Math.sin(h) };
   const back = runLeadIn(jr.downwind, heading, windFromDeg);
-  const aside = -AIRCRAFT[jr.aircraft ?? 'pc6'].doorSide * jr.offset;
+  const aircraft = run.aircraft ?? jr.aircraft;
+  const plane = AIRCRAFT[aircraft ?? 'pc6'];
+  // Out of a ramp, the jumpers go out along the run's own line.
+  const aside = plane.ramp ? 0 : -plane.doorSide * jr.offset;
   return {
     pattern: {
       x: x - p.upwind * dx + side * rx,
@@ -340,7 +343,7 @@ export function spawnsFor(
       height: run.height ?? jr.height,
       headingDeg: heading,
       indicatedAirspeed: jr.indicatedAirspeed,
-      aircraft: jr.aircraft,
+      aircraft,
     },
   };
 }

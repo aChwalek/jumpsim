@@ -5,7 +5,7 @@
 // again only when the scenery changes (drop zone, photos, hour, sky).
 
 import { T, heading, num } from '../i18n';
-import { runHeading, type Setup } from '../setup';
+import { aircraftOf, runHeading, type Setup } from '../setup';
 import { spawnsFor } from '../world/dz';
 import { dzInfo, type DzId } from '../world/dzs';
 import { PLANE_PATH } from './icons';
@@ -173,7 +173,7 @@ export class DzMap {
     const cx = pack.target.x;
     const cz = pack.target.z;
     const at = (x: number, z: number): Point => [(x - cx) * K + VIEW / 2, (z - cz) * K + VIEW / 2];
-    const spots = spawnsFor(pack, weather.windFromDeg, { headingDeg: runHeading(setup), height: jump.exitHeight });
+    const spots = spawnsFor(pack, weather.windFromDeg, { headingDeg: runHeading(setup), height: jump.exitHeight, aircraft: aircraftOf(setup) });
 
     // The pattern: downwind from its start, abeam the start of final, base, final into the target.
     const down = (spots.pattern.headingDeg * Math.PI) / 180;
