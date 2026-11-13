@@ -71,6 +71,8 @@
       #hud.touch #speeds .unit { font-size: 13px; }
       #hud.touch #speeds .row + .row { margin-top: 4px; }
       #hud.touch #brakes { bottom: 12px; }
+      /* Held upright, the phone is asked to be turned (see touch.css): the instruments wait. */
+      @media (orientation: portrait) and (pointer: coarse) { #hud.touch .flight { visibility: hidden; } }
       #altimeter.warn .digits { color: #ffd84a; }
       #altimeter.danger .digits { color: #ff5a4a; }
       .card {

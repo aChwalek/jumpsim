@@ -259,6 +259,8 @@ export const en: Strings = {
     stick: 'Left stick',
     keepHolding: 'keep your finger on it',
     skip: 'Skip',
+    turn: 'Turn your phone',
+    turnWhy: 'the jump is flown sideways on',
     runAndJump: 'left stick to run up · JUMP',
     jumpOut: 'left stick or JUMP',
   },

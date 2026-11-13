@@ -263,6 +263,8 @@ export const fr = {
     stick: 'Stick gauche',
     keepHolding: 'garde le doigt dessus',
     skip: 'Passer',
+    turn: 'Tourne ton téléphone',
+    turnWhy: 'le saut se vole en paysage',
     runAndJump: 'stick gauche pour prendre de l’élan · SAUTER',
     jumpOut: 'stick gauche ou SAUTER',
   },

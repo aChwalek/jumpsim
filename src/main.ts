@@ -62,7 +62,7 @@ import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
 import { padIcon, type KeysPhase, type PadControl } from './ui/keys';
 import { Menu } from './ui/menu';
-import { TouchControls, type TouchLayout } from './ui/touchControls';
+import { goLandscape, TouchControls, type TouchLayout } from './ui/touchControls';
 import { Markers, type MarkerTarget } from './net/markers';
 import { Bots, type Others } from './bots';
 import type { Lead } from './sim/bot';
@@ -954,6 +954,8 @@ function fly(): void {
   waiting = false;
   sound.wake();
   devices.capture();
+  // A phone: the whole screen, on its side.
+  if (devices.lastUsed === 'touch') goLandscape();
 }
 /** Counts the menu's requests: one answered after the drop zone has loaded may be stale. */
 let request = 0;

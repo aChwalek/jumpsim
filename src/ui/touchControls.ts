@@ -44,6 +44,27 @@ const CAMERA = svg(
   '<path d="M4 8h3l1.6-2.4h6.8L17 8h3v11H4Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><circle cx="12" cy="13.2" r="3.3" fill="none" stroke="currentColor" stroke-width="1.9"/>',
 );
 
+const TURN = svg(
+  '<rect x="7" y="2.5" width="10" height="19" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.6" opacity="0.45"/><rect x="2.5" y="11.5" width="19" height="10" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+);
+
+/** A phone or a tablet: the finger is what points, not a mouse beside a screen that can be touched. */
+const handheld = (): boolean => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+
+/**
+ * On a phone, the whole screen and on its side: the jump is flown with both
+ * thumbs. Only from a tap, and only where the browser can (not on an
+ * iPhone, which is asked to be turned instead: see the overlay).
+ */
+export function goLandscape(): void {
+  if (!handheld()) return;
+  type Lockable = ScreenOrientation & { lock?: (orientation: string) => Promise<void> };
+  const lock = (): void => void (screen.orientation as Lockable | undefined)?.lock?.('landscape').catch(() => {});
+  if (document.fullscreenElement) return lock();
+  const whole = document.documentElement.requestFullscreen?.({ navigationUI: 'hide' });
+  void whole?.then(lock).catch(() => {});
+}
+
 /** Where a hand's control waits for the thumb, as shares of the screen's width and height. */
 const REST_X = 0.15;
 const STICK_REST_Y = 0.66;
@@ -81,7 +102,8 @@ export class TouchControls {
           <button data-btn="cutaway"></button>
           <button data-btn="slider"></button>
         </div>
-      </div>`;
+      </div>
+      <div class="turn">${TURN}<b></b><small></small></div>`;
     this.hands = {
       left: root.querySelector<HTMLElement>('.hand.left')!,
       right: root.querySelector<HTMLElement>('.hand.right')!,
@@ -91,6 +113,10 @@ export class TouchControls {
     this.words();
 
     const touch = devices.touch;
+    // Held upright, the phone is asked to be turned: a tap there asks the browser to do it.
+    const turn = root.querySelector<HTMLElement>('.turn')!;
+    turn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    turn.addEventListener('click', goLandscape);
     root.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse') {
         // A mouse after all: the keyboard's controls again, and the mouse to look around.
@@ -146,6 +172,8 @@ export class TouchControls {
     this.buttons.get('slider')!.textContent = t.slider;
     this.buttons.get('openMenu')!.setAttribute('aria-label', t.menu);
     this.buttons.get('camera')!.setAttribute('aria-label', t.camera);
+    this.root.querySelector('.turn b')!.textContent = t.turn;
+    this.root.querySelector('.turn small')!.textContent = t.turnWhy;
   }
 
   /** Call every frame: what is on the glass now, or null for nothing (a menu, or no touch screen in use). */
