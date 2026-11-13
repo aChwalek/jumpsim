@@ -2,6 +2,7 @@
 // sound, the mouse, the language. Remembered from one visit to the next.
 
 import { LANGS, browserLanguage, type Lang } from './i18n';
+import { handheld } from './viewport';
 
 /** Picture quality: the highest pixel density drawn, as a multiple of CSS pixels. Named in T.setup.quality. */
 export const QUALITY_LEVELS = [{ ratio: 1 }, { ratio: 1.5 }, { ratio: 2 }, { ratio: 3 }] as const;
@@ -43,7 +44,7 @@ export interface Settings {
 
 export function defaultSettings(): Settings {
   return {
-    quality: 2,
+    quality: handheld() ? 0 : 2,
     autoResolution: true,
     showFps: true,
     showKeys: true,
@@ -84,7 +85,15 @@ export function validSettings(saved: unknown): Settings {
 export function loadSettings(): Settings {
   try {
     const saved = localStorage.getItem(STORE);
-    if (saved) return validSettings(JSON.parse(saved));
+    if (saved) {
+      const settings = validSettings(JSON.parse(saved));
+      // Phones saved the desktop quality before they had their own: brought down once.
+      if (handheld() && localStorage.getItem('phoneQuality') !== '1') {
+        localStorage.setItem('phoneQuality', '1');
+        settings.quality = 0;
+      }
+      return settings;
+    }
     // Quality, sound and the keys on screen used to be kept on their own.
     const quality = localStorage.getItem('quality');
     return validSettings({

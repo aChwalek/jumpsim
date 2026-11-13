@@ -9,6 +9,7 @@
 // up along the sun to see whether a cloud is in the way.
 
 import * as THREE from 'three';
+import { handheld } from '../viewport';
 
 /** Cloud base above the landing area, m. */
 export const CLOUD_BASE = 1500;
@@ -61,7 +62,10 @@ float cloudSunThrough(vec3 p) {
 const NEAR = 2.5;
 /** Farthest, m: beyond that the haze has them. */
 const FAR = 40000;
-const STEPS = 64;
+/** Samples along each line of sight: half on a phone, whose graphics chip cannot march 64 per pixel. */
+const PHONE = handheld();
+const STEPS = PHONE ? 32 : 64;
+const ACROSS = PHONE ? '12.0' : '24.0';
 
 const LAYER_VERTEX = /* glsl */ `
 varying vec2 vNdc;
@@ -124,7 +128,7 @@ void main() {
   // Where each line of sight takes its samples, at random: grain rather than bands.
   float jitter = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
   // Short steps near the eye, longer far away, and enough across the layer.
-  float most = (t1 - t0) / 24.0;
+  float most = (t1 - t0) / ${ACROSS};
   float t = t0;
   float dt = min(max(15.0, 0.08 * t), most);
   t += dt * jitter;
