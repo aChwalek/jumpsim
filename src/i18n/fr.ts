@@ -141,6 +141,7 @@ export const fr = {
     toPull: 'pour ouvrir',
     spaceToPull: 'Espace pour ouvrir',
     positions: { belly: '', back: 'SUR LE DOS', sit: 'ASSIS', headDown: 'TÊTE EN BAS' },
+    standing: 'DEBOUT',
     tracks: { belly: 'TRACK', back: 'TRACK DOS', sit: 'TRACE ASSIS', headDown: 'TRACE TÊTE EN BAS' },
     zones: {
       belly: '',

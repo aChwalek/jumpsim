@@ -137,6 +137,7 @@ export const en: Strings = {
     toPull: 'to pull',
     spaceToPull: 'Space to pull',
     positions: { belly: '', back: 'ON YOUR BACK', sit: 'SIT', headDown: 'HEAD DOWN' },
+    standing: 'STAND',
     tracks: { belly: 'TRACK', back: 'BACK TRACK', sit: 'HEAD-UP ANGLE', headDown: 'HEAD-DOWN ANGLE' },
     zones: {
       belly: '',

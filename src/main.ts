@@ -1878,11 +1878,14 @@ function chaseFraming(): ChaseTarget {
 function flying(j: Jump): { name: string; glide: string } {
   const c = T.cue;
   const b = j.body;
+  // Sitting, tucked in to go down: the body stands up on the air.
+  const standing = b.position === 'sit' && devices.body.fall > 0.5;
   if (b.progressive) {
     const v = b.state.vel;
+    if (standing && b.zone === 'sit') return { name: c.standing, glide: '' };
     return { name: c.zones[b.zone], glide: b.track < 0.8 ? '' : c.glide(num(Math.hypot(v.x, v.z) / Math.max(1, -v.y), 1)) };
   }
-  if (!b.tracking) return { name: c.positions[b.position], glide: '' };
+  if (!b.tracking) return { name: standing ? c.standing : c.positions[b.position], glide: '' };
   if (j.wings && b.track < 0.8) return { name: c.wingsFilling, glide: '' };
   const name = (j.wings ? c.wingsuit : c.tracks)[b.position];
   if (b.track < 0.8) return { name, glide: '' };
