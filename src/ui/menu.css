@@ -433,6 +433,26 @@
   #menu .corner-btn span:not(.lang-opt) { display: none; }
 }
 
+/* A phone on its side: little height. The corner's buttons go down the right edge, the panel takes the rest. */
+@media (max-height: 480px) and (orientation: landscape) {
+  #menu {
+    padding: 8px calc(12px + env(safe-area-inset-right, 0px)) 8px calc(12px + env(safe-area-inset-left, 0px));
+  }
+  #menu .menu-corner { flex-direction: column; align-items: flex-end; top: 8px; right: calc(10px + env(safe-area-inset-right, 0px)); }
+  #menu .corner-btn span:not(.lang-opt) { display: none; }
+  #menu .panel { max-width: calc(100% - 118px); }
+}
+/* The same on a phone held upright, where everything is drawn on its side (see viewport.ts): its top is then the left. */
+html.sideways #menu {
+  padding: 8px calc(12px + env(safe-area-inset-bottom, 0px)) 8px calc(12px + env(safe-area-inset-top, 0px));
+}
+html.sideways #menu .menu-corner { flex-direction: column; align-items: flex-end; top: 8px; right: calc(10px + env(safe-area-inset-bottom, 0px)); }
+html.sideways #menu .corner-btn span:not(.lang-opt) { display: none; }
+html.sideways #menu .panel { max-width: calc(100% - 118px); }
+/* Narrow as the phone is, the picture is wide: two cards abreast again. */
+html.sideways #menu .cards, html.sideways #menu .room-choices { grid-template-columns: 1fr 1fr; }
+html.sideways #menu .tiles { grid-template-columns: repeat(3, 1fr); }
+
 /* Smoke colours: a round dot each, "none" in words. */
 #menu .choices.smokes button, #menu .choices.outfits button { display: flex; align-items: center; justify-content: center; }
 #menu .smoke-dot { display: block; width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); }

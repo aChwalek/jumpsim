@@ -10,7 +10,8 @@ import { keyLabel } from '../input/keyLabels';
 
 /** `ledge`: on top of a BASE object, before the exit; `baseCanopy`: under its one canopy, which cannot be cut away. */
 export type KeysPhase = 'ledge' | 'plane' | 'freefall' | 'wingsuit' | 'canopy' | 'baseCanopy' | 'ground' | 'replay' | 'replayFree';
-export type InputKind = 'keyboard' | 'gamepad';
+/** `touch`: a touch screen, whose controls are on the glass and say what they do. */
+export type InputKind = 'keyboard' | 'gamepad' | 'touch';
 export type PadKind = 'xbox' | 'playstation';
 
 /** A gamepad control, drawn rather than spelt out. */
@@ -316,6 +317,7 @@ const caps = (keys: string[]): string => keys.map((k) => `<kbd>${k}</kbd>`).join
 
 /** The overlay for a moment of the jump and a device, as HTML. */
 export function keysHtml(phase: KeysPhase, input: InputKind, pad: PadKind = 'xbox'): string {
+  if (input === 'touch') return '';
   const padRows = input === 'gamepad' ? gamepadRows(phase) : null;
   const body = padRows
     ? padRows.map(([controls, what]) => `<span>${controls.map((c) => padIcon(c, pad)).join('')}</span><span>${what}</span>`).join('')

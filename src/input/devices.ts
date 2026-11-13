@@ -1,4 +1,4 @@
-// Keyboard, mouse and gamepad. Keys are matched by physical position
+// Keyboard, mouse, gamepad and touch screen. Keys are matched by physical position
 // (KeyboardEvent.code), so the layout is the same hand shape on AZERTY and
 // QWERTY: the AZERTY letters are given in the comments.
 
@@ -20,6 +20,7 @@ export interface FreeInputs {
   pitchRate: number;
 }
 import { noPulls, type Pulls } from './ramp';
+import { TouchInput } from './touch';
 
 export type Action =
   | 'reset'
@@ -141,6 +142,8 @@ const PICK_HOLD = 350;
 /** The right stick pressed, standard mapping. */
 const PAD_LOCK = 11;
 const MOUSE_SENSITIVITY = 0.0022;
+/** A finger sliding across the glass turns the head this much, rad/px. */
+const TOUCH_SENSITIVITY = 0.0048;
 const MAX_YAW = 2.6;
 const MAX_PITCH_UP = 1.45;
 const MAX_PITCH_DOWN = 1.5;
@@ -177,7 +180,7 @@ export class InputDevices {
    * that drives, so pressing it turns the track on and again off.
    */
   padTrack = false;
-  /** Analogue brake travel from the gamepad triggers, 0..1. */
+  /** Analogue brake travel from the gamepad triggers or the fingers on a touch screen, 0..1. */
   analogBrakeL = 0;
   analogBrakeR = 0;
   /** Where the pilot looks relative to straight ahead, radians. */
@@ -189,7 +192,9 @@ export class InputDevices {
   /** Mouse forward and stick up look down. */
   invertLook = false;
   /** The device last touched, so the help on screen shows its keys. */
-  lastUsed: 'keyboard' | 'gamepad' = 'keyboard';
+  lastUsed: 'keyboard' | 'gamepad' | 'touch' = 'keyboard';
+  /** The fingers on a touch screen: fed by the overlay, read at each poll. */
+  readonly touch = new TouchInput();
   /** Whose gamepad it is, to name its buttons. */
   padKind: 'xbox' | 'playstation' = 'xbox';
   /** Set from the jump before each poll. */
@@ -254,8 +259,17 @@ export class InputDevices {
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => {
       this.keys.clear();
+      this.touch.clear();
       this.magnify = false;
     });
+    // A finger anywhere, the menu included: the controls on screen from then on.
+    window.addEventListener(
+      'pointerdown',
+      (e) => {
+        if (e.pointerType === 'touch') this.lastUsed = 'touch';
+      },
+      true,
+    );
 
     surface.addEventListener('click', () => this.capture());
     // Held, a mouse button zooms the eyes in. The left one only once the mouse
@@ -282,16 +296,18 @@ export class InputDevices {
     document.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement !== surface) return;
       const speed = MOUSE_SENSITIVITY * this.sensitivity * this.lookScale;
-      this.freeYaw += e.movementX * speed;
-      this.freePitch -= e.movementY * speed * (this.invertLook ? -1 : 1);
-      if (this.feetTurn) this.feetYaw += e.movementX * speed;
-      else this.headYaw = clamp(this.headYaw + e.movementX * speed, -MAX_YAW, MAX_YAW);
-      this.headPitch = clamp(
-        this.headPitch - e.movementY * speed * (this.invertLook ? -1 : 1),
-        -MAX_PITCH_DOWN,
-        MAX_PITCH_UP,
-      );
+      this.look(e.movementX * speed, e.movementY * speed);
     });
+  }
+
+  /** The mouse or a finger moved: the head turns, rad to the right and down; on foot, the body. */
+  private look(right: number, down: number): void {
+    const up = -down * (this.invertLook ? -1 : 1);
+    this.freeYaw += right;
+    this.freePitch += up;
+    if (this.feetTurn) this.feetYaw += right;
+    else this.headYaw = clamp(this.headYaw + right, -MAX_YAW, MAX_YAW);
+    this.headPitch = clamp(this.headPitch + up, -MAX_PITCH_DOWN, MAX_PITCH_UP);
   }
 
   /** Asked to track. */
@@ -305,6 +321,8 @@ export class InputDevices {
 
   /** Takes the mouse for looking around. Only works from a click or a key press. */
   capture(): void {
+    // No mouse to take on a touch screen, and a phone may not know how.
+    if (this.lastUsed === 'touch' || !this.surface.requestPointerLock) return;
     if (document.pointerLockElement === this.surface) return;
     // Refused when the page is not in front: looking around then waits for a click.
     void Promise.resolve(this.surface.requestPointerLock()).catch(() => {});
@@ -359,10 +377,17 @@ export class InputDevices {
     fr.right = key('KeyD') - key('KeyA');
     fr.up = key('KeyE') - key('KeyQ');
     fr.fast = p.hold;
-    fr.yaw = this.freeYaw;
-    fr.pitch = this.freePitch;
     fr.yawRate = 0;
     fr.pitchRate = 0;
+    // The fingers that look around, before the free camera takes what the head turned.
+    const touch = this.touch;
+    const slid = touch.takeLook();
+    if (slid.x !== 0 || slid.y !== 0) {
+      const speed = TOUCH_SENSITIVITY * this.sensitivity * this.lookScale;
+      this.look(slid.x * speed, slid.y * speed);
+    }
+    fr.yaw = this.freeYaw;
+    fr.pitch = this.freePitch;
     this.freeYaw = 0;
     this.freePitch = 0;
 
@@ -375,8 +400,9 @@ export class InputDevices {
     this.analogBrakeR = 0;
     const pad = navigator.getGamepads?.().find((g) => g?.connected && g.mapping === 'standard');
     this.gamepadConnected = !!pad;
-    if (!pad) this.lastUsed = 'keyboard';
-    else if (pad.buttons.some((b) => b.pressed) || pad.axes.some((a) => Math.abs(a) > 0.3)) this.lastUsed = 'gamepad';
+    if (!pad) {
+      if (this.lastUsed === 'gamepad') this.lastUsed = 'keyboard';
+    } else if (pad.buttons.some((b) => b.pressed) || pad.axes.some((a) => Math.abs(a) > 0.3)) this.lastUsed = 'gamepad';
     if (pad) {
       this.padKind = /054c|sony|playstation|dualsense|dualshock/i.test(pad.id) ? 'playstation' : 'xbox';
       this.analogBrakeL = pad.buttons[6]?.value ?? 0;
@@ -427,8 +453,23 @@ export class InputDevices {
         else this.padDown.delete(index);
       }
     }
-    // The cutaway: X held, or B on the gamepad.
-    const cutaway = k.has('KeyX') || ((pad?.buttons[PAD_CUTAWAY]?.pressed ?? false) && this.padCutawayArmed);
+    // The touch screen: a toggle under each thumb, or the two sticks, and the buttons held.
+    touch.update(dt);
+    this.analogBrakeL = Math.max(this.analogBrakeL, touch.brakeL);
+    this.analogBrakeR = Math.max(this.analogBrakeR, touch.brakeR);
+    p.frontL ||= touch.frontL;
+    p.frontR ||= touch.frontR;
+    b.forward = clamp(b.forward + touch.moveY, -1, 1);
+    b.slide = clamp(b.slide + touch.moveX, -1, 1);
+    b.turn = clamp(b.turn + touch.turn, -1, 1);
+    b.fall = clamp(b.fall - touch.rise, -1, 1);
+    b.flip = clamp((b.flip ?? 0) + touch.flip, -1, 1);
+    b.roll = clamp((b.roll ?? 0) + touch.roll, -1, 1);
+    f.slide = clamp(f.slide + touch.moveX, -1, 1);
+    fr.forward = clamp(fr.forward + touch.moveY, -1, 1);
+    fr.right = clamp(fr.right + touch.moveX, -1, 1);
+    // The cutaway: X held, B on the gamepad, or its button on the glass.
+    const cutaway = k.has('KeyX') || ((pad?.buttons[PAD_CUTAWAY]?.pressed ?? false) && this.padCutawayArmed) || touch.cutaway;
     if (!cutaway) {
       this.cutawayFrom = null;
       this.cutawayFired = false;
