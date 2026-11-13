@@ -352,24 +352,26 @@ function sitAngle(p: Pose, input: BodyInputs): void {
 
 function sitBackAngle(p: Pose, input: BodyInputs): void {
   // Head up and leaning forward, belly to the air, going backwards feet
-  // first: the body a straight plank from the heels to the head, legs a
-  // little apart, arms out to the sides and down in front, palms on the air.
+  // first: kneeling on the air, thighs in line with the trunk and shins up
+  // behind, the arms up and out in front of the head, palms on the air.
   const { forward, back, up, down } = drives(input);
   p.lean = p.bow = 0;
-  // Pushed, straighter still and the arms come in; eased off, a little pike and the knees soften.
-  p.hipL = p.hipR = -0.08 + 0.06 * forward + 0.22 * back;
-  p.kneeL = p.kneeR = 0.14 - 0.08 * forward + 0.3 * back;
+  // To go down, or further back, the legs straighten: a plank from the heels to the head.
+  const kneel = Math.max(0, 1 - down - back);
+  p.hipL = p.hipR = -0.06 + 0.1 * kneel + 0.06 * forward;
+  p.kneeL = p.kneeR = 0.14 + 1.3 * kneel - 0.2 * forward;
   p.spread = 0.2 + 0.12 * up - 0.1 * down;
-  const span = 0.52 + 0.06 * up - 0.18 * down - 0.08 * forward;
-  const height = -0.22 - 0.1 * down - 0.08 * forward;
+  const span = 0.36 + 0.08 * up - 0.1 * down;
+  const height = 0.3 + 0.06 * up - 0.12 * down - 0.1 * forward;
+  const reach = -0.32 - 0.06 * back + 0.1 * forward;
   const dip = 0.13 * input.turn + 0.06 * input.slide;
   const shift = 0.11 * input.slide;
   // The legs go the other way, like a rudder.
   p.sway = -0.12 * input.slide - 0.05 * input.turn;
-  p.handL.set(-span + shift, height + dip, -0.18);
-  p.handR.set(span + shift, height - dip, -0.18);
-  p.elbowL.set(-1, -0.2, 0.3);
-  p.elbowR.set(1, -0.2, 0.3);
+  p.handL.set(-span + shift, height + dip, reach);
+  p.handR.set(span + shift, height - dip, reach);
+  p.elbowL.set(-1, -0.4, 0.2);
+  p.elbowR.set(1, -0.4, 0.2);
 }
 
 function onSide(p: Pose, input: BodyInputs, down: -1 | 1): void {
