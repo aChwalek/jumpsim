@@ -1,6 +1,7 @@
 // Renderer, cameras, sky, light and haze.
 
 import * as THREE from 'three';
+import { viewSize } from '../viewport';
 import { Clouds } from './clouds';
 import type { Daylight } from './daylight';
 
@@ -189,7 +190,8 @@ export class Resolution {
   apply(): void {
     const ratio = Math.min(window.devicePixelRatio, this.maxPixelRatio) * this.scale;
     this.renderer.setPixelRatio(ratio);
-    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    const { width, height } = viewSize();
+    this.renderer.setSize(width, height, false);
   }
 
   /** Call every frame with the frame duration in seconds. */

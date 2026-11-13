@@ -8,6 +8,7 @@ import './touch.css';
 import { T } from '../i18n';
 import type { Action, InputDevices } from '../input/devices';
 import { brakeTravel, FRONT_AFTER, STICK_RADIUS, type Finger, type TouchMode } from '../input/touch';
+import { handheld, toView, viewSize } from '../viewport';
 
 /** What is on the glass at this moment of the jump. */
 export interface TouchLayout {
@@ -44,17 +45,10 @@ const CAMERA = svg(
   '<path d="M4 8h3l1.6-2.4h6.8L17 8h3v11H4Z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><circle cx="12" cy="13.2" r="3.3" fill="none" stroke="currentColor" stroke-width="1.9"/>',
 );
 
-const TURN = svg(
-  '<rect x="7" y="2.5" width="10" height="19" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.6" opacity="0.45"/><rect x="2.5" y="11.5" width="19" height="10" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/>',
-);
-
-/** A phone or a tablet: the finger is what points, not a mouse beside a screen that can be touched. */
-const handheld = (): boolean => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-
 /**
  * On a phone, the whole screen and on its side: the jump is flown with both
- * thumbs. Only from a tap, and only where the browser can (not on an
- * iPhone, which is asked to be turned instead: see the overlay).
+ * thumbs. Only from a tap, and only where the browser can: not on an
+ * iPhone, where the jump is drawn on its side instead (see viewport).
  */
 export function goLandscape(): void {
   if (!handheld()) return;
@@ -102,8 +96,7 @@ export class TouchControls {
           <button data-btn="cutaway"></button>
           <button data-btn="slider"></button>
         </div>
-      </div>
-      <div class="turn">${TURN}<b></b><small></small></div>`;
+      </div>`;
     this.hands = {
       left: root.querySelector<HTMLElement>('.hand.left')!,
       right: root.querySelector<HTMLElement>('.hand.right')!,
@@ -113,10 +106,6 @@ export class TouchControls {
     this.words();
 
     const touch = devices.touch;
-    // Held upright, the phone is asked to be turned: a tap there asks the browser to do it.
-    const turn = root.querySelector<HTMLElement>('.turn')!;
-    turn.addEventListener('pointerdown', (e) => e.stopPropagation());
-    turn.addEventListener('click', goLandscape);
     root.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse') {
         // A mouse after all: the keyboard's controls again, and the mouse to look around.
@@ -126,9 +115,14 @@ export class TouchControls {
       }
       e.preventDefault();
       root.setPointerCapture(e.pointerId);
-      touch.down(e.pointerId, e.clientX, e.clientY, window.innerWidth, window.innerHeight);
+      const at = toView(e.clientX, e.clientY);
+      const size = viewSize();
+      touch.down(e.pointerId, at.x, at.y, size.width, size.height);
     });
-    root.addEventListener('pointermove', (e) => touch.move(e.pointerId, e.clientX, e.clientY));
+    root.addEventListener('pointermove', (e) => {
+      const at = toView(e.clientX, e.clientY);
+      touch.move(e.pointerId, at.x, at.y);
+    });
     const lift = (e: PointerEvent): void => touch.up(e.pointerId);
     root.addEventListener('pointerup', lift);
     root.addEventListener('pointercancel', lift);
@@ -153,8 +147,10 @@ export class TouchControls {
       b.setPointerCapture(e.pointerId);
       hold(true);
       const action = PRESS[name];
-      if (action) this.devices.onAction(action);
+      if (action && name !== 'openMenu') this.devices.onAction(action);
     });
+    // The menu only once the finger has lifted: opened under it, the tap would go on to whatever the menu has there.
+    if (name === 'openMenu') b.addEventListener('click', () => this.devices.onAction('openMenu'));
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) {
       b.addEventListener(type, (e) => {
         e.stopPropagation();
@@ -172,8 +168,6 @@ export class TouchControls {
     this.buttons.get('slider')!.textContent = t.slider;
     this.buttons.get('openMenu')!.setAttribute('aria-label', t.menu);
     this.buttons.get('camera')!.setAttribute('aria-label', t.camera);
-    this.root.querySelector('.turn b')!.textContent = t.turn;
-    this.root.querySelector('.turn small')!.textContent = t.turnWhy;
   }
 
   /** Call every frame: what is on the glass now, or null for nothing (a menu, or no touch screen in use). */
@@ -195,8 +189,7 @@ export class TouchControls {
     if (this.lang !== T) this.words();
     touch.setMode(layout.mode);
 
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const { width: w, height: h } = viewSize();
     const held: Partial<Record<'left' | 'right', Finger>> = {};
     for (const f of touch.fingers.values()) if (f.role === 'left' || f.role === 'right') held[f.role] = f;
     const kind = layout.mode === 'canopy' ? 'slider' : 'stick';

@@ -7,6 +7,12 @@
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
       canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+      /* A phone held upright: the jump on its side all the same, a quarter turn round (see viewport.ts). */
+      html.sideways canvas#view, html.sideways #hud, html.sideways #touch {
+        inset: auto; left: 0; top: 0; width: var(--view-w); height: var(--view-h);
+        transform-origin: 0 0; transform: translateX(var(--view-h)) rotate(90deg);
+      }
+      html.sideways #watch { width: min(560px, calc(var(--view-w) - 32px)); }
       #hud {
         position: fixed; inset: 0; pointer-events: none; user-select: none;
         font: 500 14px/1.3 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -71,8 +77,9 @@
       #hud.touch #speeds .unit { font-size: 13px; }
       #hud.touch #speeds .row + .row { margin-top: 4px; }
       #hud.touch #brakes { bottom: 12px; }
-      /* Held upright, the phone is asked to be turned (see touch.css): the instruments wait. */
-      @media (orientation: portrait) and (pointer: coarse) { #hud.touch .flight { visibility: hidden; } }
+      /* Little width: the wind alone in the corner, and what to do next under it. */
+      #hud.touch #gear { display: none; }
+      #hud.touch #cue { top: 40px; }
       #altimeter.warn .digits { color: #ffd84a; }
       #altimeter.danger .digits { color: #ff5a4a; }
       .card {
