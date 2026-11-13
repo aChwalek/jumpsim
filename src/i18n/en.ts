@@ -326,8 +326,9 @@ export const en: Strings = {
 
   menu: {
     tagline: 'canopy piloting simulator',
-    categories: { gear: 'GEAR', dz: 'DZ', weather: 'WEATHER', jump: 'JUMP' },
-    edit: 'Edit',
+    categories: { dz: 'DZ', gear: 'GEAR', jump: 'JUMP', team: 'TEAM', weather: 'WEATHER' },
+    lines: { dz: 'DROP ZONE', gear: 'GEAR', jump: 'JUMP', team: 'TEAM', weather: 'WEATHER' },
+    dragHint: 'Drag to turn around',
     back: 'Back',
     resume: 'Resume the jump',
     jumpButton: 'Jump',
@@ -369,11 +370,8 @@ export const en: Strings = {
       readyCount: (n: number, total: number) => `${n}/${total} ready`,
       startNow: 'Start without waiting',
       startNowWarn: (names: string) => `Not ready yet: ${names}. Click again to start anyway.`,
-      locked: 'Host',
     },
     go: 'Go',
-    goPattern: (h: string) => `on downwind · ${h} m`,
-    goFinal: (h: string) => `on final · ${h} m`,
     logbook: 'Logbook',
     logbookTitle: 'Logbook and stats',
     settings: 'Settings',
@@ -399,10 +397,8 @@ export const en: Strings = {
 
     gear: {
       altimeter: { none: 'None', analog: 'Analog', digital: 'Digital' },
-      altimeterLine: { none: 'No altimeter', analog: 'Analog altimeter', digital: 'Digital altimeter' },
-      audibleOn: 'audible',
-      audibleOff: 'no audible',
-      kind: 'CANOPY',
+      sections: { container: 'CONTAINER', canopy: 'CANOPY', suit: 'SUIT', colors: 'COLOURS', more: 'EVERYTHING ELSE' },
+      kind: 'TYPE',
       kindNote: {
         classic: 'A classic 9-cell canopy, from student gear to swooping.',
         triCell: 'A cross-braced canopy: small, fast, built for swooping.',
@@ -416,7 +412,6 @@ export const en: Strings = {
       altimeterRow: 'ALTIMETER',
       audible: 'AUDIBLE',
       audibleHint: 'beeps under canopy at 300, 200 and 100 m',
-      sliderLine: { fixed: 'fixed slider', collapsible: 'collapsible slider', removable: 'removable slider' },
       slider: 'SLIDER',
       sliders: { fixed: 'Fixed', collapsible: 'Collapsible', removable: 'Removable' },
       sliderNote: {
@@ -424,9 +419,9 @@ export const en: Strings = {
         collapsible: (k: string) => `${k} (gamepad: X) under canopy to collapse it on the links: less drag, less noise.`,
         removable: (k: string) => `${k} (gamepad: X) under canopy to take it off and stow it: the canopy flies a little faster.`,
       },
-      container: 'CONTAINER',
+      container: 'TYPE',
       containers: { sport: 'Skydiving', base: 'BASE' },
-      containerLine: { sport: 'skydiving container', base: 'BASE container' },
+      containerLine: { sport: 'Skydiving container', base: 'BASE container' },
       containerNote: {
         sport: (size: string) => `Main, ${size} ft² reserve and AAD (off for BASE).`,
         base: (_size: string) => 'One canopy packed to open fast, a big pilot chute in the hand: no reserve, no cutaway.',
@@ -438,10 +433,9 @@ export const en: Strings = {
       smoke: 'SMOKE',
       smokeHint: 'on the right ankle',
       smokes: { none: 'None', red: 'Red', orange: 'Orange', yellow: 'Yellow', green: 'Green', blue: 'Blue', purple: 'Purple' },
-      smokeLine: (color: string) => `${color.toLowerCase()} smoke`,
       smokeNote: (on: boolean, s: string) =>
         on ? `Lit on exit (or from the start under canopy), it burns for ${s} s: the trail drifts with the wind.` : 'No smoke.',
-      suit: 'SUIT',
+      suit: 'TYPE',
       suits: { jumpsuit: 'Jumpsuit', track: 'Tracking', wingsuit: 'Wingsuit' },
       suitLine: { jumpsuit: '', track: (level: number) => `level ${level} tracking suit`, wingsuit: (level: number) => `level ${level} wingsuit` },
       suitLevel: 'LEVEL',
@@ -454,7 +448,7 @@ export const en: Strings = {
         wingsuit: (glide: string, across: string, down: string, _k: string) =>
           `Wings between the arms and the body and between the legs: flown flat once they fill, belly down or on the back (← / →), never upright. Glide ${glide}, ${across} km/h forward, ${down} km/h down. Space: let go of the wings and pull.`,
       },
-      suitColor: 'SUIT COLOUR',
+      suitColor: 'SUIT',
       suitColorNote: 'Its wings keep the canopy\'s colour.',
       helmet: 'HELMET',
       outfitColors: {
@@ -483,8 +477,6 @@ export const en: Strings = {
       calm: 'No wind',
       windLine: (from: string, point: string, kmh: string, gust: string | null) =>
         `Wind ${from} (${point}) · ${kmh} km/h${gust ? `, gusting ${gust}` : ''}`,
-      sunHidden: 'Sun hidden',
-      sunLine: (elevation: string, where: string) => `Sun at ${elevation}°, ${where}`,
       sunOnFinal: {
         ahead: 'in your face on final',
         behind: 'behind you on final',
@@ -514,15 +506,9 @@ export const en: Strings = {
         pattern: 'Start under canopy, at the top of downwind',
         final: 'Start under canopy, on final',
       },
-      noPlane: 'No plane, no freefall',
       baseLine: (run: string) => `A ${run} m run-up to the edge`,
       baseStand: 'Standing on the lip of the deck, no run-up',
-      baseNote: {
-        sport: 'Skydiving container: a reserve, the AAD off',
-        base: 'BASE container: one canopy, no reserve',
-      },
       runLine: (hdg: string, how: string) => `Jump run ${hdg}, ${how}`,
-      aloftLine: (kmh: string, seconds: string) => `Winds aloft ${kmh} km/h · about ${seconds} s of freefall`,
       windOnRun: {
         calm: 'no wind',
         head: 'into the wind',
@@ -582,7 +568,7 @@ export const en: Strings = {
       },
       spotNoteSkid: 'Outside on the skid under the door, holding its frame: just let go.',
       spotKeys: (fwd: string, back: string) => `In the plane, ${fwd} / ${back} to change places.`,
-      bots: 'AI JUMPERS',
+      bots: 'HOW MANY',
       botsHint: 'on a solo jump',
       botsNone: 'None',
       botsNote: 'They leave right after you, from the plane only, in a suit like yours.',
@@ -606,6 +592,17 @@ export const en: Strings = {
         wings: (breakOff: string, pull: string) =>
           `In wings, always behind a leader: off 90° right of jump run, then round the landing area, waiting for you; the others in a V behind. Break-off at ${breakOff} m, pulling around ${pull} m.`,
       },
+    },
+
+    team: {
+      botsSection: 'AI JUMPERS',
+      solo: 'Solo',
+      soloNote: 'Add AI jumpers, or jump with others in a room',
+      planeOnly: 'AI jumpers only jump from the plane',
+      withBots: (n: number) => `${n} AI jumper${n > 1 ? 's' : ''}`,
+      leadUs: 'Building round you',
+      leadBot: 'Behind an AI leader',
+      players: (n: number) => `${n} jumper${n > 1 ? 's' : ''}`,
     },
 
     map: {
