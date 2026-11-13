@@ -45,6 +45,16 @@ export interface HudData {
 /** A height in whole metres, with the thousands as the language writes them. */
 const metres = (m: number): string => num(Math.round(m));
 
+/** What went wrong with the main, for the card at the end: its name, and what it did. */
+const MALFUNCTION_ROWS: Record<Malfunction, () => [string, string]> = {
+  streamer: () => [T.hud.streamer, T.hud.streamerRow],
+  lineTwists: () => [T.hud.lineTwists, T.hud.lineTwistsRow],
+  lineover: () => [T.hud.lineover, T.hud.lineoverRow],
+  sliderHang: () => [T.hud.sliderHang, T.hud.sliderHangRow],
+  noOpening: () => [T.hud.noOpening, T.hud.noOpeningRow],
+  offHeading: () => [T.hud.offHeading, T.hud.offHeadingRow],
+};
+
 /** What the jump itself was, for the card at the end. */
 function jumpRows(log: JumpLog): string {
   const t = T.hud;
@@ -53,8 +63,8 @@ function jumpRows(log: JumpLog): string {
     const what = log.cutawayHeight === null ? t.pulled(metres(log.openHeight)) : t.pulledOnly;
     rows.push(`<tr><td>${metres(log.pullHeight)} m</td><td>${what}</td></tr>`);
   }
-  if (log.malfunction === 'streamer') rows.push(`<tr><td>${t.streamer}</td><td>${t.streamerRow}</td></tr>`);
-  if (log.malfunction === 'offHeading') rows.push(`<tr><td>${t.offHeading}</td><td>${t.offHeadingRow}</td></tr>`);
+  const malfunction = log.malfunction && MALFUNCTION_ROWS[log.malfunction]();
+  if (malfunction) rows.push(`<tr><td>${malfunction[0]}</td><td>${malfunction[1]}</td></tr>`);
   if (log.cutawayHeight !== null) rows.push(`<tr><td>${metres(log.cutawayHeight)} m</td><td>${t.cutawayRow}</td></tr>`);
   if (log.reserveBy !== null && log.reserveHeight !== null) {
     rows.push(`<tr><td>${metres(log.reserveHeight)} m</td><td>${t.reserveRow(log.reserveBy, metres(log.openHeight))}</td></tr>`);
@@ -290,9 +300,13 @@ export class Hud {
     const [title, text] =
       opening && malfunction === 'streamer'
         ? [t.streamerTitle, t.streamerText(keyLabel('KeyX'))]
-        : opening
-          ? [t.lowTitle, t.lowText]
-          : [t.noPullTitle, log.cutawayHeight !== null ? t.noReserveText : t.noPullText];
+        : opening && malfunction === 'noOpening'
+          ? [t.noOpeningTitle, t.noOpeningText]
+          : opening && malfunction === 'sliderHang'
+            ? [t.sliderHangTitle, t.sliderHangText(keyLabel('KeyS'), keyLabel('KeyX'))]
+            : opening
+              ? [t.lowTitle, t.lowText]
+              : [t.noPullTitle, log.cutawayHeight !== null ? t.noReserveText : t.noPullText];
     this.cardFocus = null;
     this.result.innerHTML = `
       <h1>${title}</h1>

@@ -4,10 +4,10 @@
 
 import { describe, expect, test } from 'vitest';
 import { airDensityAt } from '../src/sim/atmosphere';
-import { FlightModel, neutralControls, type Environment } from '../src/sim/flightModel';
+import { FlightModel, neutralControls, type Controls, type Environment } from '../src/sim/flightModel';
 import { Freefall, freefallParams, noBodyInputs, type BodyInputs } from '../src/sim/freefall';
 import { AAD_HEIGHT, AAD_SPEED, Jump, type JumpOptions } from '../src/sim/jump';
-import { MAIN_OPENING, Opening, STOWED_BRAKE } from '../src/sim/opening';
+import { MAIN_OPENING, Opening, SLIDER_PUMPS, STOWED_BRAKE } from '../src/sim/opening';
 import { AIRCRAFT, EXIT_SPOTS, type AircraftId, type ExitSpot } from '../src/sim/plane';
 import { DEFAULT_RIG, deriveRig, reserveConfig } from '../src/sim/rig';
 import { SIM_DT } from '../src/sim/telemetry';
@@ -384,18 +384,22 @@ describe('the opening', () => {
 
 describe('cutaway and reserve', () => {
   /** Out of the plane, pulled at 1500 m, flown until the main is overhead (or has had time to be). */
-  function underMain(options: JumpOptions) {
+  function underMain(options: JumpOptions, random = () => 0.5) {
     const model = new FlightModel(deriveRig(DEFAULT_RIG));
     const env = calm();
     const reserve = deriveRig(reserveConfig(90));
-    const jump = new Jump(model, { x: 0, z: 0, height: 4000, headingDeg: 270, indicatedAirspeed: 40 }, env, flat, () => 0.5, {
+    const jump = new Jump(model, { x: 0, z: 0, height: 4000, headingDeg: 270, indicatedAirspeed: 40 }, env, flat, random, {
       reserve,
       ...options,
     });
-    const step = () => {
+    /** One step, the hands where `hands` has them (up if not given): as the canopy sees them once through the stows. */
+    const step = (hands: Partial<Controls> = {}) => {
       env.airDensity = airDensityAt(model.state.pos.y);
       jump.step(SIM_DT, noBodyInputs(), env);
-      if (jump.phase === 'canopy') model.step(SIM_DT, neutralControls(), env);
+      const c = { ...neutralControls(), ...hands };
+      jump.holdStows(c);
+      if (jump.phase === 'canopy') model.step(SIM_DT, c, env);
+      return c;
     };
     for (let i = 0; i < 2 / SIM_DT; i++) step();
     jump.act();
@@ -458,6 +462,145 @@ describe('cutaway and reserve', () => {
     jump.cutaway();
     for (let i = 0; i < 8 / SIM_DT && jump.phase !== 'canopy'; i++) step();
     expect(jump.canopy).toBe('reserve');
+    expect(jump.phase).toBe('canopy');
+  });
+
+  test('line twists: the pilot spins back out of them, with no toggles meanwhile', () => {
+    const { jump, model, step } = underMain({ malfunction: 'lineTwists' });
+    expect(jump.phase).toBe('canopy');
+    expect(jump.log.malfunction).toBe('lineTwists');
+    // Between one and three and a half turns.
+    expect(Math.abs(model.state.twist) / (2 * Math.PI)).toBeGreaterThan(1);
+    expect(jump.twisted).toBe(true);
+    // The toggles cannot be got at: the canopy stays on its stowed brakes.
+    const locked = step({ brakeL: 1, brakeR: 1, frontL: 1 });
+    expect(locked).toMatchObject({ brakeL: STOWED_BRAKE, brakeR: STOWED_BRAKE, frontL: 0 });
+    expect(jump.stowedL && jump.stowedR).toBe(true);
+    let seconds = 0;
+    for (; seconds < 20 && jump.twisted; seconds += SIM_DT) step();
+    expect(seconds).toBeGreaterThan(1.5);
+    expect(seconds).toBeLessThan(12);
+    for (let i = 0; i < 3 / SIM_DT; i++) step();
+    expect(Math.abs(model.state.twist)).toBeLessThan(0.1);
+    // Out of them, the toggles are the hands' again, and it flies on.
+    const free = step({ brakeL: 1 });
+    expect(free.brakeL).toBe(1);
+    expect(Math.hypot(model.state.vel.x, model.state.vel.z)).toBeGreaterThan(5);
+  });
+
+  test('a lineover spirals down far too fast, the other toggle hardly holds it, and a cutaway gets out of it', () => {
+    const { jump, model, step } = underMain({ malfunction: 'lineover', rsl: true });
+    expect(jump.phase).toBe('canopy');
+    expect(jump.log.malfunction).toBe('lineover');
+    // Its half stays collapsed; the line pulls that side's tail down whatever the hands do.
+    expect(Math.max(model.deflationL, model.deflationR)).toBeGreaterThan(0.4);
+    const heading = () => Math.atan2(model.state.vel.x, -model.state.vel.z);
+    /** Turn rate, degrees a second, and sink, m/s, over the last of `seconds`. */
+    const fly = (hands: Partial<Controls>, seconds: number) => {
+      let turned = 0;
+      let last = heading();
+      for (let t = 0; t < seconds; t += SIM_DT) {
+        step(hands);
+        const d = heading() - last;
+        last = heading();
+        if (t > seconds - 4) turned += d - 2 * Math.PI * Math.round(d / (2 * Math.PI));
+      }
+      return { rate: Math.abs(turned / 4) / (Math.PI / 180), sink: -model.state.vel.y };
+    };
+    const spiral = fly({}, 10);
+    expect(spiral.rate).toBeGreaterThan(45);
+    expect(spiral.sink).toBeGreaterThan(9);
+    // The other toggle all the way down: slower, still sinking far too fast to land.
+    const countered = fly(model.lineover > 0 ? { brakeL: 1 } : { brakeR: 1 }, 8);
+    expect(countered.sink).toBeGreaterThan(5.5);
+    jump.cutaway();
+    expect(model.lineover).toBe(0);
+    for (let i = 0; i < 8 / SIM_DT && jump.phase !== 'canopy'; i++) step();
+    expect(jump.canopy).toBe('reserve');
+    expect(jump.phase).toBe('canopy');
+    for (let i = 0; i < 10 / SIM_DT; i++) step();
+    expect(-model.state.vel.y).toBeLessThan(7);
+  });
+
+  test('a slider hang-up holds the canopy in until both toggles have been pumped', () => {
+    const { jump, model, step } = underMain({ malfunction: 'sliderHang' });
+    expect(jump.phase).toBe('opening');
+    expect(jump.sliderHung).toBe(true);
+    expect(jump.inflation).toBeLessThan(0.4);
+    const fall = -model.state.vel.y * 3.6;
+    expect(fall).toBeGreaterThan(50);
+    expect(fall).toBeLessThan(100);
+    // Too slow for the AAD.
+    expect(fall / 3.6).toBeLessThan(AAD_SPEED);
+    // One toggle alone pumps nothing.
+    for (let i = 0; i < 2; i++) {
+      for (let k = 0; k < 0.6 / SIM_DT; k++) jump.pumpToggles(0), step();
+      for (let k = 0; k < 0.6 / SIM_DT; k++) jump.pumpToggles(0.5), step();
+    }
+    expect(jump.sliderHung).toBe(true);
+    for (let p = 0; p < SLIDER_PUMPS; p++) {
+      for (let k = 0; k < 0.6 / SIM_DT; k++) jump.pumpToggles(1), step();
+      for (let k = 0; k < 0.6 / SIM_DT; k++) jump.pumpToggles(0), step();
+    }
+    expect(jump.sliderHung).toBe(false);
+    for (let i = 0; i < 8 / SIM_DT && jump.phase !== 'canopy'; i++) step();
+    expect(jump.phase).toBe('canopy');
+    expect(jump.canopy).toBe('main');
+    // Pumped out of their stows.
+    expect(jump.stowedL || jump.stowedR).toBe(false);
+  });
+
+  test('a slider that will not come down: a cutaway, and the reserve', () => {
+    // 0.3 rolls a slider that stays stuck.
+    const { jump, step } = underMain({ malfunction: 'sliderHang', rsl: true }, () => 0.3);
+    for (let p = 0; p < 4; p++) {
+      for (let k = 0; k < 0.6 / SIM_DT; k++) jump.pumpToggles(1), step();
+      for (let k = 0; k < 0.6 / SIM_DT; k++) jump.pumpToggles(0), step();
+    }
+    expect(jump.sliderHung).toBe(true);
+    jump.cutaway();
+    expect(jump.released).not.toBeNull();
+    for (let i = 0; i < 8 / SIM_DT && jump.phase !== 'canopy'; i++) step();
+    expect(jump.canopy).toBe('reserve');
+    expect(jump.phase).toBe('canopy');
+  });
+
+  test('a pilot chute in tow hardly slows the fall; the reserve handle goes straight to the reserve', () => {
+    const { jump, model, step } = underMain({ malfunction: 'noOpening' });
+    expect(jump.phase).toBe('opening');
+    expect(jump.towing).toBe(true);
+    expect(jump.inflation).toBeNull();
+    expect(jump.log.malfunction).toBe('noOpening');
+    // Fast enough for the AAD.
+    expect(-model.state.vel.y).toBeGreaterThan(AAD_SPEED);
+    const pulledAt = jump.log.pullHeight;
+    jump.act();
+    expect(jump.canopy).toBe('reserve');
+    expect(jump.log.reserveBy).toBe('hand');
+    expect(jump.cutawayAt).toBeNull();
+    expect(jump.log.pullHeight).toBe(pulledAt);
+    for (let i = 0; i < 8 / SIM_DT && jump.phase !== 'canopy'; i++) step();
+    expect(jump.phase).toBe('canopy');
+  });
+
+  test('under a pilot chute in tow, a cutaway leaves the main in its bag and the RSL pulls the reserve', () => {
+    const { jump, step } = underMain({ malfunction: 'noOpening', rsl: true });
+    jump.cutaway();
+    expect(jump.phase).toBe('freefall');
+    expect(jump.released).toBeNull();
+    for (let i = 0; i < 8 / SIM_DT && jump.phase !== 'canopy'; i++) step();
+    expect(jump.canopy).toBe('reserve');
+    expect(jump.log.reserveBy).toBe('rsl');
+  });
+
+  test('left in tow, the AAD fires the reserve', () => {
+    const { jump, step } = underMain({ malfunction: 'noOpening' });
+    for (let i = 0; i < 60 / SIM_DT && jump.canopy === 'main' && !jump.impact; i++) step();
+    expect(jump.impact).toBe(false);
+    expect(jump.canopy).toBe('reserve');
+    expect(jump.log.reserveBy).toBe('aad');
+    expect(jump.log.reserveHeight!).toBeLessThan(AAD_HEIGHT);
+    for (let i = 0; i < 8 / SIM_DT && jump.phase !== 'canopy'; i++) step();
     expect(jump.phase).toBe('canopy');
   });
 

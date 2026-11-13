@@ -44,7 +44,7 @@ function crumpleNoise(s: number, t: number): number {
   return 0.5 + 0.5 * n;
 }
 /** Each line is drawn in this many pieces, to sag when slack. */
-const PIECES = 6;
+const PIECES = 10;
 /** Slider grid, pieces each way. */
 const SLIDER_PIECES = 6;
 /** Half the slider's spread on the lines when it is up against the canopy, m. */
@@ -60,6 +60,14 @@ const ELBOW_OUT = new THREE.Vector3(0.6, -0.7, 0.35);
 const UP = new THREE.Vector3(0, 1, 0);
 /** Riser length hanging free from the links once cut away, m. */
 const FREE_RISER = 0.55;
+/**
+ * Line twists: the lines wound round each other over the risers gather into
+ * a tight rope this long per turn (m), drawn in to this much of their spread,
+ * about the middle of the risers.
+ */
+const TWIST_ROPE = 0.25;
+const TWIST_SQUEEZE = 0.85;
+const TWIST_AXIS_Z = (FRONT_LINK.z + REAR_LINK.z) / 2;
 
 const ease = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
@@ -166,6 +174,8 @@ export class CanopyView {
   private crumple = 0;
   /** Pressure lost by the left and right halves in a stall: 0 to 1. */
   private readonly deflation = [0, 0];
+  /** How far the lines are wound round each other over the risers, rad. */
+  private twist = 0;
   /** Down on the ground: 0 to 1, and which way it lies. */
   private heap = 0;
   private readonly heapAlong = new THREE.Vector3(0, 0, 1);
@@ -454,6 +464,11 @@ export class CanopyView {
   setDeflation(left: number, right: number): void {
     this.deflation[0] = left;
     this.deflation[1] = right;
+  }
+
+  /** Line twists: how far the lines are wound round each other over the risers, rad, either way. */
+  setTwist(twist: number): void {
+    this.twist = twist;
   }
 
   /** Deflation across the span, `s` from -1 (left tip) to 1, blended over the middle cells. */
@@ -955,6 +970,10 @@ export class CanopyView {
     const position = this.linesGeometry.getAttribute('position') as THREE.BufferAttribute;
     let n = 0;
     const down = this.q.copy(this.upLocal).negate();
+    // Twisted, the lines go up from the links as one rope, then spread out.
+    const turns = Math.abs(this.twist) / (2 * Math.PI);
+    const rope = Math.min(0.45 * this.rig.lineLength, TWIST_ROPE * Math.max(0, turns - 0.1));
+    const ropeFrom = this.rig.linksPos.y + 0.08;
     for (const line of this.lines) {
       const from = line.from;
       const to = line.to;
@@ -981,12 +1000,23 @@ export class CanopyView {
         for (const end of [k, k + 1]) {
           const t = end / PIECES;
           const p = this.p.lerpVectors(from, to, t).addScaledVector(sagDir, sag * 4 * t * (1 - t));
+          if (rope > 0) this.windUp(p, ropeFrom, rope);
           this.aboveGround(p, 0.015);
           position.setXYZ(n++, p.x, p.y, p.z);
         }
       }
     }
     position.needsUpdate = true;
+  }
+
+  /** Draws a point of a line `from` up to `from + length` into the rope of twisted lines. */
+  private windUp(p: THREE.Vector3, from: number, length: number): void {
+    const u = (p.y - from) / length;
+    if (u <= 0 || u >= 1) return;
+    // Quickly in from the risers, tight all the way up, then out to the canopy.
+    const k = 1 - TWIST_SQUEEZE * ease(u / 0.2) * ease((1 - u) / 0.3);
+    p.x *= k;
+    p.z = TWIST_AXIS_Z + (p.z - TWIST_AXIS_Z) * k;
   }
 
   /** Every point of the fabric, in the order of `buildFabric`. */

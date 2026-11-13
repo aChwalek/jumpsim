@@ -53,6 +53,7 @@ import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
 import { noBodyInputs, stepPosition, type BodyPosition } from './sim/freefall';
 import { Jump, type JumpOptions } from './sim/jump';
+import { MAIN_MALFUNCTIONS } from './sim/opening';
 import { detectTouchdown, feetHeight, worst, type Touchdown } from './sim/landing';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import type { RunUp } from './sim/runUp';
@@ -619,7 +620,8 @@ function spawn(kind: Start): void {
   const unlucky = rate === 'always' || (rate === 'sometimes' && Math.random() < 1 / MALFUNCTION_ODDS);
   if (kind === 'plane') {
     windAt(env.wind, setup.weather, spots.plane.height, airTime);
-    const malfunction = unlucky ? 'streamer' : null;
+    // Any of what can go wrong with a main, as likely as each other.
+    const malfunction = unlucky ? MAIN_MALFUNCTIONS[Math.floor(Math.random() * MAIN_MALFUNCTIONS.length)]! : null;
     jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, {
       ...rigOptions(),
       malfunction,
@@ -1033,6 +1035,17 @@ function simulate(seconds: number): void {
         return;
       }
     }
+    if (!flying && jump?.pumping) {
+      // Under a slider stuck up: the toggles pump it, the canopy waits.
+      rampControls(ramped, devices.pulls, dt);
+      applied.brakeL = Math.max(ramped.brakeL, devices.analogBrakeL);
+      applied.brakeR = Math.max(ramped.brakeR, devices.analogBrakeR);
+      applied.frontL = applied.frontR = 0;
+      Object.assign(hands, applied);
+      jump.pumpToggles(Math.min(applied.brakeL, applied.brakeR));
+      jump.holdStows(applied);
+      continue;
+    }
     if (!flying && jump) {
       // The same keys move the body in freefall: the toggles wait, and the
       // canopy comes out on its stowed brakes.
@@ -1133,7 +1146,11 @@ function hitWithoutCanopy(j: Jump): void {
   s.vel.x = s.vel.y = s.vel.z = 0;
   land({ sink: speed, groundSpeed: 0, wet: false });
   if (j.struck) hud.showStrike(j.phase === 'opening' ? 'opening' : 'freefall', speed, j.log);
-  else hud.showImpact(j.log, j.phase === 'opening', speed, j.opening?.malfunction ?? null);
+  else {
+    // A slider brought down in time was not what went wrong: too low.
+    const o = j.opening;
+    hud.showImpact(j.log, j.phase === 'opening', speed, o && (o.malfunction !== 'sliderHang' || o.hung) ? o.malfunction : null);
+  }
   logThisJump('impact', speed, 0);
 }
 
@@ -1568,6 +1585,8 @@ function showReplay(f: ReplayFrame): void {
   Object.assign(s.pilotAtt, f.pilotAtt);
   model.deflationL = f.deflationL;
   model.deflationR = f.deflationR;
+  // The replay does not keep line twists: drawn untwisted.
+  s.twist = 0;
   rigView.setInflation(f.inflation);
   rigView.setArms(f.onRisers && !f.hasJoints);
   rigView.body.setPose(f.pose);
@@ -1940,8 +1959,20 @@ function cue(): string {
     return `${c.mainReleased}<small>${setup.gear.rsl ? c.rslPulls : c.pullReserve}</small>`;
   }
   const o = jump.opening;
+  const cutaway = c.holdToCutaway(keyLabel('KeyX'));
   if (jump.phase === 'opening' && o?.malfunction === 'streamer' && o.stage === 'inflation' && o.time > o.timing.lineStretch + 1.2) {
-    return `${c.streamer}<small>${c.holdToCutaway(keyLabel('KeyX'))}</small>`;
+    return `${c.streamer}<small>${cutaway}</small>`;
+  }
+  if (jump.towing && o && o.time > o.timing.lineStretch + 0.8) {
+    return `${c.noOpening}<small>${singleCanopy() ? c.oneCanopy : c.pullReserve}</small>`;
+  }
+  if (jump.sliderHung && o && o.time > o.timing.lineStretch + 1.2) {
+    const pumped = o.pumps > 0 ? ` (${o.pumps})` : '';
+    return `${c.sliderHang}<small>${c.pumpToggles(keyLabel('KeyS'))}${pumped} · ${c.elseCutaway(keyLabel('KeyX'))}</small>`;
+  }
+  if (jump.twisted && jump.canopy === 'main' && !touchdown) return `${c.lineTwists}<small>${c.kickOut}</small>`;
+  if (jump.phase === 'canopy' && jump.canopy === 'main' && jump.log.malfunction === 'lineover' && !touchdown) {
+    return `${c.lineover}<small>${cutaway}</small>`;
   }
   if (jump.phase === 'plane' && jump.walk) {
     const exit = c.exitIn[jump.body.position];
@@ -2312,7 +2343,8 @@ function frame(now: number): void {
   const airspeed = air.length();
   air.applyQuaternion(unlook.copy(camera.quaternion).invert());
   // The slider is most of the flapping: much less of it collapsed, none once off.
-  const streamer = !wf && jump?.phase === 'opening' && jump.opening?.malfunction === 'streamer' && inflation !== null;
+  // A canopy that never fills, a streamer or one held in by its slider, flaps all the louder.
+  const streamer = !wf && jump?.phase === 'opening' && inflation !== null && (jump.opening?.malfunction === 'streamer' || jump.sliderHung);
   const slider = wf ? wf.slider : sliderState;
   const flapping = slider === 'open' || (wf ? wf.reserve : rigView.canopy.reserve) ? 1 : slider === 'collapsed' ? 0.35 : 0.15;
   sound.update({

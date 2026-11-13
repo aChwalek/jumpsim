@@ -184,6 +184,7 @@ export class RigView {
     this.air.copy(frame.wind).sub(this.vel);
     Object.assign(look.controls, controls);
     if (!this.detached) this.canopy.setDeflation(model.deflationL, model.deflationR);
+    if (!this.detached) this.canopy.setTwist(model.state.twist);
     Object.assign(look.hands, hands);
     const rig = model.rig;
     if (!this.detached) this.updateCanopy(rig, groundAt, light, frame);

@@ -7,9 +7,9 @@
 // the arrival does on the ground), so the camera, the rig and the HUD follow
 // without knowing where the pilot is in the jump.
 
-import type { Controls, Environment, FlightModel } from './flightModel';
+import { LINEOVER_COLLAPSE, type Controls, type Environment, type FlightModel } from './flightModel';
 import { Freefall, freefallParams, noBodyInputs, type BodyInputs, type BodyPosition } from './freefall';
-import { BASE_OPENING, MAIN_OPENING, Opening, RESERVE_HANDLE_OPENING, RESERVE_OPENING, STOWED_BRAKE, type Malfunction } from './opening';
+import { BASE_OPENING, MAIN_OPENING, Opening, RESERVE_HANDLE_OPENING, RESERVE_OPENING, STOWED_BRAKE, type Malfunction, type MalfunctionDetail } from './opening';
 import { EXIT_SPOTS, Plane, type ExitSpot, type JumpRun } from './plane';
 import { ReleasedCanopy } from './released';
 import type { RigParams } from './rig';
@@ -96,6 +96,12 @@ const FLAT_ENOUGH = 25 * DEG;
 const RSL_DELAY = 0.2;
 /** Time to fall away from hanging under a canopy to flat on the air, for the eyes, s. */
 const FALL_AWAY = 0.8;
+/** Line twists: at least this many turns, and up to `spread` more, either way. */
+const TWIST_TURNS = { least: 1, spread: 2.5 };
+/** How often a slider hang-up is one that no pumping brings down. */
+const SLIDER_STUCK = 0.4;
+/** Lines wound past this keep the hands off the toggles, rad. */
+const TWISTED = Math.PI / 2;
 /** Off a BASE object the pilot chute is in the hand: it can go almost at once, s. */
 const BASE_PULL_FROM = 0.3;
 /** How far off the pilot's heading a BASE canopy may open, degrees either way. */
@@ -197,6 +203,8 @@ export class Jump {
   released: ReleasedCanopy | null = null;
   /** When the static line pulls the reserve, s after the exit. */
   private rslAt: number | null = null;
+  /** The side of the main a line has gone over the top of: -1 left, 1 right, 0 none. */
+  private lineover: -1 | 0 | 1 = 0;
 
   private readonly tmp = vec3();
   private readonly eye = vec3();
@@ -226,6 +234,7 @@ export class Jump {
     private readonly options: JumpOptions = {},
   ) {
     this.solidAt = options.solidAt ?? groundAt;
+    model.lineover = 0;
     this.body = new Freefall(freefallParams(model.rig.gravMass, suitFit(options.suit)));
     this.wings = hasWings(options.suit);
     this.base = isLedge(from);
@@ -279,8 +288,8 @@ export class Jump {
     else if (this.phase === 'standing') {
       this.runUp!.leap();
       this.exit();
-    } else if (this.phase === 'freefall' && this.cutawayAt !== null) {
-      // The reserve handle, right after the cutaway, whatever the position.
+    } else if ((this.phase === 'freefall' && this.cutawayAt !== null) || this.towing) {
+      // The reserve handle: right after the cutaway, whatever the position, or under a main that never left its bag.
       this.pull(false);
     } else if (this.phase === 'freefall' && this.time > (this.base ? BASE_PULL_FROM : CLEAR_OF_THE_PLANE)) {
       this.body.tracking = false;
@@ -388,16 +397,17 @@ export class Jump {
   cutaway(): void {
     if (this.single) return;
     const o = this.opening;
-    const out = this.phase === 'canopy' || (this.phase === 'opening' && o !== null && o.stage === 'inflation');
+    const towing = this.towing;
+    const out = this.phase === 'canopy' || (this.phase === 'opening' && o !== null && (o.stage === 'inflation' || towing));
     if (this.canopy !== 'main' || !out || this.impact) return;
     const s = this.model.state;
     const rig = this.model.rig;
-    this.released = new ReleasedCanopy(
-      { pos: s.pos, vel: s.vel, att: s.att },
-      rig.area,
-      rig.canopy.weight / 9.80665 + 1.2,
-      this.groundAt,
-    );
+    // A main still in its bag stays in the container: only the risers go.
+    this.released = towing
+      ? null
+      : new ReleasedCanopy({ pos: s.pos, vel: s.vel, att: s.att }, rig.area, rig.canopy.weight / 9.80665 + 1.2, this.groundAt);
+    this.lineover = 0;
+    this.model.lineover = 0;
     this.cutawayAt = this.time;
     this.log.cutawayHeight = this.height();
     // Falling free from hanging upright: the body goes back to the arch.
@@ -455,12 +465,21 @@ export class Jump {
       else if (this.rslAt !== null && this.time >= this.rslAt) this.pull(false, 'rsl');
       else if (this.pullWhenFlat && this.body.offPosition() < FLAT_ENOUGH) this.pull(false);
     } else if (this.opening) {
-      this.opening.step(dt, env);
-      if (this.opening.done) {
+      const o = this.opening;
+      o.step(dt, env);
+      // A pilot chute in tow hardly slows the fall: the AAD fires as in freefall.
+      if (o.towing && !this.base && !this.single && this.height() < AAD_HEIGHT && -s.vel.y > AAD_SPEED) this.pull(true);
+      else if (o.done) {
         this.phase = 'canopy';
         this.openedAt = this.time;
         this.log.openHeight = this.height();
-        this.log.openingLoad = this.opening.peakLoad;
+        this.log.openingLoad = o.peakLoad;
+        if (this.canopy === 'main') this.model.lineover = this.lineover;
+      } else if (this.lineover !== 0 && o.stage === 'inflation') {
+        // The half under the line never fills as the rest does.
+        const k = LINEOVER_COLLAPSE * ease((o.inflation - 0.3) / 0.5);
+        this.model.deflationL = this.lineover < 0 ? k : 0;
+        this.model.deflationR = this.lineover > 0 ? k : 0;
       }
     }
     if (this.phase !== 'canopy' && this.clearance() <= 0) this.touch();
@@ -495,9 +514,16 @@ export class Jump {
 
   /**
    * The canopy sees its stowed brakes whatever the hands do, until a toggle
-   * is pulled past its stow: from then on that side is the hand's.
+   * is pulled past its stow: from then on that side is the hand's. Lines
+   * twisted over the risers keep the hands off the toggles and the front
+   * risers.
    */
   holdStows(c: Controls): void {
+    if (this.twisted) {
+      c.brakeL = this.stowedL ? STOWED_BRAKE : 0;
+      c.brakeR = this.stowedR ? STOWED_BRAKE : 0;
+      c.frontL = c.frontR = 0;
+    }
     if (this.stowedL) {
       if (c.brakeL > STOWED_BRAKE + UNSTOW) this.stowedL = false;
       else c.brakeL = STOWED_BRAKE;
@@ -506,6 +532,40 @@ export class Jump {
       if (c.brakeR > STOWED_BRAKE + UNSTOW) this.stowedR = false;
       else c.brakeR = STOWED_BRAKE;
     }
+  }
+
+  /** Under canopy, its lines wound round each other over the risers past a quarter turn. */
+  get twisted(): boolean {
+    return this.phase === 'canopy' && Math.abs(this.model.state.twist) > TWISTED;
+  }
+
+  /** The main's pilot chute out and towing, its bag still shut in the container. */
+  get towing(): boolean {
+    return this.phase === 'opening' && this.canopy === 'main' && this.opening !== null && this.opening.towing;
+  }
+
+  /** The main's slider stuck up against the canopy, which it holds in. */
+  get sliderHung(): boolean {
+    return this.phase === 'opening' && this.canopy === 'main' && this.opening !== null && this.opening.hung && this.opening.stage === 'inflation';
+  }
+
+  /**
+   * The main opening on a hung slider: the hands are on the toggles, to
+   * pump them. Until it flies, once the slider has come down.
+   */
+  get pumping(): boolean {
+    const o = this.opening;
+    return this.phase === 'opening' && this.canopy === 'main' && o !== null && o.malfunction === 'sliderHang' && o.stage === 'inflation';
+  }
+
+  /**
+   * Both toggles, from 0 (hands up) to 1 (all the way down), every step
+   * while `pumping`. Pumping them frees them from their stows.
+   */
+  pumpToggles(both: number): void {
+    if (!this.pumping) return;
+    if (both > STOWED_BRAKE + UNSTOW) this.stowedL = this.stowedR = false;
+    this.opening!.pump(both);
   }
 
   /** How far the pilot has swung from flat on the air to hanging under the canopy, 0 to 1. */
@@ -627,12 +687,14 @@ export class Jump {
    * AAD fires. `by`: what pulled a reserve, when not the AAD.
    */
   private pull(aad: boolean, by: ReserveBy = 'hand'): void {
-    if (this.phase !== 'freefall') return;
-    const reserve = aad || this.cutawayAt !== null;
-    if (reserve && this.canopy === 'reserve') return;
+    // Under a pilot chute in tow, straight to the reserve: the main stays in its bag.
+    const towing = this.towing;
+    if (this.phase !== 'freefall' && !towing) return;
+    const reserve = aad || this.cutawayAt !== null || towing;
+    if (reserve && (this.canopy === 'reserve' || this.single)) return;
     this.rslAt = null;
     this.pullWhenFlat = false;
-    if (this.cutawayAt === null) {
+    if (this.cutawayAt === null && !towing) {
       this.log.pullHeight = aad ? null : this.height();
       this.log.freefallSeconds = this.time;
     }
@@ -654,7 +716,14 @@ export class Jump {
       this.log.malfunction = malfunction;
       // Nearly the other way round, to one side or the other.
       if (malfunction === 'offHeading') off = (this.random() < 0.5 ? -1 : 1) * (150 + 30 * this.random());
-      this.opening = new Opening(this.body, this.model, this.single ? BASE_OPENING : MAIN_OPENING, off, malfunction);
+      const detail: Partial<MalfunctionDetail> = {};
+      if (malfunction === 'lineover') this.lineover = this.random() < 0.5 ? -1 : 1;
+      if (malfunction === 'lineTwists') {
+        const turns = TWIST_TURNS.least + TWIST_TURNS.spread * this.random();
+        detail.twist = (this.random() < 0.5 ? -1 : 1) * turns * 2 * Math.PI;
+      }
+      if (malfunction === 'sliderHang') detail.stuck = this.random() < SLIDER_STUCK;
+      this.opening = new Opening(this.body, this.model, this.single ? BASE_OPENING : MAIN_OPENING, off, malfunction, detail);
     }
     this.phase = 'opening';
   }

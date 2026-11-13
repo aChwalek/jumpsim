@@ -40,6 +40,13 @@ export interface Controls {
 /** Toggle travel with wraps taken: past 1 the tail separates and the canopy stalls. */
 export const BRAKE_DEEP = 1.3;
 
+/**
+ * A line over the top of the canopy holds its half this far collapsed, and
+ * pulls that side's tail down as a toggle taken a little into wraps would.
+ */
+export const LINEOVER_COLLAPSE = 0.5;
+export const LINEOVER_PULL = 1.15;
+
 export const neutralControls = (): Controls => ({
   brakeL: 0,
   brakeR: 0,
@@ -144,6 +151,12 @@ export class FlightModel {
    */
   dragAreaDelta = 0;
 
+  /**
+   * A line gone over the top of the canopy, pinching in its left (-1) or right
+   * (1) half, whatever the toggles do; 0 for none.
+   */
+  lineover: -1 | 0 | 1 = 0;
+
   /** The canopy flown: the reserve takes over from the main after a cutaway. */
   constructor(public rig: RigParams) {}
 
@@ -153,6 +166,9 @@ export class FlightModel {
     const w = s.omega;
     const vb = this.vb;
     const halfRho = 0.5 * env.airDensity;
+    // The tails as the lines pull them: the toggles, and a line over the top.
+    const brakeL = this.lineover < 0 ? Math.max(c.brakeL, LINEOVER_PULL) : c.brakeL;
+    const brakeR = this.lineover > 0 ? Math.max(c.brakeR, LINEOVER_PULL) : c.brakeR;
 
     // Velocity of the joint through the air, world frame then canopy frame.
     const air = set(this.air, s.vel.x - env.wind.x, s.vel.y - env.wind.y, s.vel.z - env.wind.z);
@@ -169,7 +185,7 @@ export class FlightModel {
     for (let i = 0; i < panels.length; i++) {
       const p = panels[i]!;
       const r = p.r;
-      const toggle = p.side < 0 ? c.brakeL : c.brakeR;
+      const toggle = p.side < 0 ? brakeL : brakeR;
       const brake = Math.min(toggle, 1) * p.brakeGain;
       // The first wraps mostly take up the stretch in the lines.
       const wrapped = toggle > 1 ? (toggle - 1) / (BRAKE_DEEP - 1) : 0;
@@ -237,8 +253,8 @@ export class FlightModel {
     }
 
     const half = panels.length / 2;
-    this.deflationL = this.deflate(this.deflationL, alphaL / half, dt);
-    this.deflationR = this.deflate(this.deflationR, alphaR / half, dt);
+    this.deflationL = Math.max(this.lineover < 0 ? LINEOVER_COLLAPSE : 0, this.deflate(this.deflationL, alphaL / half, dt));
+    this.deflationR = Math.max(this.lineover > 0 ? LINEOVER_COLLAPSE : 0, this.deflate(this.deflationR, alphaR / half, dt));
 
     // Uneven front risers shorten one side's lines, which tips the canopy,
     // and its lift with it, towards that side.
@@ -250,7 +266,7 @@ export class FlightModel {
     const cx = vb.x - w.z * rig.canopyPos.y;
     const cz = vb.z + w.x * rig.canopyPos.y;
     const speed = Math.hypot(cx, vb.y, cz);
-    const pull = aero.cnBrake * (Math.min(c.brakeR, 1) - Math.min(c.brakeL, 1)) + aero.cnFront * (c.frontR - c.frontL);
+    const pull = aero.cnBrake * (Math.min(brakeR, 1) - Math.min(brakeL, 1)) + aero.cnFront * (c.frontR - c.frontL);
     this.ty +=
       halfRho *
       speed *
