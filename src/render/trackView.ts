@@ -12,7 +12,7 @@ import type { OtherShown, TrackFrame, TrackMeta } from '../replay/track';
 import { outfitOf, reserveRigFor, rigFor, suitOf, validSetup, wingColor, type Setup } from '../setup';
 import { FlightModel, neutralControls } from '../sim/flightModel';
 import { feetHeight } from '../sim/landing';
-import { Plane } from '../sim/plane';
+import { Plane, propRate } from '../sim/plane';
 import { J } from '../sim/ragdoll';
 import type { RigParams } from '../sim/rig';
 import { vec3 } from '../sim/vec';
@@ -286,8 +286,8 @@ export class TrackView {
     this.plane.pos.x = p.pos[0]! + p.vel[0]! * dt;
     this.plane.pos.y = p.pos[1]! + p.vel[1]! * dt;
     this.plane.pos.z = p.pos[2]! + p.vel[2]! * dt;
-    // Three-blade propellers at about 1700 rpm, as the plane turns them.
-    this.plane.prop = (180 * t) % (2 * Math.PI);
+    // The propellers, or the rotor, turning as the plane turns them.
+    this.plane.prop = (propRate(this.plane.type) * t) % (2 * Math.PI);
     this.planeView.update(this.plane);
   }
 

@@ -2,7 +2,9 @@
 // sim needs to fly over it. World axes: +X east, -Z north, +Y up, metres,
 // origin at the landing target. Real drop zones will be more packs like this.
 
+import { PULL_HEIGHT_RECKONED, freefallSeconds } from '../sim/freefall';
 import { AIRCRAFT, type AircraftId, type JumpRun } from '../sim/plane';
+import { windGradient } from '../sim/weather';
 import type { CliffTop } from './cliffTop';
 
 export interface Rect {
@@ -294,13 +296,25 @@ export function runLeadIn(downwind: number, headingDeg: number, windFromDeg: num
 }
 
 /**
+ * How far upwind of the target a helicopter hovers to drop its jumpers, m:
+ * as far as the wind carries them in freefall, so that they open over it.
+ * The wind taken is the one halfway down to the pull.
+ */
+export function hoverUpwind(windKmh: number, exitHeight: number): number {
+  const aloft = (windKmh / 3.6) * windGradient((exitHeight + PULL_HEIGHT_RECKONED) / 2);
+  return aloft * freefallSeconds(exitHeight);
+}
+
+/**
  * Where the jumps start with the wind from this direction. Jump run is flown
- * into the wind at the drop zone's height unless `run` says otherwise.
+ * into the wind at the drop zone's height unless `run` says otherwise. A
+ * helicopter does not fly it: it hovers upwind of the target, by as much as
+ * the wind (`windKmh`) carries the jumpers in freefall, its nose on the run.
  */
 export function spawnsFor(
   dz: DzPack,
   windFromDeg: number,
-  run: { headingDeg?: number; height?: number; aircraft?: AircraftId } = {},
+  run: { headingDeg?: number; height?: number; aircraft?: AircraftId; windKmh?: number } = {},
 ): { pattern: Spawn; final: Spawn; plane: JumpRun } {
   const { x, z } = dz.target;
   const p = dz.pattern;
@@ -329,6 +343,13 @@ export function spawnsFor(
   const plane = AIRCRAFT[aircraft ?? 'pc6'];
   // Out of a ramp, the jumpers go out along the run's own line.
   const aside = plane.ramp ? 0 : -plane.doorSide * jr.offset;
+  const height = run.height ?? jr.height;
+  // In a hover: upwind of the target by the freefall's drift, wherever the nose points.
+  const up = (windFromDeg * Math.PI) / 180;
+  const drift = hoverUpwind(run.windKmh ?? 0, height);
+  const at = plane.rotors
+    ? { x: x + drift * Math.sin(up), z: z - drift * Math.cos(up) }
+    : { x: x - back * ahead.x + aside * right.x, z: z - back * ahead.z + aside * right.z };
   return {
     pattern: {
       x: x - p.upwind * dx + side * rx,
@@ -338,9 +359,8 @@ export function spawnsFor(
     },
     final: { x: x + f.downwind * dx, z: z + f.downwind * dz_, height: f.height, headingDeg: land },
     plane: {
-      x: x - back * ahead.x + aside * right.x,
-      z: z - back * ahead.z + aside * right.z,
-      height: run.height ?? jr.height,
+      ...at,
+      height,
       headingDeg: heading,
       indicatedAirspeed: jr.indicatedAirspeed,
       aircraft,

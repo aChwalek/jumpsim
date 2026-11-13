@@ -195,7 +195,7 @@ describe('places at the door', () => {
   });
 
   test('the eyes are at the place, eased there from the last, and the plane flies the same run', () => {
-    for (const aircraft of ['pc6', 'do28'] as const) {
+    for (const aircraft of ['pc6', 'do28', 'as350'] as const) {
       const spots = AIRCRAFT[aircraft].spots;
       const low = aboard(aircraft);
       for (const spot of EXIT_SPOTS) {
@@ -220,7 +220,7 @@ describe('places at the door', () => {
   });
 
   test('out of every place through the door, clear of the frame, harder from the inside than off the step', () => {
-    for (const aircraft of ['pc6', 'do28'] as const) {
+    for (const aircraft of ['pc6', 'do28', 'as350'] as const) {
       const a = AIRCRAFT[aircraft];
       const out = (v: number) => a.doorSide * v;
       const away: Partial<Record<ExitSpot, number>> = {};
@@ -249,6 +249,62 @@ describe('places at the door', () => {
       expect(away.inside!).toBeGreaterThan(away.low!);
       expect(away.low!).toBeGreaterThan(away.step!);
     }
+  });
+});
+
+describe('the hover of an AS350', () => {
+  /** In a hover, its nose to the east, at this place at the door. */
+  function aboard(spot?: ExitSpot, env = calm()) {
+    const model = new FlightModel(deriveRig(DEFAULT_RIG));
+    const run = { x: 0, z: 0, height: 4000, headingDeg: 90, indicatedAirspeed: 40, aircraft: 'as350' as const };
+    const jump = new Jump(model, run, env, flat, () => 0.5, { spot });
+    const step = () => {
+      env.airDensity = airDensityAt(model.state.pos.y);
+      jump.step(SIM_DT, noBodyInputs(), env);
+    };
+    return { jump, model, step };
+  }
+  const heli = AIRCRAFT.as350;
+
+  test('holds still over the ground whatever the wind, level, its rotor turning', () => {
+    const env = calm();
+    set(env.wind, 8, 0, -3);
+    const { jump, model, step } = aboard('low', env);
+    const plane = jump.plane!;
+    const at = { ...plane.pos };
+    for (let i = 0; i < 5 / SIM_DT; i++) step();
+    expect(plane.pos).toEqual(at);
+    expect(Math.hypot(model.state.vel.x, model.state.vel.y, model.state.vel.z)).toBe(0);
+    // Level: the attitude is its heading alone.
+    expect(plane.att).toEqual(plane.level);
+    // About 390 rpm: over six turns in a second, the blade a blur of nothing.
+    const before = plane.prop;
+    step();
+    expect((plane.prop - before) / SIM_DT).toBeCloseTo(heli.rotors!.rate, 6);
+  });
+
+  test('out of the door there is no relative wind: the jumper drops straight down, slower to get going', () => {
+    const { jump, model, step } = aboard('step');
+    const door = { ...model.state.pos };
+    jump.act();
+    expect(jump.phase).toBe('freefall');
+    // Letting go of the skid: hardly any speed.
+    expect(Math.hypot(model.state.vel.x, model.state.vel.y, model.state.vel.z)).toBeLessThan(1);
+    for (let i = 0; i < 3 / SIM_DT; i++) step();
+    const p = model.state.pos;
+    expect(Math.hypot(p.x - door.x, p.z - door.z)).toBeLessThan(2);
+    // A plane's exit carries its forward speed into the hill; here, close to a fall in a vacuum.
+    expect(door.y - p.y).toBeGreaterThan(35);
+    expect(-model.state.vel.y).toBeGreaterThan(22);
+  });
+
+  test('the step is on the skid, outside and below the floor, under the door', () => {
+    const step = heli.spots.step.eye;
+    expect(-step.x).toBeGreaterThan(heli.cabin.halfWidth + 0.2);
+    expect(step.y).toBeLessThan(1);
+    expect(step.z).toBeGreaterThan(heli.door.front);
+    expect(step.z).toBeLessThan(heli.door.back);
+    expect(heli.doorSide).toBe(-1);
   });
 });
 

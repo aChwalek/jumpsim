@@ -62,6 +62,15 @@ export interface BodyInputs {
 
 export const noBodyInputs = (): BodyInputs => ({ turn: 0, forward: 0, slide: 0, fall: 0 });
 
+/** Height of the pull the freefall times below are reckoned to, m above the ground. */
+export const PULL_HEIGHT_RECKONED = 1000;
+
+/** Rough freefall time from an exit to a pull at 1000 m, s: about 10 s to get up to speed, then 53 m/s. */
+export function freefallSeconds(exitHeight: number): number {
+  const fall = exitHeight - PULL_HEIGHT_RECKONED;
+  return fall <= 300 ? Math.max(0, fall) / 30 : 10 + (fall - 300) / 53;
+}
+
 /** How long ↑ ↓ ← → have to be held before the somersaults or rolls carry on by themselves, s. */
 export const SPIN_HOLD = 0.4;
 

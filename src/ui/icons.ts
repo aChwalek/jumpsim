@@ -17,6 +17,9 @@ export const ICON_WEATHER = icon(
 export const PLANE_PATH =
   'M12 2.6c.9 0 1.4 1 1.4 2.4v4.2l7.4 4.4v2l-7.4-2.3v4.2l2.2 1.7V21L12 20.1 8.4 21v-1.8l2.2-1.7v-4.2l-7.4 2.3v-2l7.4-4.4V5c0-1.4.5-2.4 1.4-2.4Z';
 export const ICON_PLANE = icon(`<path d="${PLANE_PATH}"/>`);
+/** A helicopter from above, nose up, centred on its rotor's mast. */
+export const HELI_PATH =
+  'M0 -7.5C2.3 -7.5 3 -4.8 3 -2.2 3 1 1.8 2.8.8 3.2L.6 9.4 2.8 9.8V11H-2.8V9.8L-.6 9.4-.8 3.2C-1.8 2.8-3 1-3 -2.2-3 -4.8-2.3 -7.5 0 -7.5Z';
 export const ICON_BOOK = icon('<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5a1.5 1.5 0 0 0 0 3H19M8.5 7h7M8.5 10.5h7"/>');
 export const ICON_COG = icon(
   '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/><circle cx="12" cy="12" r="6.6"/>',

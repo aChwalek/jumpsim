@@ -6,6 +6,7 @@ import type { JumpLog } from '../sim/jump';
 import type { Malfunction } from '../sim/opening';
 import type { TrackMarks } from '../replay/track';
 import type { Touchdown } from '../sim/landing';
+import { isSideways } from '../viewport';
 import { Altimeter } from './altimeter';
 import { keysHtml, type InputKind, type KeysPhase, type PadKind } from './keys';
 
@@ -154,7 +155,9 @@ export class Hud {
       const bar = this.watch.querySelector<HTMLElement>('.track');
       if (!w || !bar) return;
       const box = bar.getBoundingClientRect();
-      const k = Math.max(0, Math.min(1, (e.clientX - box.left) / Math.max(1, box.width)));
+      // On its side (see viewport), the bar runs down the screen.
+      const along = isSideways() ? (e.clientY - box.top) / Math.max(1, box.height) : (e.clientX - box.left) / Math.max(1, box.width);
+      const k = Math.max(0, Math.min(1, along));
       this.onWatch({ seek: w.start + k * (w.end - w.start) });
     };
     this.watch.addEventListener('pointerdown', (e) => {
@@ -276,6 +279,8 @@ export class Hud {
     const args = `${phase}|${input}|${pad}`;
     if (args === this.lastKeysArgs) return;
     this.lastKeysArgs = args;
+    // On a touch screen the instruments leave the corners to the thumbs.
+    this.root.classList.toggle('touch', input === 'touch');
     const html = phase ? keysHtml(phase, input, pad) : '';
     if (html === this.lastKeys) return;
     this.keys.innerHTML = this.lastKeys = html;
