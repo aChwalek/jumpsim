@@ -97,7 +97,6 @@ import {
   ICON_TROPHY,
   ICON_USER,
   ICON_WEATHER,
-  LOGO,
 } from './icons';
 import { Nav } from './nav';
 import { MAX_PEERS } from '../net/protocol';
@@ -641,7 +640,7 @@ export class Menu {
       this.nav.add(this.cornerLogbook),
       this.nav.add(this.cornerSettings),
     );
-    const brand = html(`<header class="menu-brand">${LOGO}<div><h1>Low Pull</h1><p>${T.menu.tagline}</p></div></header>`);
+    const brand = html(`<header class="menu-brand"><div><h1><img src="${import.meta.env.BASE_URL}brand/lowpull.svg" width="156" height="52" alt="Lowpull" /></h1><p>${T.menu.tagline}</p></div></header>`);
     this.root.replaceChildren(brand, this.panel, this.buildSide(), corner);
   }
 
