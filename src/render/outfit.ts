@@ -19,10 +19,25 @@ export type OutfitColor = keyof typeof OUTFIT_COLORS;
 export const OUTFIT_COLOR_IDS = Object.keys(OUTFIT_COLORS) as OutfitColor[];
 export const isOutfitColor = (v: unknown): v is OutfitColor => typeof v === 'string' && Object.hasOwn(OUTFIT_COLORS, v);
 
-/** What the jumper wears, as drawn: colours of the helmet and the jumpsuit. */
+/** Colours glow sticks come in, as they look lit. Named in T.menu.gear.glowColors. */
+export const GLOW_COLORS = {
+  green: 0x5dff6a,
+  yellow: 0xfff04a,
+  orange: 0xff9a2a,
+  red: 0xff3b3b,
+  blue: 0x4aa8ff,
+  pink: 0xff5ad2,
+} as const;
+export type GlowColor = keyof typeof GLOW_COLORS;
+export const GLOW_COLOR_IDS = Object.keys(GLOW_COLORS) as GlowColor[];
+export const isGlowColor = (v: unknown): v is GlowColor => typeof v === 'string' && Object.hasOwn(GLOW_COLORS, v);
+export const DEFAULT_GLOW: GlowColor = 'green';
+
+/** What the jumper wears, as drawn: colours of the helmet, the jumpsuit and the glow sticks. */
 export interface Outfit {
   helmet: number;
   suit: number;
+  glow: number;
 }
 
 export const DEFAULT_HELMET: OutfitColor = 'white';

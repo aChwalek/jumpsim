@@ -988,6 +988,7 @@ export function buildWater(rects: Rect[], sky: THREE.Color, areas: Area[] = [], 
           float mirror = clamp(0.1 + 0.85 * pow(grazing, 4.0) + 0.3 * ripple, 0.0, 1.0);
           vec3 color = mix(deep, sky, mirror) + vec3(0.2) * smoothstep(0.42, 0.62, ripple);
           gl_FragColor = vec4(color, 1.0);
+          #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }`,
     });

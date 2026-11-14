@@ -3,7 +3,8 @@ import { CANOPY_COLORS, RESERVE_PALETTE } from '../render/canopyColors';
 import { CanopyView } from '../render/canopyView';
 import { Posture } from '../render/posture';
 import { RigView, type RigFrame } from '../render/rigView';
-import { SMOKE_BURN, SmokeTrail } from '../render/smoke';
+import { SMOKE_BURN } from '../render/smoke';
+import { fitTrail, type Trail } from '../render/sparks';
 import type { Lighting } from '../render/scene';
 import { outfitOf, reserveRigFor, rigFor, sameFlight, suitOf, wingColor, type Gear } from '../setup';
 import { hasWings } from '../sim/suit';
@@ -56,7 +57,7 @@ export class RemoteJumper {
   private reserve: FlightModel | null = null;
   private view: RigView | null = null;
   /** Their smoke, if they jump with a canister; lit when they left (local clock, ms). */
-  private smoke: SmokeTrail | null = null;
+  private smoke: Trail | null = null;
   private smokeLitAt: number | null = null;
   private wasLanded = false;
   private readonly smokeFrom = new THREE.Vector3();
@@ -200,10 +201,11 @@ export class RemoteJumper {
     const kind = this.gear?.smoke ?? 'none';
     this.view?.body.setSmoke(kind);
     if (kind === 'none') return this.dropSmoke();
-    if (!this.smoke) {
-      this.smoke = new SmokeTrail(kind, light);
-      this.scene.add(this.smoke.object);
-    } else this.smoke.setColor(kind);
+    const trail = fitTrail(kind, light, this.smoke);
+    if (trail === this.smoke) return;
+    this.dropSmoke();
+    this.smoke = trail;
+    this.scene.add(trail.object);
   }
 
   private dropSmoke(): void {

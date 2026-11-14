@@ -6,13 +6,13 @@ import { T } from './i18n';
 import { HOUR_MAX, HOUR_MIN } from './render/daylight';
 import { CANOPY_COLORS, isCanopyColor, type CanopyColorId } from './render/canopyColors';
 import { isSmoke, type SmokeKind } from './render/smoke';
-import { DEFAULT_HELMET, DEFAULT_SUIT, OUTFIT_COLORS, isOutfitColor, type Outfit, type OutfitColor } from './render/outfit';
+import { DEFAULT_GLOW, DEFAULT_HELMET, DEFAULT_SUIT, GLOW_COLORS, OUTFIT_COLORS, isGlowColor, isOutfitColor, type GlowColor, type Outfit, type OutfitColor } from './render/outfit';
 import { BOTS_MAX, BOT_LEADS, BOT_MODES, type BotLead, type BotMode } from './sim/bot';
 import type { Container } from './sim/jump';
 import { AIRCRAFT_IDS, EXIT_SPOTS, type AircraftId, type ExitSpot } from './sim/plane';
 import { DEFAULT_RIG, deriveRig, reserveConfig, rigConfig, type CanopyKind, type RigParams } from './sim/rig';
 import { isSuitKind, isSuitLevel, type Suit, type SuitKind, type SuitLevel } from './sim/suit';
-import { WIND_MAX_KMH, type GustLevel, type SkyKind, type Weather } from './sim/weather';
+import { MOON_PHASES, WIND_MAX_KMH, type GustLevel, type MoonPhase, type SkyKind, type Weather } from './sim/weather';
 import { DZS, dzInfo, type DzId } from './world/dzs';
 
 /** Canopy sizes on offer, ft², largest first. Cross-braced ones only come small. */
@@ -65,6 +65,8 @@ export interface Gear {
   suitLevel: SuitLevel;
   /** The colour of the helmet's shell. */
   helmetColor: OutfitColor;
+  /** The colour of the glow sticks, cracked once it is dark. */
+  glowColor: GlowColor;
   /** The colour of the jumpsuit (a suit's wings keep the canopy's). */
   suitColor: OutfitColor;
 }
@@ -80,7 +82,12 @@ export const sameSuit = (a: Gear, b: Gear): boolean =>
 export const wingColor = (color: CanopyColorId): number => CANOPY_COLORS[color].cells[1]!;
 
 /** What the jumper wears, as drawn. */
-export const outfitOf = (gear: Gear): Outfit => ({ helmet: OUTFIT_COLORS[gear.helmetColor], suit: OUTFIT_COLORS[gear.suitColor] });
+export const outfitOf = (gear: Gear): Outfit => ({
+  helmet: OUTFIT_COLORS[gear.helmetColor],
+  suit: OUTFIT_COLORS[gear.suitColor],
+  // Someone on an older version chose none.
+  glow: GLOW_COLORS[gear.glowColor] ?? GLOW_COLORS[DEFAULT_GLOW],
+});
 
 /**
  * Where the jump starts: in the plane, already under canopy (on downwind or
@@ -165,9 +172,9 @@ export function loadingLabel(wingLoading: number): string {
 }
 
 /** The usual wind of a drop zone, as the weather of a first visit. */
-export function usualWeather(dz: DzId, sky: SkyKind = 'clear'): Weather {
+export function usualWeather(dz: DzId, sky: SkyKind = 'clear', moon: MoonPhase = 'full'): Weather {
   const { wind } = dzInfo(dz);
-  return { sky, windFromDeg: wind.fromDeg, windKmh: Math.round(wind.speed * 3.6), gusts: 'none' };
+  return { sky, windFromDeg: wind.fromDeg, windKmh: Math.round(wind.speed * 3.6), gusts: 'none', moon };
 }
 
 export function defaultSetup(): Setup {
@@ -190,6 +197,7 @@ export function defaultSetup(): Setup {
       suit: 'jumpsuit',
       suitLevel: 1,
       helmetColor: DEFAULT_HELMET,
+      glowColor: DEFAULT_GLOW,
       suitColor: DEFAULT_SUIT,
     },
     jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'sometimes', exitSpot: 'low', aircraft: null, challenges: true },
@@ -218,6 +226,7 @@ export function validSetup(saved: unknown): Setup {
   if (finite(w.windFromDeg)) setup.weather.windFromDeg = ((Math.round(w.windFromDeg) % 360) + 360) % 360;
   if (finite(w.windKmh)) setup.weather.windKmh = Math.min(WIND_MAX_KMH, Math.max(0, Math.round(w.windKmh)));
   if (oneOf(w.gusts, ['none', 'light', 'strong'] as const satisfies readonly GustLevel[])) setup.weather.gusts = w.gusts;
+  if (oneOf(w.moon, MOON_PHASES)) setup.weather.moon = w.moon;
   const g = (s.gear ?? {}) as Partial<Record<keyof Gear, unknown>>;
   const gear = setup.gear;
   if (g.kind === 'triCell') {
@@ -237,6 +246,7 @@ export function validSetup(saved: unknown): Setup {
   if (isSuitKind(g.suit)) gear.suit = g.suit;
   if (isSuitLevel(g.suitLevel)) gear.suitLevel = g.suitLevel;
   if (isOutfitColor(g.helmetColor)) gear.helmetColor = g.helmetColor;
+  if (isGlowColor(g.glowColor)) gear.glowColor = g.glowColor;
   if (isOutfitColor(g.suitColor)) gear.suitColor = g.suitColor;
   const j = (s.jump ?? {}) as Partial<Record<keyof JumpPlan, unknown>>;
   if (oneOf(j.start, startsAt(setup.dz))) setup.jump.start = j.start;

@@ -7,7 +7,7 @@ import { keyLabel, readKeyboardLayout } from './input/keyLabels';
 import { noPulls, noWraps, rampControls, wrapTravel } from './input/ramp';
 import { CANOPY_COLORS, RESERVE_PALETTE } from './render/canopyColors';
 import { CLOUD_BASE, CLOUD_DEPTH } from './render/clouds';
-import { daylight, sunPosition } from './render/daylight';
+import { daylight, moonPosition, sunPosition, type Daylight } from './render/daylight';
 import { PlaneView } from './render/planeView';
 import { CanopyView, type SliderState } from './render/canopyView';
 import { ChaseCamera, type ChaseTarget } from './render/chaseCamera';
@@ -17,10 +17,11 @@ import { DOOR_GAZE, FREEFALL_GAZE, neckFor, neckOf } from './render/neck';
 import { FREEFALL_STANCES, LegSwing, Posture, type LegCues, type Stance } from './render/posture';
 import { RigView, type RigFrame } from './render/rigView';
 import { RagdollView } from './render/ragdollView';
-import { SMOKE_BURN, SmokeTrail } from './render/smoke';
+import { SMOKE_BURN, SmokeTrail, isSmokeColor } from './render/smoke';
+import { SparkTrail } from './render/sparks';
 import { blendPose, copyPose, makePose, type Pose } from './render/body';
 import { TopView } from './render/topView';
-import { FIELD_OF_VIEW, GEAR_LAYER, OUTSIDE_LAYER, Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
+import { FIELD_OF_VIEW, GEAR_LAYER, OUTSIDE_LAYER, Resolution, createCamera, createGearCamera, createRenderer, createScene, nightVision } from './render/scene';
 import { bestScore, scoreAccuracy, type AccuracyScore } from './challenge';
 import { loadLogbook, logJump, type LogEntry, type Outcome } from './logbook';
 import { QUALITY_LEVELS, loadSettings, saveSettings } from './settings';
@@ -150,7 +151,9 @@ const ragdollView = new RagdollView();
 scene.add(ragdollView.object);
 /** The smoke from the canister on the ankle, if there is one, and when it was lit (air time, s). */
 const smoke = new SmokeTrail('red', light);
-scene.add(smoke.object);
+/** Or sparks in its place, which light up what is about them. */
+const sparks = new SparkTrail(true);
+scene.add(smoke.object, sparks.object, sparks.light!);
 let smokeLitAt: number | null = null;
 fitSmoke();
 for (const m of ragdollView.materials()) if (m instanceof THREE.MeshLambertMaterial) light.clouds.shade(m, 'light');
@@ -185,10 +188,18 @@ const altitude = (): number => feetHeight(model, () => dz.groundAt(dz.target.x, 
 /** The wind up at the clouds, which carries them along, m/s. */
 const cloudWind = vec3();
 
+/** The light at an hour at this drop zone, under the sky chosen: the sun's, and at night the moon's. */
+function lightAt(hour: number): Daylight {
+  const phase = setup.weather.moon ?? 'full';
+  const moon = { position: moonPosition(dz.lat, dz.lon, hour, phase, dz.utcOffsetH), phase };
+  return daylight(sunPosition(dz.lat, dz.lon, hour, dz.utcOffsetH), setup.weather.sky, moon);
+}
+
 /** Puts the sun where the hour has it, under the sky chosen, and the wind on the windsock and the clouds. */
 function applyWeather(): void {
-  light.set(daylight(sunPosition(dz.lat, dz.lon, setup.hour, dz.utcOffsetH), setup.weather.sky));
+  light.set(lightAt(setup.hour));
   world.setDaylight(light);
+  planeView.setNight(light.night);
   world.setWind(setup.weather.windFromDeg, setup.weather.windKmh / 3.6);
   windAt(cloudWind, { ...setup.weather, gusts: 'none' }, CLOUD_BASE + CLOUD_DEPTH / 2, 0);
 }
@@ -241,7 +252,7 @@ function fitSuit(): void {
 function fitSmoke(): void {
   const kind = setup.gear.smoke;
   rigView.body.setSmoke(kind);
-  if (kind !== 'none') smoke.setColor(kind);
+  if (isSmokeColor(kind)) smoke.setColor(kind);
 }
 
 const smokeFrom = new THREE.Vector3();
@@ -255,9 +266,12 @@ function drawSmoke(dt: number): void {
   const out = !jump || (jump.phase !== 'plane' && jump.phase !== 'standing');
   if (kind !== 'none' && out && smokeLitAt === null) smokeLitAt = airTime;
   const burning = kind !== 'none' && smokeLitAt !== null && airTime - smokeLitAt < SMOKE_BURN;
+  // What is already in the air of the other sort goes on and dies away.
+  const trail = kind === 'sparks' ? sparks : smoke;
+  (trail === smoke ? sparks : smoke).update(dt, null, smokeVel, rigFrame.wind);
   if (!burning || dt <= 0) {
     smokeWasOut = false;
-    return smoke.update(dt, null, smokeVel, rigFrame.wind);
+    return trail.update(dt, null, smokeVel, rigFrame.wind);
   }
   // From the foot thrown about by a crash, or from the canister on the pilot's own.
   if (ragdoll) smokeFrom.fromArray(liveJoints, 3 * J.footR);
@@ -267,7 +281,8 @@ function drawSmoke(dt: number): void {
   else smokeVel.set(model.state.vel.x, model.state.vel.y, model.state.vel.z);
   smokeBefore.copy(smokeFrom);
   smokeWasOut = true;
-  smoke.update(dt, smokeFrom, smokeVel, rigFrame.wind);
+  sparks.floor = solid(smokeFrom.x, smokeFrom.z, smokeFrom.y);
+  trail.update(dt, smokeFrom, smokeVel, rigFrame.wind);
 }
 
 /** Back under the main, whatever the last jump did with it. */
@@ -825,6 +840,7 @@ function spawn(kind: Start): void {
   endCrash();
   canopyTime = 0;
   smoke.clear();
+  sparks.clear();
   smokeLitAt = null;
   smokeWasOut = false;
   posture.reset();
@@ -1582,7 +1598,8 @@ function watchTrack(track: Track, from: { logbook: false } | { logbook: true; re
   const player = new TrackPlayer(track);
   const view = new TrackView(scene, track.meta, light);
   // The jump under way waits out of sight.
-  const live = [rigView.object, planeView.object, ragdollView.object, smoke.object];
+  const live = [rigView.object, planeView.object, ragdollView.object, smoke.object, sparks.object];
+  sparks.light!.intensity = 0;
   if (releasedView) live.push(releasedView.object, releasedView.shadow, releasedView.deployment.object);
   const hidden = live.map((o): [THREE.Object3D, boolean] => [o, o.visible]);
   for (const o of live) o.visible = false;
@@ -2384,13 +2401,20 @@ let mapDrawnAt = -1e9;
 function drawMap(now: number): void {
   const size = menu.map.wantedSize();
   if (!menu.isOpen || !size || dz !== dzInfo(setup.dz).loaded()) return;
-  const key = `${setup.dz}|${world.ready()}|${setup.hour}|${setup.weather.sky}|${setup.jump.challenges}|${size}`;
+  // The map is drawn by day whatever the hour: a map of the night would be black.
+  const mapHour = sunPosition(dz.lat, dz.lon, setup.hour, dz.utcOffsetH).elevationDeg > 5 ? setup.hour : 13;
+  const key = `${setup.dz}|${world.ready()}|${mapHour}|${setup.weather.sky}|${setup.jump.challenges}|${size}`;
   if (key === mapDrawn || now - mapDrawnAt < 200) return;
   const groundY = dz.groundAt(dz.target.x, dz.target.z);
   // The pilot, the canopy and its shadows all hang from the rig's object; a cut-away canopy is on its own.
   const released = releasedView ? [releasedView.object, releasedView.shadow, releasedView.deployment.object] : [];
   const hide = [sky, light.clouds.layer, rigView.object, planeView.object, ...released];
-  if (!topView.draw(menu.map.canvas, dz.target.x, dz.target.z, groundY, MAP_HALF, hide)) return;
+  const night = mapHour !== setup.hour;
+  if (night) light.set(lightAt(mapHour));
+  nightVision(renderer, light.night);
+  const drawn = topView.draw(menu.map.canvas, dz.target.x, dz.target.z, groundY, MAP_HALF, hide);
+  if (night) light.set(lightAt(setup.hour));
+  if (!drawn) return;
   mapDrawn = key;
   mapDrawnAt = now;
   menu.map.pictureDrawn(setup.dz);
@@ -2604,7 +2628,11 @@ function frame(now: number): void {
     drawSmoke(moving);
   }
   // A replay goes back in time: the smoke of now has no place in it.
-  if (replay) smoke.object.visible = false;
+  if (replay) {
+    smoke.object.visible = false;
+    sparks.object.visible = false;
+    sparks.light!.intensity = 0;
+  }
   if (net) {
     if (!replay) sendJumper(net, pose, onRisers, inflation, elapsed);
     // While a jump is watched again, the others of now are not in it.
@@ -2663,8 +2691,10 @@ function frame(now: number): void {
   }
   if (!paused) light.clouds.drift(cloudWind.x, cloudWind.z, Math.min(elapsed, 0.1));
   world.update(camera.position, now / 1000);
+  world.setGlare(sparks.light);
   perf.beforeRender();
   drawMap(now);
+  nightVision(renderer, light.night);
   renderer.render(scene, camera);
   if (view === 'eyes' && !replay && !watching) {
     // The gear in the hands goes on top, from the same eye.

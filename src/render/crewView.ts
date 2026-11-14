@@ -27,6 +27,8 @@ export interface CrewLook {
   members: CrewMember[];
   /** The plane behind them; none under canopy already, or off a BASE object. */
   aircraft: AircraftId | null;
+  /** Dark at the hour chosen: the glow sticks are lit. */
+  night?: boolean;
 }
 
 /** Lens, degrees from top to bottom of the picture. */
@@ -105,7 +107,7 @@ class Member {
   }
 
   set(gear: Gear, pose: Pose): void {
-    const look = [gear.helmetColor, gear.suitColor, gear.suit, gear.suitLevel, gear.color, gear.smoke, gear.container].join();
+    const look = [gear.helmetColor, gear.suitColor, gear.glowColor, gear.suit, gear.suitLevel, gear.color, gear.smoke, gear.container].join();
     if (look === this.look) return;
     this.look = look;
     const body = this.body;
@@ -271,6 +273,7 @@ export class CrewView {
       // Facing the camera; the others turned a little in towards the first.
       m.group.rotation.y = Math.PI + (i === 0 ? 0 : -Math.sign(x) * 0.18);
       m.set(member.gear, this.poses[i]!);
+      m.body.setGlow(look.night === true);
     });
 
     this.you.visible = look.members.length > 1;

@@ -8,7 +8,7 @@ import type { RigParams } from '../sim/rig';
 import { BOC, Body, PIN, RESERVE_PIN, RING } from './body';
 import { CanopyView, type CanopyLook } from './canopyView';
 import type { DeployStage } from './deployment';
-import { DEFAULT_HELMET, DEFAULT_SUIT, OUTFIT_COLORS, type Outfit } from './outfit';
+import { DEFAULT_GLOW, DEFAULT_HELMET, DEFAULT_SUIT, GLOW_COLORS, OUTFIT_COLORS, type Outfit } from './outfit';
 import type { Lighting } from './scene';
 
 /** What the frame needs to know beyond the flight model. */
@@ -57,7 +57,7 @@ export class RigView {
   /** The main's pilot chute: open while it pulls, then collapsed by its kill line. */
   private pilotChuteOpen = 0;
   /** What the pilot wears, kept for a canopy hung later (the reserve). */
-  private outfit: Outfit = { helmet: OUTFIT_COLORS[DEFAULT_HELMET], suit: OUTFIT_COLORS[DEFAULT_SUIT] };
+  private outfit: Outfit = { helmet: OUTFIT_COLORS[DEFAULT_HELMET], suit: OUTFIT_COLORS[DEFAULT_SUIT], glow: GLOW_COLORS[DEFAULT_GLOW] };
 
   /** `palette`: one colour per cell, left tip to right tip. */
   constructor(rig: RigParams, palette: number[], light: Lighting) {
@@ -170,6 +170,8 @@ export class RigView {
     frame: RigFrame,
   ): void {
     const { sun } = light;
+    // Glow sticks cracked once it gets dark.
+    this.body.setGlow(light.lamps.value > 0.3);
     const s = model.state;
     this.pos.set(s.pos.x, s.pos.y, s.pos.z);
     this.att.set(s.att.x, s.att.y, s.att.z, s.att.w);

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildLamps } from '../render/lamps';
 import type { Lighting } from '../render/scene';
 import { buildBridges } from './bridge';
 import { buildAccuracyTarget } from './accuracyTarget';
@@ -19,6 +20,8 @@ export interface World {
   showChallenges(on: boolean): void;
   /** Call every frame with the eye position and the time in seconds. */
   update(eye: THREE.Vector3, seconds: number): void;
+  /** A light near the ground that the grass takes too (the pilot's sparks), or none. */
+  setGlare(light: THREE.PointLight | null): void;
   /** Whether the aerial photos, if any, have all come in. */
   ready(): boolean;
   /** Frees what the world holds on the graphics card, once it has left the scene. */
@@ -80,6 +83,9 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
   if (vines) object.add(named('vines', vines.object));
   if (dz.bridges) object.add(named('bridges', buildBridges(dz.bridges, groundAt)));
   if (cliffTop) object.add(named('cliffTop', cliffTop.object));
+  // Windows, street lamps and floodlights, lit at dusk.
+  const lamps = named('lamps', buildLamps(dz, light.lamps));
+  object.add(lamps);
   // The run is painted on a tower's roof; a cliff has nothing on it, and off a bridge there is no run.
   if (dz.base?.marked && dz.topAt && dz.base.runUp > 0) object.add(buildLedgeMarks(dz.base, dz.topAt(dz.base.x, dz.base.z)));
   if (dz.targetShown !== false) {
@@ -113,10 +119,18 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     setDaylight(l) {
       trees.setSun(l.sun, l.shadow);
     },
+    setGlare(glare) {
+      if (!glare || glare.intensity <= 0) grass.glare.setRGB(0, 0, 0);
+      else {
+        grass.glare.copy(glare.color).multiplyScalar(glare.intensity);
+        grass.glareAt.copy(glare.position);
+      }
+    },
     showChallenges(on) {
       challenge.visible = on;
     },
     update(eye, seconds) {
+      lamps.visible = light.lamps.value > 0.01;
       grassLight.lerpColors(light.groundShade, light.ground, light.clouds.sunThrough(eye.x, groundAt(eye.x, eye.z), eye.z));
       grass.update(eye, seconds);
       trees.update(eye);

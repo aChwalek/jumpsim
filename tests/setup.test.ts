@@ -1,16 +1,17 @@
 import { expect, test } from 'vitest';
 import { Altisonic, CANOPY_ALARMS } from '../src/audio/altisonic';
-import { daylight, sunPosition } from '../src/render/daylight';
-import { aircraftOf, defaultSetup, runHeading, validSetup } from '../src/setup';
+import { daylight, moonPosition, sunPosition } from '../src/render/daylight';
+import { aircraftOf, defaultSetup, outfitOf, runHeading, validSetup, type Gear } from '../src/setup';
 import { FlightModel, calmAir, neutralControls } from '../src/sim/flightModel';
 import { DEFAULT_RIG, deriveRig } from '../src/sim/rig';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from '../src/sim/telemetry';
 import { vec3 } from '../src/sim/vec';
+import { HOUR_MAX } from '../src/render/daylight';
 import { gustAt, gustPeakKmh, windAt, windGradient, type Weather } from '../src/sim/weather';
 import { createValbrise, hoverUpwind, runLeadIn, spawnsFor } from '../src/world/dz';
 import { dzInfo } from '../src/world/dzs';
 
-const calm: Weather = { sky: 'clear', windFromDeg: 270, windKmh: 18, gusts: 'none' };
+const calm: Weather = { sky: 'clear', windFromDeg: 270, windKmh: 18, gusts: 'none', moon: 'full' };
 
 test('the wind given is the wind at 10 m: weaker below, stronger above', () => {
   expect(windGradient(10)).toBeCloseTo(1, 6);
@@ -75,6 +76,39 @@ test('clouds take the shadows away; a clear sky leaves them and the full light',
   const dusk = daylight(sunPosition(44, 4.8, 21), 'clear');
   expect(dusk.sunIntensity).toBeLessThan(clear.sunIntensity / 2);
   expect(dusk.glowStrength).toBeGreaterThan(0.3);
+});
+
+test('at night the moon lights the drop zone: opposite the sun when full, high in the south at dusk when a quarter', () => {
+  const lat = 43.99;
+  const lon = 4.76;
+  const sun = sunPosition(lat, lon, 23);
+  expect(sun.elevationDeg).toBeLessThan(-12);
+  // Full: across the sky from the sun, and low, as the sun is in January.
+  const full = moonPosition(lat, lon, 23, 'full');
+  expect(Math.abs(((full.azimuthDeg - sun.azimuthDeg + 540) % 360) - 180)).toBeGreaterThan(150);
+  expect(full.elevationDeg).toBeGreaterThan(5);
+  expect(full.elevationDeg).toBeLessThan(25);
+  // A first quarter is in the south-south-west at sunset.
+  const quarter = moonPosition(lat, lon, 21.25, 'quarter');
+  expect(Math.abs(quarter.azimuthDeg - 200)).toBeLessThan(25);
+  expect(quarter.elevationDeg).toBeGreaterThan(15);
+
+  const night = (phase: 'new' | 'quarter' | 'full') => daylight(sun, 'clear', { position: moonPosition(lat, lon, 23, phase), phase });
+  const day = daylight(sunPosition(lat, lon, 11), 'clear');
+  expect(day.night).toBe(0);
+  expect(day.lamps).toBe(0);
+  expect(night('full').night).toBe(1);
+  expect(night('full').lamps).toBe(1);
+  // The moon casts the shadows, from where it is; with none, nothing does.
+  expect(night('full').sun.dot(night('full').moon)).toBeCloseTo(1, 6);
+  expect(night('full').shadow).toBeGreaterThan(0.3);
+  expect(night('new').sunIntensity).toBe(0);
+  // Darker than the day, and darker still without a moon, but never black.
+  const groundOf = (d: { ground: { r: number; g: number; b: number } }) => d.ground.r + d.ground.g + d.ground.b;
+  expect(groundOf(night('full'))).toBeLessThan(groundOf(day) / 5);
+  expect(groundOf(night('new'))).toBeLessThan(groundOf(night('full')) / 2);
+  expect(groundOf(night('new'))).toBeGreaterThan(0);
+  expect(night('new').stars).toBeGreaterThan(night('full').stars);
 });
 
 test('the starts are placed with the wind', () => {
@@ -161,6 +195,15 @@ test('helmet and jumpsuit colours are read back: white and navy by default or wh
   expect(validSetup({ gear: { helmetColor: 'toString', suitColor: 'plaid' } }).gear).toMatchObject({ helmetColor: 'white', suitColor: 'navy' });
 });
 
+test('glow sticks are green by default or when the colour is unknown, else of the colour chosen', () => {
+  expect(validSetup({}).gear.glowColor).toBe('green');
+  expect(validSetup({ gear: { glowColor: 'pink' } }).gear.glowColor).toBe('pink');
+  expect(validSetup({ gear: { glowColor: 'valueOf' } }).gear.glowColor).toBe('green');
+  // Gear saved by an older version has none: drawn green.
+  const { glowColor: _, ...old } = validSetup({}).gear;
+  expect(outfitOf(old as Gear).glow).toBe(outfitOf(validSetup({}).gear).glow);
+});
+
 test('the smoke canister is read back: none by default or when unknown', () => {
   expect(validSetup({}).gear.smoke).toBe('none');
   expect(validSetup({ gear: { smoke: 'orange' } }).gear.smoke).toBe('orange');
@@ -189,7 +232,7 @@ test('the audible altimeter sounds each circuit height once on the way down', ()
 test('a saved setup is checked, and the gear of the old menu is kept', () => {
   expect(validSetup({ dz: 'nowhere', hour: 99, weather: { windKmh: -5 }, gear: { kind: 'x' } })).toEqual({
     ...defaultSetup(),
-    hour: 21,
+    hour: HOUR_MAX,
     weather: { ...defaultSetup().weather, windKmh: 0 },
   });
   const old = validSetup({ gear: { kind: 'triCell', canopyAreaFt2: 100, exitWeightKg: 300 } });
@@ -199,7 +242,7 @@ test('a saved setup is checked, and the gear of the old menu is kept', () => {
 test('strong gusts and the wind gradient shake the canopy but do not upset it', () => {
   const model = new FlightModel(deriveRig(DEFAULT_RIG));
   const env = calmAir();
-  const gusty: Weather = { sky: 'clear', windFromDeg: 0, windKmh: 30, gusts: 'strong' };
+  const gusty: Weather = { sky: 'clear', windFromDeg: 0, windKmh: 30, gusts: 'strong', moon: 'full' };
   windAt(env.wind, gusty, 1000, 0);
   initTrimmed(model, vec3(0, 1000, 0), 0, env);
   const tel = emptyTelemetry();

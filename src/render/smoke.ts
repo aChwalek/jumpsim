@@ -15,9 +15,13 @@ export const SMOKE_COLORS = {
   purple: 0x9b4fd6,
 } as const;
 export type SmokeColor = keyof typeof SMOKE_COLORS;
-/** No canister, or one of a colour. */
-export type SmokeKind = 'none' | SmokeColor;
-export const SMOKE_KINDS: readonly SmokeKind[] = ['none', ...(Object.keys(SMOKE_COLORS) as SmokeColor[])];
+/** No canister, one of a colour, or sparks in place of smoke (see sparks.ts). */
+export type SmokeKind = 'none' | SmokeColor | 'sparks';
+export const SMOKE_KINDS: readonly SmokeKind[] = ['none', ...(Object.keys(SMOKE_COLORS) as SmokeColor[]), 'sparks'];
+/** Whether the canister makes smoke of a colour, not sparks or nothing. */
+export const isSmokeColor = (kind: SmokeKind): kind is SmokeColor => kind !== 'none' && kind !== 'sparks';
+/** The colour of the canister's case: a dark grey for the sparks. */
+export const canisterColor = (kind: SmokeKind): number => (isSmokeColor(kind) ? SMOKE_COLORS[kind] : 0x45474b);
 export const isSmoke = (v: unknown): v is SmokeKind => SMOKE_KINDS.includes(v as SmokeKind);
 
 /** How long a canister burns once lit, s. */
@@ -67,6 +71,7 @@ void main() {
   if (alpha < 0.004) discard;
   // Lit from above a little more than from below.
   gl_FragColor = vec4(color * light * (0.78 + 0.22 * (vUv.y * 0.5 + 0.5)), alpha);
+  #include <tonemapping_fragment>
   #include <colorspace_fragment>
   #include <fog_fragment>
 }`;

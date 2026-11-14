@@ -401,6 +401,9 @@ const PROP_RADIUS: Record<AircraftId, number> = { pc6: 1.3, do28: 1.15, c130: 2.
 /** Blades on each propeller. */
 const BLADES: Record<AircraftId, number> = { pc6: 3, do28: 3, c130: 4, as350: 0 };
 
+/** Light bounced onto the plane's shaded side by day. */
+const BOUNCE = 0x34383e;
+
 export class PlaneView {
   readonly object = new THREE.Group();
   private props: THREE.Group[] = [];
@@ -410,7 +413,7 @@ export class PlaneView {
   private type: Aircraft | null = null;
   // Light bounced off the ground and the haze keeps the shaded side, the
   // underside of the wing, from going dark.
-  private readonly material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, emissive: 0x34383e });
+  private readonly material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, emissive: BOUNCE });
   private readonly discMaterial = new THREE.MeshBasicMaterial({
     color: 0x15181b,
     transparent: true,
@@ -486,6 +489,11 @@ export class PlaneView {
     this.props = [];
     this.rotor = null;
     this.tailRotor = null;
+  }
+
+  /** How dark it is, 0 by day, 1 at night: there is nothing to bounce light off at night. */
+  setNight(night: number): void {
+    this.material.emissive.setHex(BOUNCE).multiplyScalar(1 - 0.95 * night);
   }
 
   update(plane: Plane): void {

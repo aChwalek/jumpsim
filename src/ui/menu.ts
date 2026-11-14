@@ -20,11 +20,11 @@ import '@fontsource/barlow-condensed/latin-600.css';
 import '@fontsource/barlow-condensed/latin-700.css';
 import './menu.css';
 import { LANGS, T, heading, lang, num, setLanguage, type Lang } from '../i18n';
-import { HOUR_MAX, HOUR_MIN, formatHour, sunPosition } from '../render/daylight';
+import { HOUR_MAX, HOUR_MIN, formatHour, moonPosition, sunPosition } from '../render/daylight';
 import { CANOPY_COLORS, type CanopyColorId } from '../render/canopyColors';
 import { CrewView, type CrewLook, type CrewMember } from '../render/crewView';
 import { SMOKE_BURN, SMOKE_COLORS, SMOKE_KINDS, type SmokeColor, type SmokeKind } from '../render/smoke';
-import { OUTFIT_COLORS, OUTFIT_COLOR_IDS, type OutfitColor } from '../render/outfit';
+import { GLOW_COLORS, GLOW_COLOR_IDS, OUTFIT_COLORS, OUTFIT_COLOR_IDS, type GlowColor, type OutfitColor } from '../render/outfit';
 import { bestScore } from '../challenge';
 import { OUTCOME_GROUPS, clearLogbook, loadLogbook, logStats, type LogEntry } from '../logbook';
 import { clearTracks, storedTracks, trackId } from '../replay/store';
@@ -69,11 +69,13 @@ import { SUIT_KINDS, SUIT_LEVELS, hasWings, suitGlide, type SuitKind, type SuitL
 import { reserveSize, type CanopyKind } from '../sim/rig';
 import { trimSpeeds } from '../sim/telemetry';
 import {
+  MOON_PHASES,
   WIND_MAX_KMH,
   compassPoint,
   gustPeakKmh,
   windGradient,
   type GustLevel,
+  type MoonPhase,
   type SkyKind,
   type Weather,
 } from '../sim/weather';
@@ -178,6 +180,14 @@ const dot = (color: number): string => `<span class="smoke-dot" style="backgroun
 
 /** A round dot of the smoke's colour. */
 const smokeDot = (color: SmokeColor): string => dot(SMOKE_COLORS[color]);
+/** For the sparks, a white-hot dot going orange. */
+const SPARKS_DOT = '<span class="smoke-dot" style="background:radial-gradient(circle,#fffbe8 0,#ffd25a 30%,#ff7a12 60%,#7a1d00 100%)"></span>';
+
+/** A glow stick's colour, as a dot glowing in it. */
+const glowDot = (color: number): string => {
+  const hex = `#${color.toString(16).padStart(6, '0')}`;
+  return `<span class="smoke-dot" style="background:${hex};box-shadow:0 0 7px 2px ${hex}"></span>`;
+};
 
 /** The colours a helmet or a jumpsuit comes in, as dots. */
 const outfitChoices = (): Option<OutfitColor>[] =>
@@ -521,6 +531,7 @@ export class Menu {
       color: canopies[i % canopies.length]!,
       helmetColor: outfit(i * 3 + 1),
       suitColor: outfit(i * 5 + 4),
+      glowColor: GLOW_COLOR_IDS[(i * 2 + 1) % GLOW_COLOR_IDS.length]!,
       smoke: 'none',
       container: 'sport',
       ...(sameSuit ? {} : { suit: 'jumpsuit' as const }),
@@ -535,7 +546,10 @@ export class Menu {
       const count = jump.start === 'plane' || jump.start === 'base' ? bots.count : 0;
       for (let i = 0; i < count; i++) members.push({ gear: { ...other(i, true), container: jump.start === 'base' ? 'base' : 'sport' } });
     }
-    return { members, aircraft: jump.start === 'plane' ? aircraftOf(this.setup) : null };
+    // After sunset, the glow sticks are lit, as they will be in the air.
+    const info = dzInfo(this.setup.dz);
+    const night = sunPosition(info.lat, info.lon, this.setup.hour, info.utcOffsetH).elevationDeg < -1;
+    return { members, aircraft: jump.start === 'plane' ? aircraftOf(this.setup) : null, night };
   }
 
   /** Shows the room on the home screen; null when not in one. */
@@ -816,7 +830,7 @@ export class Menu {
     if (dz === this.setup.dz) return;
     this.setup.dz = dz;
     // Each place comes with the wind it usually gets.
-    this.setup.weather = usualWeather(dz, this.setup.weather.sky);
+    this.setup.weather = usualWeather(dz, this.setup.weather.sky, this.setup.weather.moon);
     // A place with a BASE object is there for it; elsewhere there is none.
     const plan = this.setup.jump;
     if (dzInfo(dz).base) plan.start = 'base';
@@ -1359,7 +1373,11 @@ export class Menu {
           weather.windKmh === 0
             ? w.calm
             : w.windLine(heading(weather.windFromDeg), compassPoint(weather.windFromDeg), String(weather.windKmh), gust > weather.windKmh ? String(gust) : null);
-        return line(`${formatHour(hour)} <small>${w.skies[weather.sky]}</small>`, wind);
+        // At night, the moon there is.
+        const info = dzInfo(this.setup.dz);
+        const dark = sunPosition(info.lat, info.lon, hour, info.utcOffsetH).elevationDeg < -6;
+        const moon = dark ? ` · ${w.moonShort[weather.moon]}` : '';
+        return line(`${formatHour(hour)} <small>${w.skies[weather.sky]}${moon}</small>`, wind);
       }
     }
   }
@@ -1431,6 +1449,13 @@ export class Menu {
         value: () => g.outfitColors[gear().helmetColor],
         cls: 'outfits',
       }),
+      this.choice<GlowColor>(
+        g.glow,
+        GLOW_COLOR_IDS.map((id) => ({ value: id, label: g.glowColors[id], html: glowDot(GLOW_COLORS[id]) })),
+        () => gear().glowColor,
+        (glowColor) => this.setGear({ glowColor }),
+        { hint: g.glowHint, value: () => g.glowColors[gear().glowColor], note: () => g.glowNote, cls: 'outfits' },
+      ),
       section(g.sections.more),
       this.slider(
         g.weight,
@@ -1459,13 +1484,17 @@ export class Menu {
       }),
       this.choice<SmokeKind>(
         g.smoke,
-        SMOKE_KINDS.map((kind) => ({ value: kind, label: g.smokes[kind], ...(kind === 'none' ? {} : { html: smokeDot(kind) }) })),
+        SMOKE_KINDS.map((kind) => ({
+          value: kind,
+          label: g.smokes[kind],
+          ...(kind === 'none' ? {} : { html: kind === 'sparks' ? SPARKS_DOT : smokeDot(kind) }),
+        })),
         () => gear().smoke,
         (smoke) => this.setGear({ smoke }),
         {
           hint: g.smokeHint,
           value: () => g.smokes[gear().smoke],
-          note: () => g.smokeNote(gear().smoke !== 'none', String(SMOKE_BURN)),
+          note: () => (gear().smoke === 'sparks' ? g.sparksNote(String(SMOKE_BURN)) : g.smokeNote(gear().smoke !== 'none', String(SMOKE_BURN))),
           cls: 'smokes',
         },
       ),
@@ -1552,8 +1581,12 @@ export class Menu {
         note: () => {
           const info = dzInfo(this.setup.dz);
           const sun = sunPosition(info.lat, info.lon, this.setup.hour, info.utcOffsetH);
+          const el = sun.elevationDeg;
+          // Before sunrise the sky lightens in the east; after sunset it darkens in the west.
+          const morning = sun.azimuthDeg < 180;
+          if (el < -0.5) return t.nightNote[el > -6 ? (morning ? 'dawn' : 'dusk') : el > -12 ? (morning ? 'daybreak' : 'nightfall') : 'night'];
           return t.sunNote(
-            num(Math.max(0, sun.elevationDeg)),
+            num(Math.max(0, el)),
             sunOnFinal(sun.azimuthDeg, landingHeading(info, w().windFromDeg)),
             w().sky === 'overcast',
           );
@@ -1562,6 +1595,15 @@ export class Menu {
       this.choice<SkyKind>(t.sky, options(['clear', 'cumulus', 'hazy', 'overcast'] as const, (s) => t.skies[s]), () => w().sky, (sky) =>
         this.setWeather({ sky }),
       ),
+      this.choice<MoonPhase>(t.moon, options(MOON_PHASES, (m) => t.moons[m]), () => w().moon, (moon) => this.setWeather({ moon }), {
+        hint: t.moonHint,
+        note: () => {
+          const info = dzInfo(this.setup.dz);
+          const moon = moonPosition(info.lat, info.lon, this.setup.hour, w().moon, info.utcOffsetH);
+          const up = moon.elevationDeg > 0;
+          return t.moonNote(w().moon, up ? num(moon.elevationDeg) : null, sunOnFinal(moon.azimuthDeg, landingHeading(info, w().windFromDeg)));
+        },
+      }),
       this.slider(
         t.windDir,
         { min: 0, max: 355, step: 5, big: 45, circular: true },
@@ -1581,7 +1623,7 @@ export class Menu {
           return gust > w().windKmh ? t.gustUpTo(String(gust)) : '';
         },
       }),
-      this.action(t.usual, () => this.setWeather(usualWeather(this.setup.dz, w().sky)), {
+      this.action(t.usual, () => this.setWeather(usualWeather(this.setup.dz, w().sky, w().moon)), {
         note: () => {
           const info = dzInfo(this.setup.dz);
           return t.usualNote(info.name, heading(info.wind.fromDeg), String(Math.round(info.wind.speed * 3.6)));

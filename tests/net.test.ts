@@ -127,6 +127,11 @@ describe('hello', () => {
     expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, helmetColor: 'constructor', suitColor: 7 } })?.gear).toMatchObject({ helmetColor: 'white', suitColor: 'navy' });
   });
 
+  it('keeps the glow sticks colour it knows, and green from an older version or an unknown one', () => {
+    expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, glowColor: 'blue' } })?.gear.glowColor).toBe('blue');
+    expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, glowColor: 'plaid' } })?.gear.glowColor).toBe('green');
+  });
+
   it('keeps a smoke it knows, and has none from an older version or an unknown one', () => {
     expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, smoke: 'green' } })?.gear.smoke).toBe('green');
     expect(readHello({ type: 'hello', dz: 'pujaut', gear })?.gear.smoke).toBe('none');
