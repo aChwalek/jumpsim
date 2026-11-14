@@ -5,20 +5,21 @@
    them; Barlow for the rest. */
 
 #menu {
-  --accent: #ffd84a;
-  --accent-hi: #ffe680;
-  --accent-soft: rgba(255, 216, 74, 0.14);
-  --accent-line: rgba(255, 216, 74, 0.55);
-  --ink: #17130a;
+  --accent: #ffd56b;
+  --accent-hi: #ffe49a;
+  --accent-soft: rgba(255, 213, 107, 0.14);
+  --accent-line: rgba(255, 213, 107, 0.55);
+  --ink: #211a2f;
+  --sunset: linear-gradient(155deg, #4f2a7f 5%, #a74087 45%, #db5f72 72%, #f47b42 100%);
   --sky: #5cc8ff;
-  --text: #f3f5f7;
-  --dim: rgba(232, 238, 244, 0.64);
-  --faint: rgba(232, 238, 244, 0.42);
+  --text: #fff0e3;
+  --dim: rgba(255, 240, 227, 0.7);
+  --faint: rgba(255, 240, 227, 0.5);
   --line: rgba(255, 255, 255, 0.09);
   --line-strong: rgba(255, 255, 255, 0.17);
   --tile: rgba(255, 255, 255, 0.045);
   --tile-hi: rgba(255, 255, 255, 0.085);
-  --glass: linear-gradient(180deg, rgba(22, 27, 36, 0.86), rgba(11, 14, 20, 0.88));
+  --glass: linear-gradient(180deg, rgba(33, 26, 47, 0.97), rgba(28, 21, 41, 0.97));
   --display: 'Barlow Condensed', 'Barlow', -apple-system, BlinkMacSystemFont, sans-serif;
   --body: 'Barlow', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   /* The panel, the scenery, the right side. */
@@ -71,6 +72,11 @@
 }
 #menu .panel {
   grid-area: panel; align-self: start; min-width: 0; max-height: 100%; box-sizing: border-box; display: flex; flex-direction: column;
+  position: relative; border-radius: 14px;
+}
+#menu .panel::before {
+  content: ''; position: absolute; top: 0; left: 14px; right: 14px; height: 3px;
+  background: var(--sunset); pointer-events: none;
 }
 #menu .screen { display: flex; flex-direction: column; min-height: 0; padding: 20px 22px 14px; animation: menu-in 0.2s ease-out; }
 #menu .screen-home { overflow-y: auto; scrollbar-width: thin; padding-top: 12px; }
@@ -84,11 +90,10 @@
 /* ------------------------------------------------------------ the top: name, and the corner's buttons */
 
 #menu .menu-brand { grid-area: brand; display: flex; align-items: center; gap: 11px; min-width: 0; }
-#menu .menu-brand .logo { width: 36px; height: 36px; flex: none; color: var(--accent); filter: drop-shadow(0 4px 14px rgba(255, 216, 74, 0.35)); }
 #menu .menu-brand h1 {
-  margin: 0; font: 700 28px/0.95 var(--display); text-transform: uppercase; letter-spacing: 0.05em;
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+  margin: 0; line-height: 1;
 }
+#menu .menu-brand h1 img { display: block; width: 156px; height: auto; filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.25)); }
 #menu .menu-brand p {
   margin: 3px 0 0; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -98,10 +103,10 @@
 #menu .menu-corner { grid-area: tools; justify-self: end; align-self: center; display: flex; gap: 8px; z-index: 2; }
 #menu .corner-btn {
   display: flex; align-items: center; gap: 7px; padding: 8px 14px 8px 11px; border-radius: 22px;
-  background: rgba(12, 16, 22, 0.72); border-color: var(--line-strong); font-weight: 600;
+  background: rgba(33, 26, 47, 0.92); border-color: var(--line-strong); font-weight: 600;
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
-#menu .corner-btn:hover { background: rgba(30, 36, 46, 0.86); }
+#menu .corner-btn:hover { background: rgba(49, 39, 64, 0.96); }
 #menu .corner-btn.on { border-color: var(--accent); color: var(--accent); }
 #menu .corner-btn .icon { width: 19px; height: 19px; }
 #menu .corner-btn.lang { gap: 3px; padding-right: 6px; }
@@ -129,7 +134,7 @@
 #menu .line-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 #menu .line-main .big {
   display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap;
-  font: 600 25px/1 var(--display); color: #fff; letter-spacing: 0.01em;
+  font: 600 25px/1 var(--display); color: var(--text); letter-spacing: 0.01em;
 }
 #menu .line-main .big small { font: 500 14.5px/1 var(--body); color: var(--dim); letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; }
 #menu .line-main .big small.unit { flex: none; font: 600 16px/1 var(--display); color: rgba(255, 255, 255, 0.8); margin-left: -4px; }
@@ -168,7 +173,7 @@
   position: relative; flex: 1; min-height: 0; overflow: hidden; container-type: size;
   background:
     radial-gradient(ellipse 70% 24% at 50% 84%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 70%),
-    linear-gradient(180deg, rgba(150, 178, 210, 0.2), rgba(70, 86, 106, 0.3) 48%, rgba(22, 27, 36, 0.62) 70%, rgba(11, 14, 20, 0.88));
+    linear-gradient(180deg, rgba(150, 178, 210, 0.2), rgba(70, 86, 106, 0.3) 48%, rgba(33, 26, 47, 0.62) 70%, rgba(28, 21, 41, 0.96));
 }
 /* Over their heads: where, and how high. */
 #menu .side-head { position: absolute; left: 0; right: 0; top: 0; z-index: 1; padding: 18px 22px 0; pointer-events: none; text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5); }
@@ -209,15 +214,15 @@
 #menu .go .resume {
   display: none; flex: 1; padding: 0 10px; border-radius: 14px;
   font: 600 17px/1.05 var(--display); letter-spacing: 0.08em; text-transform: uppercase;
-  background: rgba(12, 16, 22, 0.72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  background: rgba(33, 26, 47, 0.92); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
 #menu.resumable .go .resume { display: block; }
 #menu .go .jump {
   flex: 2; display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 10px 20px; border-radius: 16px; border: none;
-  background: linear-gradient(180deg, #ffe46e, #ffcf2e); color: var(--ink);
-  box-shadow: 0 12px 34px rgba(255, 205, 50, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  background: var(--accent); color: var(--ink);
+  box-shadow: 0 8px 24px rgba(255, 213, 107, 0.12);
 }
-#menu .go .jump:hover { background: linear-gradient(180deg, #ffec8f, #ffd84a); transform: translateY(-1px); }
+#menu .go .jump:hover { background: var(--accent-hi); transform: translateY(-1px); }
 #menu .go .jump .icon { width: 26px; height: 26px; stroke-width: 1.8; }
 #menu .go .jump .go-label { font: 700 30px/1 var(--display); letter-spacing: 0.1em; text-transform: uppercase; }
 #menu .go .jump .go-sub { margin-left: auto; font-size: 14px; font-weight: 600; opacity: 0.7; white-space: nowrap; }
@@ -583,12 +588,14 @@
   html:not(.sideways) #menu .tiles { grid-template-columns: 1fr 1fr; }
   html:not(.sideways) #menu .aside-dz .thumb { width: 64px; height: 42px; }
 }
-/* Narrower still, the name shares its row with the corner's buttons: smaller, then only the logo. */
+/* The wordmark shares its row with the corner's buttons on narrow windows. */
 @media (max-width: 440px) {
-  html:not(.sideways) #menu .menu-brand h1 { font-size: 22px; }
+  html:not(.sideways) #menu .menu-brand h1 img { width: 120px; }
+  html:not(.sideways) #menu .menu-corner { gap: 6px; }
+  html:not(.sideways) #menu .menu-corner .corner-btn { padding: 6px 8px; }
 }
 @media (max-width: 380px) {
-  html:not(.sideways) #menu .menu-brand h1 { display: none; }
+  html:not(.sideways) #menu .menu-brand h1 img { width: 64px; }
 }
 
 /* A phone on its side, or upright and turned on its side (see viewport.ts): little height. */
