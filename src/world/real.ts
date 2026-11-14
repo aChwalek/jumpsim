@@ -474,7 +474,8 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
  * The ground with a run trodden into it: from `back` metres behind the start
  * to the lip, as wide as the run and a metre more each side, the ground lies
  * on the straight line between the two ends, blending into the relief over
- * the last metre either side and behind. Over the lip it falls away as it does.
+ * the last metre either side and behind. Over the lip it falls away as it
+ * does, but no knob of snow stands up above the line there to stop a runner.
  */
 function trodden(
   groundAt: (x: number, z: number) => number,
@@ -493,11 +494,12 @@ function trodden(
     const dz = z - base.z;
     const along = dx * ux + dz * uz;
     const across = Math.abs(dx * uz - dz * ux);
-    if (along < -back - 1 || along > base.runUp || across > half + 1) return groundAt(x, z);
+    if (along < -back - 1 || along > base.runUp + 3 || across > half + 1) return groundAt(x, z);
     const line = from + ((to - from) * (along + back)) / (base.runUp + back);
     const w = ease(half + 1 - across) * ease(along + back + 1);
     const raw = groundAt(x, z);
-    return w >= 1 ? line : raw + (line - raw) * w;
+    const trod = along > base.runUp ? Math.min(raw, line) : line;
+    return w >= 1 ? trod : raw + (trod - raw) * w;
   };
 }
 
