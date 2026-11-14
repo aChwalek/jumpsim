@@ -1,6 +1,9 @@
 import { STARTS, validSetup, type Setup, type Start } from '../setup';
 import { DZS, type DzId } from '../world/dzs';
 import { PUBLIC_PREFIX, type Member } from './protocol';
+import { cleanName } from './scores';
+
+export { NAME_MAX, cleanName } from './scores';
 
 /** A drop zone's public room: the one anyone there can join. */
 export const publicRoom = (dz: DzId): string => `${PUBLIC_PREFIX}${dz}`;
@@ -33,9 +36,6 @@ export function sameShared(a: SharedSetup, b: SharedSetup): boolean {
   return a.dz === b.dz && a.hour === b.hour && same(a.weather, b.weather) && same(a.jump, b.jump);
 }
 
-/** Longest name shown. */
-export const NAME_MAX = 20;
-
 /** What goes to the whole room through the signalling server. */
 export type RoomMessage =
   /** Who someone is, and whether they are ready: on coming in, and on every change. */
@@ -62,9 +62,6 @@ export function readRoomMessage(m: unknown): RoomMessage | null {
       return null;
   }
 }
-
-/** A name as shown: one line, not too long. */
-export const cleanName = (name: string): string => name.replace(/\s+/g, ' ').trim().slice(0, NAME_MAX);
 
 export interface Player {
   id: string;

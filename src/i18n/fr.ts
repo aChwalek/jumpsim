@@ -9,6 +9,8 @@ type K = (code: string) => string;
 
 export const fr = {
   locale: 'fr-FR',
+  /** A place in a ranking: 1er, 2e, 3e. */
+  ordinal: (n: number): string => (n === 1 ? '1er' : `${n}e`),
   compass: ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSO', 'SO', 'OSO', 'O', 'ONO', 'NO', 'NNO'],
   hour: (h: number, m: string) => `${h}h${m}`,
   yes: 'Oui',
@@ -102,6 +104,28 @@ export const fr = {
     sink: 'vitesse verticale',
     groundSpeedRow: 'vitesse sol',
     fromTarget: 'de la cible',
+    score: {
+      title: 'DÉFI PRÉCISION',
+      points: 'pts',
+      first: 'Premier score sur cette DZ',
+      newRecord: (was: string) => `Nouveau record sur cette DZ (avant : ${was} pts)`,
+      equalled: 'Égale le record de la DZ',
+      record: (best: string) => `Record de la DZ : ${best} pts`,
+      spoilt: {
+        wet: 'Dans l\'eau : pas de points',
+        vines: 'Dans les vignes : pas de points',
+        hard: 'Posé dur : pas de points',
+        crash: 'Crash : pas de points',
+      },
+      board: {
+        sending: 'Classement : envoi…',
+        offline: 'Classement injoignable : le score reste dans ton carnet',
+        top: (dz: string) => `Premier du classement de ${dz} !`,
+        rank: (place: string, of: number, dz: string) => `${place} sur ${of} au classement de ${dz}`,
+        kept: (place: string, of: number, dz: string, best: string) => `Classement de ${dz} : ${place} sur ${of}, avec ton meilleur (${best} pts)`,
+        asName: (name: string) => `Sous le nom « ${name} » : choisis le tien dans Classement`,
+      },
+    },
     freefall: (top: string) => `de chute libre, jusqu'à ${top} km/h`,
     pulled: (open: string) => `hauteur d'ouverture, voile en vol à ${open} m`,
     pulledOnly: 'hauteur d\'ouverture',
@@ -389,6 +413,8 @@ export const fr = {
     logbookTitle: 'Carnet de sauts et statistiques',
     settings: 'Réglages',
     settingsTitle: 'Réglages : qualité, son, souris, touches, langue',
+    leaderboard: 'Classement',
+    leaderboardTitle: 'Classement de précision, DZ par DZ',
     languageTitle: 'Langue · Language',
     loading: 'chargement…',
 
@@ -406,6 +432,10 @@ export const fr = {
       settingsPad: '{↕} ligne · {↔} régler · {B} retour',
       logbook: '↑ ↓ parcourir · Entrée revoir le saut · Échap retour',
       logbookPad: '{↕} parcourir · {A} revoir le saut · {B} retour',
+      leaderboard: '↑ ↓ parcourir · ← → changer de DZ · Entrée écrire ton nom · Échap retour',
+      leaderboardPad: '{↕} parcourir · {↔} DZ · {B} retour',
+      profile: '↑ ↓ parcourir · Entrée choisir · Échap retour',
+      profilePad: '{↕} parcourir · {A} choisir · {B} retour',
     },
 
     gear: {
@@ -483,6 +513,7 @@ export const fr = {
       usualWind: (from: string, kmh: string) => `Vent habituel du ${from}, ${kmh} km/h`,
       usualNote: (name: string, from: string, kmh: string) =>
         `Vent habituel à ${name} : du ${from}, ${kmh} km/h. Changer de DZ remet la météo à ce vent.`,
+      record: (pts: string) => `Record précision : ${pts} pts`,
     },
 
     weather: {
@@ -555,6 +586,10 @@ export const fr = {
       malfunctionOn: (k: string) =>
         `Torche, torsades, coiffante, glisseur haut, pas d'ouverture ou commande qui saute : ${k} maintenu pour libérer, Espace pour le secours.`,
       malfunctionBase: 'En BASE, la voile peut s\'ouvrir à 180°, face à la paroi : tourne tout de suite.',
+      challenges: 'DÉFIS',
+      challengesOn:
+        'Une cible de précision au sol, cercles à 1, 2, 5, 10 et 20 m : chaque posé est noté sur 1000 selon la distance au centre : un bonus de 300 points qui se joue dans le dernier mètre, et le reste qui baisse doucement. 730 à 1 m, 535 à 5 m, 434 à 10 m, 316 à 20 m, 141 à 50 m, rien à 100 m. Posé dur, crash ou dans l\'eau : 0.',
+      challengesOff: 'Pas de cible, pas de score.',
       aircraft: 'APPAREIL',
       aircraftDz: (name: string) => `DZ (${name})`,
       aircraftNames: { pc6: 'PC-6', do28: 'Do 28', c130: 'C-130', as350: 'AS350' },
@@ -711,6 +746,9 @@ export const fr = {
       upright: 'posés debout ou courus',
       best: 'meilleure précision',
       recent: (d: string) => `${d} m en moyenne sur les 10 derniers`,
+      bestScore: 'meilleur score de précision',
+      recentScore: (pts: string, closest: string | null) =>
+        `${pts} pts en moyenne sur les 10 derniers${closest === null ? '' : ` · au plus près ${closest} m`}`,
       lowest: 'ouverture la plus basse',
       aadFires: (n: number) => `déclencheur : ${n} fois`,
       list: 'SAUTS',
@@ -722,9 +760,54 @@ export const fr = {
       aad: ' · déclencheur',
       pulledAt: (h: string) => ` · ouvert à ${h} m`,
       fromTarget: (d: string) => `${d} m de la cible · `,
+      points: (p: string) => `${p} pts · `,
       wet: ' · dans l\'eau',
       wind: (kmh: string) => `vent ${kmh} km/h`,
       watch: 'Revoir ce saut',
+    },
+
+    profile: {
+      line: 'PILOTE',
+      title: 'PROFIL',
+      guest: 'Invité',
+      google: 'Connecté avec Google',
+      jumps: (n: number) => `${n} ${n > 1 ? 'sauts' : 'saut'}`,
+      record: (pts: string) => `record ${pts} pts`,
+      place: (place: string, dz: string) => `${place} à ${dz}`,
+      account: 'COMPTE',
+      signIn: 'Se connecter avec Google',
+      signInNote: 'Pour garder ton profil et tes scores sur tous tes appareils. Ce que tu as fait en invité te suit.',
+      guestNote: 'En invité, ton profil est lié à ce navigateur : si tu effaces ses données, il est perdu.',
+      unavailable: 'La connexion avec Google n\'est pas encore activée.',
+      signOut: 'Se déconnecter',
+      signOutNote: 'Tes scores restent sur ton compte Google : reconnecte-toi pour les retrouver.',
+      stats: 'STATISTIQUES',
+      jumpsTile: (n: number): string => (n > 1 ? 'sauts' : 'saut'),
+      recordTile: 'record précision',
+      bestPlaceTile: 'meilleure place',
+      places: 'TES PLACES AU CLASSEMENT',
+      noPlaces: 'Pas encore de score au classement : pose-toi près d\'une cible, défis activés.',
+      offline: 'Classement injoignable : il faut une connexion.',
+      of: (n: number) => `sur ${n}`,
+    },
+
+    leaderboardScreen: {
+      title: 'CLASSEMENT PRÉCISION',
+      name: 'TON NOM',
+      namePlaceholder: 'Ton nom',
+      nameNote: 'Affiché au classement et dans les rooms.',
+      nameMadeUp: 'Ce nom-là, c\'est le jeu qui l\'a choisi : mets le tien, c\'est lui qu\'on verra au classement.',
+      dz: 'DZ',
+      previous: 'DZ précédente',
+      next: 'DZ suivante',
+      how: 'Le meilleur score de chacun sur cette DZ, quel que soit le départ. Chaque posé noté est envoyé tout seul.',
+      challengesOff: 'Les défis sont coupés (onglet SAUT) : tes posés ne sont pas notés.',
+      loading: 'Chargement…',
+      offline: 'Classement injoignable : il faut une connexion.',
+      empty: 'Personne n\'a encore de score ici. À toi !',
+      players: (n: number) => `${n} ${n > 1 ? 'joueurs' : 'joueur'}`,
+      you: 'toi',
+      yourRank: 'TA PLACE',
     },
   },
 };

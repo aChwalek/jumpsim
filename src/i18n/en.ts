@@ -6,6 +6,11 @@ type K = (code: string) => string;
 
 export const en: Strings = {
   locale: 'en-GB',
+  ordinal: (n: number): string => {
+    const tens = n % 100;
+    const suffix = tens >= 11 && tens <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th');
+    return `${n}${suffix}`;
+  },
   compass: ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'],
   hour: (h: number, m: string) => `${String(h).padStart(2, '0')}:${m}`,
   yes: 'Yes',
@@ -98,6 +103,28 @@ export const en: Strings = {
     sink: 'vertical speed',
     groundSpeedRow: 'ground speed',
     fromTarget: 'from the target',
+    score: {
+      title: 'ACCURACY CHALLENGE',
+      points: 'pts',
+      first: 'First score at this DZ',
+      newRecord: (was: string) => `New record at this DZ (was ${was} pts)`,
+      equalled: 'Equals the DZ record',
+      record: (best: string) => `DZ record: ${best} pts`,
+      spoilt: {
+        wet: 'In the water: no points',
+        vines: 'In the vines: no points',
+        hard: 'Hard landing: no points',
+        crash: 'Crash: no points',
+      },
+      board: {
+        sending: 'Leaderboard: sending…',
+        offline: 'Leaderboard unreachable: the score stays in your logbook',
+        top: (dz: string) => `Top of the ${dz} leaderboard!`,
+        rank: (place: string, of: number, dz: string) => `${place} of ${of} on the ${dz} leaderboard`,
+        kept: (place: string, of: number, dz: string, best: string) => `${dz} leaderboard: ${place} of ${of}, with your best (${best} pts)`,
+        asName: (name: string) => `As “${name}”: pick your own name in Leaderboard`,
+      },
+    },
     freefall: (top: string) => `of freefall, up to ${top} km/h`,
     pulled: (open: string) => `pull altitude, canopy flying at ${open} m`,
     pulledOnly: 'pull altitude',
@@ -384,6 +411,8 @@ export const en: Strings = {
     logbookTitle: 'Logbook and stats',
     settings: 'Settings',
     settingsTitle: 'Settings: quality, sound, mouse, keys, language',
+    leaderboard: 'Leaderboard',
+    leaderboardTitle: 'Accuracy leaderboard, DZ by DZ',
     languageTitle: 'Language · Langue',
     loading: 'loading…',
 
@@ -401,6 +430,10 @@ export const en: Strings = {
       settingsPad: '{↕} line · {↔} adjust · {B} back',
       logbook: '↑ ↓ scroll · Enter watch the jump · Esc back',
       logbookPad: '{↕} scroll · {A} watch the jump · {B} back',
+      leaderboard: '↑ ↓ scroll · ← → change DZ · Enter type your name · Esc back',
+      leaderboardPad: '{↕} scroll · {↔} DZ · {B} back',
+      profile: '↑ ↓ scroll · Enter pick · Esc back',
+      profilePad: '{↕} scroll · {A} pick · {B} back',
     },
 
     gear: {
@@ -478,6 +511,7 @@ export const en: Strings = {
       usualWind: (from: string, kmh: string) => `Usual wind ${from}, ${kmh} km/h`,
       usualNote: (name: string, from: string, kmh: string) =>
         `Usual wind at ${name}: ${from}, ${kmh} km/h. Changing DZ resets the weather to it.`,
+      record: (pts: string) => `Accuracy record: ${pts} pts`,
     },
 
     weather: {
@@ -550,6 +584,10 @@ export const en: Strings = {
       malfunctionOn: (k: string) =>
         `Streamer, line twists, lineover, slider hang-up, no opening or brake fire: hold ${k} to cut away, Space for the reserve.`,
       malfunctionBase: 'BASE: the canopy may open the other way, facing the wall: turn at once.',
+      challenges: 'CHALLENGES',
+      challengesOn:
+        'An accuracy target on the ground, rings at 1, 2, 5, 10 and 20 m: every landing scores out of 1000 by its distance from the centre: a 300-point bonus won in the last metre, and the rest going down slowly. 730 at 1 m, 535 at 5 m, 434 at 10 m, 316 at 20 m, 141 at 50 m, nothing at 100 m. Hard landing, crash or in the water: 0.',
+      challengesOff: 'No target, no score.',
       aircraft: 'AIRCRAFT',
       aircraftDz: (name: string) => `DZ (${name})`,
       aircraftNames: { pc6: 'PC-6', do28: 'Do 28', c130: 'C-130', as350: 'AS350' },
@@ -706,6 +744,9 @@ export const en: Strings = {
       upright: 'stood up or ran out',
       best: 'closest to the target',
       recent: (d: string) => `${d} m on average over the last 10`,
+      bestScore: 'best accuracy score',
+      recentScore: (pts: string, closest: string | null) =>
+        `${pts} pts on average over the last 10${closest === null ? '' : ` · closest ${closest} m`}`,
       lowest: 'lowest pull',
       aadFires: (n: number) => `AAD fired: ${n} ${n === 1 ? 'time' : 'times'}`,
       list: 'JUMPS',
@@ -717,9 +758,54 @@ export const en: Strings = {
       aad: ' · AAD',
       pulledAt: (h: string) => ` · pulled at ${h} m`,
       fromTarget: (d: string) => `${d} m from the target · `,
+      points: (p: string) => `${p} pts · `,
       wet: ' · in the water',
       wind: (kmh: string) => `wind ${kmh} km/h`,
       watch: 'Watch this jump again',
+    },
+
+    profile: {
+      line: 'PILOT',
+      title: 'PROFILE',
+      guest: 'Guest',
+      google: 'Signed in with Google',
+      jumps: (n: number) => `${n} ${n > 1 ? 'jumps' : 'jump'}`,
+      record: (pts: string) => `best ${pts} pts`,
+      place: (place: string, dz: string) => `${place} at ${dz}`,
+      account: 'ACCOUNT',
+      signIn: 'Sign in with Google',
+      signInNote: 'To keep your profile and scores on all your devices. What you did as a guest comes along.',
+      guestNote: 'As a guest, your profile belongs to this browser: clear its data and it is gone.',
+      unavailable: 'Signing in with Google is not switched on yet.',
+      signOut: 'Sign out',
+      signOutNote: 'Your scores stay on your Google account: sign in again to get them back.',
+      stats: 'STATS',
+      jumpsTile: (n: number): string => (n > 1 ? 'jumps' : 'jump'),
+      recordTile: 'best accuracy',
+      bestPlaceTile: 'best place',
+      places: 'YOUR PLACES ON THE LEADERBOARD',
+      noPlaces: 'No score on the leaderboard yet: land near a target, with challenges on.',
+      offline: 'Leaderboard unreachable: it needs a connection.',
+      of: (n: number) => `of ${n}`,
+    },
+
+    leaderboardScreen: {
+      title: 'ACCURACY LEADERBOARD',
+      name: 'YOUR NAME',
+      namePlaceholder: 'Your name',
+      nameNote: 'Shown on the leaderboard and in rooms.',
+      nameMadeUp: 'The game picked that name: put your own, it is the one the leaderboard will show.',
+      dz: 'DZ',
+      previous: 'Previous DZ',
+      next: 'Next DZ',
+      how: 'Everyone\'s best score at this DZ, whatever the start. Every scored landing is sent by itself.',
+      challengesOff: 'Challenges are off (JUMP tab): your landings are not scored.',
+      loading: 'Loading…',
+      offline: 'Leaderboard unreachable: it needs a connection.',
+      empty: 'Nobody has a score here yet. Your turn!',
+      players: (n: number) => `${n} ${n > 1 ? 'players' : 'player'}`,
+      you: 'you',
+      yourRank: 'YOUR PLACE',
     },
   },
 };

@@ -356,6 +356,8 @@
 #menu .dz-text b .chip { margin-left: 8px; vertical-align: 4px; }
 #menu .dz-text .club { font-size: 13px; color: rgba(243, 245, 247, 0.86); }
 #menu .dz-text .note { font-size: 12.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#menu .dz-text .record { font-size: 12px; font-weight: 600; color: var(--accent); }
+#menu .dz-text .record:empty { display: none; }
 #menu .dz .check { font-style: normal; font-size: 20px; color: var(--accent); justify-self: center; }
 #menu .dz.on { border-color: var(--accent-line); background: var(--accent-soft); }
 /* The exits of a place with several, under its card. */
@@ -486,6 +488,56 @@
 #menu .entry.watchable .watch { visibility: visible; }
 #menu .entry.watchable { cursor: pointer; }
 #menu .entry .watch:hover, #menu .entry.watchable.focus .watch { background: var(--accent, #ffd84a); border-color: transparent; color: #14181e; }
+
+/* ------------------------------------------------------------ the pilot: the home's first line, the profile */
+
+/* Who jumps, apart from what is jumped: a tile of its own above the others. */
+#menu .line-profile { margin-bottom: 6px; background: var(--tile); border-color: var(--line); }
+#menu .line-profile + .line::before { display: none; }
+#menu .avatar {
+  position: relative; display: grid; place-items: center; flex: none; overflow: hidden; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #f08a4a); color: var(--ink); font: 700 20px/1 var(--display);
+}
+#menu .avatar.small { width: 40px; height: 40px; }
+#menu .avatar.big { width: 64px; height: 64px; font-size: 32px; }
+#menu .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+#menu .avatar.photo img { display: block; }
+#menu .avatar.photo .letter { visibility: hidden; }
+#menu .profile-head { display: flex; align-items: center; gap: 16px; margin: 4px 14px 10px; }
+#menu .profile-who { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+#menu .profile-name { font: 600 30px/1 var(--display); color: #fff; overflow-wrap: anywhere; }
+#menu .profile-status { font-size: 13px; color: var(--dim); }
+#menu .profile-note { margin: 4px 14px 8px; font-size: 12.5px; color: var(--dim); }
+#menu .action.google { background: #fff; color: #1f1f1f; border-color: #fff; }
+#menu .action.google:hover { background: #ececec; }
+#menu .place-row { cursor: pointer; }
+
+/* ------------------------------------------------------------ the player's name, the leaderboard */
+
+/* 16 px: smaller, and a phone zooms in on it. */
+#menu .name-input {
+  display: block; width: 100%; box-sizing: border-box; padding: 9px 12px; border-radius: 10px;
+  border: 1px solid var(--line-strong); background: var(--tile); color: var(--text);
+  font: 600 16px/1.2 var(--body); user-select: text; -webkit-user-select: text;
+}
+#menu .name-input::placeholder { color: var(--faint); }
+#menu .name-input:focus { outline: none; border-color: var(--accent); background: var(--tile-hi); }
+#menu .board-dz { display: flex; align-items: center; gap: 10px; }
+#menu .board-dz-name { flex: 1; text-align: center; font: 600 22px/1 var(--display); letter-spacing: 0.02em; }
+#menu .board-dz .step { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; }
+#menu .board-dz .step .icon { width: 18px; height: 18px; }
+#menu .board-note { margin: 2px 14px 10px; font-size: 12.5px; color: var(--dim); }
+#menu .board-note.warn { color: #f0c24a; }
+#menu .row.board-row { grid-template-columns: 44px 1fr auto; }
+#menu .board-row .n { font-size: 17px; color: var(--dim); }
+#menu .board-row.p1 .n { color: var(--accent); }
+#menu .board-row.p2 .n { color: #d8dde3; }
+#menu .board-row.p3 .n { color: #e0a272; }
+#menu .board-row .what b { overflow-wrap: anywhere; }
+#menu .board-row .res b { color: var(--text); font: 600 19px/1 var(--display); }
+#menu .board-row.p1 .res b { color: var(--accent); }
+#menu .board-row.you { background: var(--accent-soft); }
+#menu .board-row .chip.you { margin-left: 8px; vertical-align: 1px; }
 
 
 /* Smoke colours: a round dot each, "none" in words. */
