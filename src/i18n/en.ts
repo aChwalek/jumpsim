@@ -576,7 +576,8 @@ export const en: Strings = {
       bots: 'HOW MANY',
       botsHint: 'on a solo jump',
       botsNone: 'None',
-      botsNote: 'They leave right after you, from the plane only, in a suit like yours.',
+      botsNote: 'They leave the plane right after you, in a suit like yours.',
+      botsNoteBase: 'On top they wait beside you and go one at a time, in your suit and under a canopy like yours.',
       botsRoom: 'With others in a room, no AI jumpers.',
       botLead: 'WHO LEADS',
       botLeads: { us: 'Me', bot: 'An AI jumper' },
@@ -584,10 +585,18 @@ export const en: Strings = {
         us: 'They form round you and fly as you do.',
         bot: 'The first flies as it likes; the others form round it, and a place waits for you. The guide says where.',
         track: 'On a track and in wings, an AI jumper always leads.',
+        base: {
+          us: 'You go first; they follow one at a time, each once the canopy before is open.',
+          bot: 'They go before you, one at a time, the first a few seconds after the start: your turn after the last.',
+        },
       },
       botMode: 'THEY FLY',
-      botModes: { formation: 'Flat', vertical: 'Upright', track: 'Track' },
+      botModes: { formation: 'Flat', vertical: 'Upright', track: 'Track', base: 'One at a time' },
       botModeNote: {
+        baseDelay: (seconds: string, bridge: boolean) =>
+          `${bridge ? 'Off the lip of the deck' : 'After the run'}, a delay of about ${seconds} s on heading, then the canopy and the landing.`,
+        baseTrack: (over: string) =>
+          `A few seconds straight down, then a track away from the wall that comes round towards the landing area. Pulling around ${over} m over the landing area, sooner if the slope comes up.`,
         formation: (breakOff: string, pull: string) =>
           `Flat, in a round with you, close. If you change position, so do they. Break-off at ${breakOff} m, pulling around ${pull} m.`,
         vertical: (breakOff: string, pull: string) =>
@@ -603,7 +612,9 @@ export const en: Strings = {
       botsSection: 'AI JUMPERS',
       solo: 'Solo',
       soloNote: 'Add AI jumpers, or jump with others in a room',
-      planeOnly: 'AI jumpers only jump from the plane',
+      planeOnly: 'AI jumpers jump from the plane or BASE',
+      baseYouFirst: 'You go first',
+      baseThemFirst: 'They go before you',
       withBots: (n: number) => `${n} AI jumper${n > 1 ? 's' : ''}`,
       leadUs: 'Building round you',
       leadBot: 'Behind an AI leader',

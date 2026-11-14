@@ -10,7 +10,7 @@ import { OUTFIT_COLOR_IDS } from './render/outfit';
 import type { Lighting } from './render/scene';
 import { reserveRigFor, rigFor, type Gear } from './setup';
 import { airDensityAt } from './sim/atmosphere';
-import { Bot, bumpBots, guideTo, roundGuide, type BotLead, type BotMode, type Guide, type Lead } from './sim/bot';
+import { Bot, botLedge, bumpBots, guideTo, roundGuide, type BotLead, type BotMode, type Guide, type Lead, type ObjectTop } from './sim/bot';
 import type { Environment } from './sim/flightModel';
 import { feetHeight } from './sim/landing';
 import type { ExitSpot, JumpRun } from './sim/plane';
@@ -44,8 +44,8 @@ export interface BotsSpec {
   lead: BotLead;
   /** Ours: the bots weigh what we do and fly a canopy like ours, so that they fall and fly as we do. */
   gear: Gear;
-  run: JumpRun;
-  spot: ExitSpot;
+  /** Out of the plane on this jump run, we waiting at `spot`; or off a BASE object, from its top. */
+  from: { run: JumpRun; spot: ExitSpot } | { top: ObjectTop };
   landing: { x: number; z: number; headingDeg: number };
   weather: Weather;
   groundAt: (x: number, z: number) => number;
@@ -87,6 +87,7 @@ export class Bots implements Others {
     private readonly plan: BotsSpec,
   ) {
     const names = [...NAMES].sort(() => Math.random() - 0.5);
+    const top = 'top' in plan.from ? plan.from.top : null;
     const colors = (Object.keys(CANOPY_COLORS) as CanopyColorId[]).filter((c) => c !== plan.gear.color).sort(() => Math.random() - 0.5);
     for (let index = 0; index < plan.count; index++) {
       const gear: Gear = {
@@ -95,7 +96,8 @@ export class Bots implements Others {
         helmetColor: pick(OUTFIT_COLOR_IDS),
         suitColor: pick(OUTFIT_COLOR_IDS),
         smoke: 'none',
-        container: 'sport',
+        // Off an object, one canopy and nothing else, as anyone jumping one has.
+        container: top ? 'base' : 'sport',
         rsl: true,
       };
       const bot = new Bot(rigFor(gear), env, {
@@ -103,11 +105,17 @@ export class Bots implements Others {
         of: plan.count,
         mode: plan.mode,
         lead: plan.lead,
-        run: plan.run,
-        spot: plan.spot,
+        run: top ? botLedge(index, top) : (plan.from as { run: JumpRun }).run,
+        spot: top ? 'low' : (plan.from as { spot: ExitSpot }).spot,
         landing: plan.landing,
         groundAt: plan.groundAt,
-        options: { solidAt: plan.solidAt, reserve: reserveRigFor(gear), rsl: true, suit: { kind: gear.suit, level: gear.suitLevel } },
+        options: {
+          solidAt: plan.solidAt,
+          container: gear.container,
+          reserve: reserveRigFor(gear),
+          rsl: !top,
+          suit: { kind: gear.suit, level: gear.suitLevel },
+        },
       });
       const jumper = new RemoteJumper(scene);
       jumper.setGear(gear, light);
@@ -119,15 +127,18 @@ export class Bots implements Others {
   /** Flies them on. `us`: where we are in our jump. `time`: of the air, for the gusts. */
   step(seconds: number, us: Lead, time: number): void {
     const leader = this.flown.find((f) => f.bot.leads)?.bot;
-    for (const f of this.flown) {
+    // Off an object each goes after the one before it: who that is, for each.
+    const base = 'top' in this.plan.from;
+    for (const [i, f] of this.flown.entries()) {
       const { bot, env } = f;
       const s = bot.model.state;
       const flying = bot.jump.phase === 'canopy';
       const height = Math.max(0, feetHeight(bot.model, this.plan.groundAt)) + (flying ? bot.model.rig.canopyPos.y - bot.model.rig.feetPos.y : 0);
       env.airDensity = airDensityAt(s.pos.y);
       windAt(env.wind, this.plan.weather, height, time);
-      bot.step(seconds, env, us, leader && leader !== bot ? leader.lead : null);
-      const out = bot.jump.phase !== 'plane';
+      const before = base ? (i > 0 ? this.flown[i - 1]!.bot.lead : null) : leader && leader !== bot ? leader.lead : null;
+      bot.step(seconds, env, us, before);
+      const out = bot.jump.phase !== 'plane' && bot.jump.phase !== 'standing';
       if (out && !f.out) this.exited.push(f.name);
       f.out = out;
     }

@@ -72,7 +72,7 @@ import { PerfMeter, type PerfScene } from './perf';
 import { hiding, runBench, type BenchStep } from './bench';
 import { DZS } from './world/dzs';
 import { Markers, type MarkerTarget } from './net/markers';
-import { Bots, type Others } from './bots';
+import { Bots, type BotsSpec, type Others } from './bots';
 import type { Lead } from './sim/bot';
 import { Multiplayer, newRoomName, playersIn, roomFromUrl, roomLink, setRoomInUrl } from './net/multiplayer';
 import { cleanName, publicDz, publicRoom, sameShared, sharedPart } from './net/room';
@@ -648,6 +648,20 @@ function rigOptions(): JumpOptions {
   return { container, reserve: reserveRig, rsl: container === 'sport' && rsl, solidAt: solid, suit: suitOf(setup.gear) };
 }
 
+/** The bots of a jump alone, if it has any: out of the plane, or off the object. */
+function startBots(from: BotsSpec['from']): void {
+  if (net || setup.bots.count === 0) return;
+  bots = new Bots(scene, light, env, {
+    ...setup.bots,
+    gear: setup.gear,
+    from,
+    landing: { x: dz.target.x, z: dz.target.z, headingDeg: landingHeading(dz, setup.weather.windFromDeg) },
+    weather: setup.weather,
+    groundAt: dz.groundAt,
+    solidAt: solid,
+  });
+}
+
 /** One canopy and no reserve: a BASE container. */
 const singleCanopy = (): boolean => (jump ? jump.single : setup.gear.container === 'base');
 
@@ -681,24 +695,15 @@ function spawn(kind: Start): void {
       onFoot: true,
     });
     // Company on a jump alone: out of the same plane, right after us, in a suit like ours.
-    if (!net && setup.bots.count > 0) {
-      bots = new Bots(scene, light, env, {
-        ...setup.bots,
-        gear: setup.gear,
-        run: spots.plane,
-        spot: setup.jump.exitSpot,
-        landing: { x: dz.target.x, z: dz.target.z, headingDeg: landingHeading(dz, setup.weather.windFromDeg) },
-        weather: setup.weather,
-        groundAt: dz.groundAt,
-        solidAt: solid,
-      });
-    }
+    startBots({ run: spots.plane, spot: setup.jump.exitSpot });
   } else if (kind === 'base') {
     const b = dz.base!;
     windAt(env.wind, setup.weather, b.height, airTime);
     // Off a bridge, no run: from the lip of the deck.
     const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg: b.headingDeg, height: b.height, standing: b.runUp === 0 } as const;
     jump = new Jump(model, ledge, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction: unlucky ? 'offHeading' : null });
+    // Company on top: beside us, each going in turn, before or after us.
+    startBots({ top: b });
   } else {
     jump = null;
     const s = spots[kind];
@@ -2388,7 +2393,7 @@ function frame(now: number): void {
       us.pos = model.state.pos;
       us.vel = model.state.vel;
       const wasOut = us.out;
-      us.out = jump !== null && jump.phase !== 'plane';
+      us.out = jump !== null && jump.phase !== 'plane' && jump.phase !== 'standing';
       // Out of the door behind a leader: it is the one to keep in sight, unless someone else already is.
       const leader = bots.leader;
       if (us.out && !wasOut && leader && target?.kind !== 'player') setTarget({ kind: 'player', id: leader });

@@ -40,7 +40,7 @@ export interface Ledge {
   standing?: boolean;
 }
 
-const isLedge = (from: JumpRun | Ledge): from is Ledge => (from as Ledge).kind === 'ledge';
+export const isLedge = (from: JumpRun | Ledge): from is Ledge => (from as Ledge).kind === 'ledge';
 
 /**
  * The container on the back: a skydiving one (a main, a reserve, an AAD) or

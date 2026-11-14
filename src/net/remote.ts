@@ -10,6 +10,7 @@ import { hasWings } from '../sim/suit';
 import { FlightModel } from '../sim/flightModel';
 import { noBodyInputs } from '../sim/freefall';
 import { feetHeight } from '../sim/landing';
+import { Stride } from '../sim/runUp';
 import type { Vec3 } from '../sim/vec';
 import { SnapshotBuffer } from './interp';
 import { copySnapshot, emptySnapshot, type Snapshot } from './snapshot';
@@ -42,6 +43,8 @@ export class RemoteJumper {
   live: Snapshot | null = null;
   private readonly now = emptySnapshot();
   private readonly posture = new Posture();
+  /** On top of an object, the legs of the run, from how fast they go: no keys of theirs come here. */
+  private readonly stride = new Stride();
   /** Where they were in their jump at the last frame drawn. */
   private phase: string | null = null;
   /** They left their plane at this frame. */
@@ -123,7 +126,8 @@ export class RemoteJumper {
 
     view.setInflation(s.inflation);
     view.setArms(s.onRisers);
-    view.body.setPose(this.posture.update(f.dt, s.stance, still));
+    if (s.phase === 'standing') this.stride.step(f.dt, Math.hypot(s.vel.x, s.vel.z));
+    view.body.setPose(this.posture.update(f.dt, s.stance, still, s.phase === 'standing' ? [this.stride.legL, this.stride.legR] : undefined));
     view.body.showArms(!s.onRisers);
     view.body.setHeight(feetHeight(model, f.groundAt));
     view.body.setHandles(s.mainHandle, s.reserveHandle);
