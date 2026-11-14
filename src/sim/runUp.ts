@@ -49,6 +49,27 @@ function approach(v: number, to: number, rate: number, dt: number): number {
   return Math.abs(d) <= most ? to : v + Math.sign(d) * most;
 }
 
+/**
+ * The legs of someone on foot, from how fast they go alone: strides longer and
+ * quicker with the speed, none standing still. What we see of a run whose
+ * keys are not ours, a bot's or another player's, as well as of our own.
+ */
+export class Stride {
+  /** Swing of each leg forward, rad. */
+  legL = 0;
+  legR = 0;
+  private phase = 0;
+
+  /** On by `dt` at `speed` over the ground, m/s. */
+  step(dt: number, speed: number): void {
+    const drive = Math.min(1, speed / RUN_SPEED);
+    if (speed > 0.25) this.phase += Math.PI * Math.min(3.4, 1.6 + 0.3 * speed) * dt;
+    const swing = (0.25 + 0.45 * drive) * Math.min(1, speed / 0.8) * Math.sin(this.phase);
+    this.legL = swing;
+    this.legR = -swing;
+  }
+}
+
 export class RunUp {
   /** Where the feet are, world frame, m. */
   x: number;
@@ -61,10 +82,15 @@ export class RunUp {
   side = 0;
   /** Velocity of the feet, world frame, m/s: the speed the jumper leaves with. */
   readonly vel = vec3();
-  /** Swing of the legs forward, rad, and how far into the stride. */
-  legL = 0;
-  legR = 0;
-  private stride = 0;
+  /** The legs, swung by the speed. */
+  private readonly stride = new Stride();
+  /** Swing of each leg forward, rad. */
+  get legL(): number {
+    return this.stride.legL;
+  }
+  get legR(): number {
+    return this.stride.legR;
+  }
 
   /**
    * `y`: about where the feet are, which says what they stand on where a
@@ -136,13 +162,7 @@ export class RunUp {
       this.y = top;
     }
 
-    // Strides longer and quicker with the speed.
-    const speed = Math.hypot(this.forward, this.side);
-    const drive = Math.min(1, speed / RUN_SPEED);
-    if (speed > 0.25) this.stride += Math.PI * Math.min(3.4, 1.6 + 0.3 * speed) * dt;
-    const swing = (0.25 + 0.45 * drive) * Math.min(1, speed / 0.8) * Math.sin(this.stride);
-    this.legL = swing;
-    this.legR = -swing;
+    this.stride.step(dt, Math.hypot(this.forward, this.side));
     return false;
   }
 
