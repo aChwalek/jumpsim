@@ -31,6 +31,13 @@ export const PERF_BLOBS = [
   'device',
   /** browser, standalone or fullscreen: installed on the home screen or not. */
   'display',
+  /**
+   * Where the heavy frames (over 33 ms of main thread) spent it, ms summed over
+   * the window: "n=3 input=1 sim=250 scene=12 render=40"; and "gaps=…", the
+   * frames over 50 ms apart whose previous frame was light (the time went elsewhere:
+   * garbage collection, the graphics process, the browser).
+   */
+  'heavy',
 ] as const;
 
 /** Numbers, double1 onwards. */
@@ -63,6 +70,10 @@ export const PERF_DOUBLES = [
   /** CPU cores and memory (GB) the browser says it has; 0 when it does not say. */
   'cores',
   'memory',
+  /** Shader programs compiled during the window: each can stall a frame the first time. */
+  'newPrograms',
+  /** Time per frame in the jump's own step (physics, collisions, crash), ms. */
+  'simMs',
 ] as const;
 
 export type PerfReport = { session: string } & { [K in (typeof PERF_BLOBS)[number]]: string } & {

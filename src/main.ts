@@ -2361,6 +2361,7 @@ function frame(now: number): void {
   // After the devices: Start may just have opened the menu, which then ignores it until let go.
   menu.poll();
   hud.setMenuOpen(menu.isOpen);
+  perf.mark(0);
   const live = !waiting && !paused;
   /** How far the replay of the whole jump went on this frame, s of its own clock. */
   let watched = 0;
@@ -2429,6 +2430,7 @@ function frame(now: number): void {
     }
   }
 
+  perf.mark(1);
   const moving = live && !replay && !watching ? Math.min(elapsed, 0.1) : 0;
   const pose = stance();
   const inflation = replay ? replay.frame.inflation : jump ? jump.inflation : 1;

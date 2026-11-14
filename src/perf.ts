@@ -13,6 +13,10 @@ const WINDOW = 10;
 const MIN_WINDOW = 3;
 /** A frame longer than this is a visible hitch, ms. */
 const HITCH = 50;
+/** A frame whose own main-thread time is over this is heavy, ms: its parts are summed up. */
+const HEAVY = 33;
+/** The parts of a frame, between the marks: begin, input, sim, beforeRender, afterRender. */
+const PARTS = ['input', 'sim', 'scene', 'render'] as const;
 /** Longer than this the tab was hidden or the page stalled: not a frame, s. */
 const GAP = 1;
 
@@ -78,6 +82,16 @@ export class PerfMeter {
   private scene: PerfScene | null = null;
   private frameStart = 0;
   private renderStart = 0;
+  /** Times of the frame's marks: after the input, after the jump's step. */
+  private marks: [number, number] = [0, 0];
+  private sim = 0;
+  /** Heavy frames: how many, and their parts summed up, ms. */
+  private heavy = 0;
+  private heavyParts = [0, 0, 0, 0];
+  /** Frames long apart whose previous frame was light. */
+  private gaps = 0;
+  private lastCpu = 0;
+  private programs = 0;
   /** A bench step being measured: its label, length, and who waits for it. */
   private step: { label: string; seconds: number; done: (s: PerfSummary) => void } | null = null;
 
@@ -96,8 +110,16 @@ export class PerfMeter {
 
   /** At the very start of the frame. */
   begin(): void {
-    this.frameStart = performance.now();
+    const now = performance.now();
+    this.frameStart = now;
+    this.marks = [now, now];
     this.renderer.info.reset();
+  }
+
+  /** After the input (0), after the jump's step (1). */
+  mark(i: 0 | 1): void {
+    this.marks[i] = performance.now();
+    if (i === 0) this.marks[1] = this.marks[0];
   }
 
   /** Just before the frame's render calls. */
@@ -111,11 +133,21 @@ export class PerfMeter {
    */
   afterRender(elapsed: number, scene: PerfScene): void {
     const end = performance.now();
+    const cpu = end - this.frameStart;
+    const lastCpu = this.lastCpu;
+    this.lastCpu = cpu;
     if (elapsed > GAP) return;
     if (!this.step && this.scene && !sameScene(this.scene, scene)) this.flush(false);
     if (!this.step) this.scene = scene;
     this.frames.push(elapsed * 1000);
-    this.cpu += end - this.frameStart;
+    if (elapsed * 1000 > HITCH && lastCpu < HEAVY / 2) this.gaps++;
+    if (cpu > HEAVY) {
+      this.heavy++;
+      const at = [this.frameStart, this.marks[0], this.marks[1], this.renderStart, end];
+      this.heavyParts = this.heavyParts.map((sum, i) => sum + Math.max(0, at[i + 1]! - at[i]!));
+    }
+    this.sim += this.marks[1] - this.marks[0];
+    this.cpu += cpu;
     this.render += end - this.renderStart;
     this.calls += this.renderer.info.render.calls;
     this.triangles += this.renderer.info.render.triangles;
@@ -142,7 +174,10 @@ export class PerfMeter {
   /** Forgets what is measured so far, unsent: after a change that would spoil it. */
   reset(): void {
     this.frames = [];
-    this.cpu = this.render = this.calls = this.triangles = this.seconds = 0;
+    this.cpu = this.render = this.calls = this.triangles = this.seconds = this.sim = 0;
+    this.heavy = this.gaps = 0;
+    this.heavyParts = [0, 0, 0, 0];
+    this.programs = this.renderer.info.programs?.length ?? 0;
   }
 
   private flush(leaving: boolean): void {
@@ -176,6 +211,8 @@ export class PerfMeter {
       userAgent: navigator.userAgent,
       device: this.handheld ? 'handheld' : 'desktop',
       display: displayMode(),
+      heavy:
+        `n=${this.heavy} ` + PARTS.map((p, i) => `${p}=${Math.round(this.heavyParts[i]!)}`).join(' ') + ` gaps=${this.gaps}`,
       ...summary,
       worstMs: sorted[sorted.length - 1] ?? 0,
       hitches: this.frames.filter((f) => f > HITCH).length,
@@ -191,6 +228,8 @@ export class PerfMeter {
       seconds: this.seconds,
       cores: navigator.hardwareConcurrency ?? 0,
       memory: nav.deviceMemory ?? 0,
+      newPrograms: (this.renderer.info.programs?.length ?? 0) - this.programs,
+      simMs: this.sim / n,
     };
     this.reset();
     if (this.enabled) post(report, leaving);
