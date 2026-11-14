@@ -500,9 +500,6 @@
 }
 #menu .avatar.small { width: 40px; height: 40px; }
 #menu .avatar.big { width: 64px; height: 64px; font-size: 32px; }
-#menu .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
-#menu .avatar.photo img { display: block; }
-#menu .avatar.photo .letter { visibility: hidden; }
 #menu .profile-head { display: flex; align-items: center; gap: 16px; margin: 4px 14px 10px; }
 #menu .profile-who { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 #menu .profile-name { font: 600 30px/1 var(--display); color: #fff; overflow-wrap: anywhere; }

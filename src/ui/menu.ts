@@ -1011,30 +1011,13 @@ export class Menu {
     return hints(T.menu.hints.detail, T.menu.hints.detailPad);
   }
 
-  /** The player's picture: Google's, or the first letter of their name. */
+  /** The player's badge: the first letter of their name. Never Google's picture: the player picks what shows. */
   private avatar(cls: string): HTMLElement {
-    const box = h('span', `avatar ${cls}`);
-    const img = h('img');
-    img.alt = '';
-    img.referrerPolicy = 'no-referrer';
-    // A picture that does not load: the letter instead, for good.
-    let failed = '';
-    img.addEventListener('error', () => {
-      failed = img.getAttribute('src') ?? '';
-      box.classList.remove('photo');
-    });
     const letter = h('span', 'letter');
-    box.append(img, letter);
     this.updaters.push(() => {
-      const src = this.account?.image ?? '';
-      if (img.getAttribute('src') !== src) {
-        if (src) img.src = src;
-        else img.removeAttribute('src');
-      }
-      box.classList.toggle('photo', !!src && src !== failed);
       letter.textContent = (this.settings.playerName || T.menu.room.defaultName).charAt(0).toUpperCase();
     });
-    return box;
+    return h('span', `avatar ${cls}`, letter);
   }
 
   /** How the player stands, in a line: guest or signed in, jumps, best score, best place. */

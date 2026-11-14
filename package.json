@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:signal": "mkdir -p dist && wrangler dev --port 8787",
+    "dev:signal": "mkdir -p dist && wrangler dev --port 8787 --local-upstream 127.0.0.1:5173",
     "build": "tsc --noEmit && npm run typecheck:worker && vite build",
     "preview": "vite preview",
     "test": "vitest run",

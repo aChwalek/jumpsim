@@ -41,13 +41,14 @@ export function createAuth(env: Env & AuthSecrets, request: Request) {
     baseURL: origin,
     basePath: '/api/auth',
     trustedOrigins: [origin],
-    session: { expiresIn: SESSION_SECONDS, updateAge: 24 * 3600 },    socialProviders: googleOffered(env)
+    session: { expiresIn: SESSION_SECONDS, updateAge: 24 * 3600 },
+    socialProviders: googleOffered(env)
       ? {
           google: {
             clientId: env.GOOGLE_CLIENT_ID!,
             clientSecret: env.GOOGLE_CLIENT_SECRET!,
-            // The first name only: a board is public.
-            mapProfileToUser: (profile) => ({ name: profile.given_name || profile.name }),
+            // The first name only, and not the picture: a board is public, and the player picks what shows.
+            mapProfileToUser: (profile) => ({ name: profile.given_name || profile.name, image: undefined }),
           },
         }
       : {},
@@ -68,15 +69,17 @@ export function createAuth(env: Env & AuthSecrets, request: Request) {
       }),
     ],
     databaseHooks: {
+      // No picture is ever kept, whoever sends one (Google, or a browser updating the account).
       user: {
         create: {
-          before: async (user) => ({ data: { ...user, name: cleanName(user.name ?? '') || 'Skydiver' } }),
+          before: async (user) => ({ data: { ...user, name: cleanName(user.name ?? '') || 'Skydiver', image: null } }),
         },
         update: {
+          // What is returned is merged over what was asked: the picture is put back to none, not left out.
           before: async (data) => {
-            if (typeof data.name !== 'string') return;
+            if (typeof data.name !== 'string') return { data: { ...data, image: null } };
             const name = cleanName(data.name);
-            return name ? { data: { ...data, name } } : false;
+            return name ? { data: { ...data, name, image: null } } : false;
           },
           // The boards show the name of the account, whatever it was when the score was sent.
           after: async (user) => {
