@@ -475,9 +475,11 @@ export const fr = {
         `Secours ${size} ft², 7 caissons. ${on ? `Libérer (${k} maintenu) ouvre le secours tout seul.` : 'Après la libération, Espace pour tirer la poignée de secours.'}`,
       smoke: 'FUMIGÈNE',
       smokeHint: 'à la cheville droite',
-      smokes: { none: 'Aucun', red: 'Rouge', orange: 'Orange', yellow: 'Jaune', green: 'Vert', blue: 'Bleu', purple: 'Violet' },
+      smokes: { none: 'Aucun', red: 'Rouge', orange: 'Orange', yellow: 'Jaune', green: 'Vert', blue: 'Bleu', purple: 'Violet', sparks: 'Étincelles' },
       smokeNote: (on: boolean, s: string) =>
         on ? `Allumé à la sortie (ou dès le départ sous voile), il fume ${s} s : la traînée suit le vent.` : 'Pas de fumigène.',
+      sparksNote: (s: string) =>
+        `Une gerbe d'étincelles, allumée à la sortie, pendant ${s} s. Elle éclaire autour de toi : jambes, voile, et le sol dans les derniers mètres. Pour la nuit.`,
       suit: 'TYPE',
       suits: { jumpsuit: 'Normale', track: 'Tracking', wingsuit: 'Wingsuit' },
       suitLine: { jumpsuit: '', track: (level: number) => `combi de track niv. ${level}`, wingsuit: (level: number) => `wingsuit niv. ${level}` },
@@ -494,6 +496,10 @@ export const fr = {
       suitColor: 'COMBINAISON',
       suitColorNote: 'Ses ailes gardent la couleur de la voile.',
       helmet: 'CASQUE',
+      glow: 'GLOW STICKS',
+      glowHint: 'casque, poitrine, cheville gauche',
+      glowColors: { green: 'Vert', yellow: 'Jaune', orange: 'Orange', red: 'Rouge', blue: 'Bleu', pink: 'Rose' },
+      glowNote: 'Allumés tout seuls à la tombée de la nuit, pour que les autres te voient. Les bots ont chacun le leur.',
       outfitColors: {
         white: 'Blanc',
         grey: 'Gris',
@@ -531,6 +537,23 @@ export const fr = {
       hourHint: 'heure locale, début juillet',
       sunNote: (elevation: string, where: string, hidden: boolean) =>
         `Soleil à ${elevation}° au-dessus de l'horizon, ${where}${hidden ? ' (derrière les nuages)' : ''}`,
+      nightNote: {
+        dusk: 'Soleil couché : le ciel reste clair un moment.',
+        dawn: 'Aube : le ciel s\'éclaircit à l\'est, le soleil va se lever.',
+        daybreak: 'Petit jour : les étoiles s\'effacent, les lampes sont encore allumées.',
+        nightfall: 'Nuit tombante : les lampes s\'allument, premières étoiles.',
+        night: 'Nuit noire : glow sticks sur les sauteurs, lampes autour de la cible.',
+      },
+      moon: 'LUNE',
+      moonHint: 'ce qui éclaire la nuit',
+      moons: { new: 'Nouvelle', quarter: 'Quartier', full: 'Pleine' },
+      moonShort: { new: 'sans lune', quarter: 'quartier de lune', full: 'pleine lune' },
+      moonNote: (phase: 'new' | 'quarter' | 'full', elevation: string | null, where: string) =>
+        phase === 'new'
+          ? 'Pas de lune : les étoiles, les lampes, et presque rien au sol hors de la cible.'
+          : elevation === null
+            ? 'La lune est sous l\'horizon à cette heure.'
+            : `Lune à ${elevation}°, ${where}${phase === 'full' ? ' : de vraies ombres au sol' : ''}.`,
       sky: 'CIEL',
       windDir: 'DIRECTION DU VENT',
       windFrom: (from: string, point: string) => `du ${from} (${point})`,

@@ -161,6 +161,7 @@ void main() {
   vec4 clip = cloudViewProj * vec4(eye + dir * hit, 1.0);
   gl_FragDepth = clamp(0.5 * clip.z / clip.w + 0.5, 0.0, 1.0);
   gl_FragColor = vec4(color / alpha, alpha);
+  #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
 `;

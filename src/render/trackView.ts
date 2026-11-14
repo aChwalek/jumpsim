@@ -22,7 +22,8 @@ import { PlaneView } from './planeView';
 import { RagdollView } from './ragdollView';
 import { RigView, type RigFrame } from './rigView';
 import type { Lighting } from './scene';
-import { SMOKE_BURN, SmokeTrail } from './smoke';
+import { SMOKE_BURN } from './smoke';
+import { fitTrail, type Trail } from './sparks';
 
 /** What the frame gives the replay beyond the track: the ground, the light, the air. */
 export interface TrackScene {
@@ -51,7 +52,7 @@ export class TrackView {
   private readonly plane: Plane | null = null;
   private readonly planeView: PlaneView | null = null;
   private readonly ragdoll = new RagdollView();
-  private readonly smoke: SmokeTrail | null = null;
+  private readonly smoke: Trail | null = null;
   private slider: SliderState = 'open';
   private readonly frame: RigFrame = {
     time: 0,
@@ -104,7 +105,7 @@ export class TrackView {
       scene.add(this.planeView.object);
     }
     if (gear.smoke !== 'none') {
-      this.smoke = new SmokeTrail(gear.smoke, light);
+      this.smoke = fitTrail(gear.smoke, light, null);
       scene.add(this.smoke.object);
     }
     if (meta.landing) {

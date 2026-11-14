@@ -11,9 +11,10 @@ import * as THREE from 'three';
 import type { RigParams } from '../sim/rig';
 import { GEAR_LAYER, OUTSIDE_LAYER } from './scene';
 import { JOINTS, type Joint } from '../sim/ragdoll';
-import { SMOKE_COLORS, type SmokeKind } from './smoke';
+import { canisterColor, type SmokeKind } from './smoke';
+import { glowMaterial, glowPoints, pointsGeometry } from './lamps';
 import type { Suit } from '../sim/suit';
-import { DEFAULT_HELMET, DEFAULT_SUIT, OUTFIT_COLORS, type Outfit } from './outfit';
+import { DEFAULT_GLOW, DEFAULT_HELMET, DEFAULT_SUIT, GLOW_COLORS, OUTFIT_COLORS, type Outfit } from './outfit';
 
 const UPPER_ARM = 0.3;
 const FOREARM = 0.28;
@@ -46,6 +47,13 @@ export const HANDLES = new THREE.Vector3(0.1, -0.33, 0.0);
 /** The altimeter reads one turn of the needle over this height, m. */
 const DIAL_RANGE = 4000;
 const UP = new THREE.Vector3(0, 1, 0);
+
+/** A glow stick, 15 cm, and the glow about it that shows from afar, shared by every jumper; the colour is each one's own. */
+const STICK_GEOMETRY = new THREE.CylinderGeometry(0.0075, 0.0075, 0.15, 8);
+const HALO_MATERIAL = glowMaterial({ strength: { value: 1 }, minPixels: 2.5, maxPixels: 40, nearFade: 3 });
+/** How bright a lit stick is drawn, and its glow, against its colour. */
+const STICK_BRIGHT = 2;
+const HALO_BRIGHT = 1.5;
 
 /** How the body is held. Angles in radians, points in the pilot frame. */
 export interface Pose {
@@ -273,6 +281,12 @@ export class Body {
   private readonly canisterMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
   private readonly canister = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.15, 12), this.canisterMaterial);
   private readonly smokeOutlet = new THREE.Object3D();
+  /** Glow sticks for a night jump, and their glows: on the back of the helmet, across the chest strap, on the left ankle. */
+  private readonly glowSticks: THREE.Object3D[] = [];
+  private readonly stickMaterial = new THREE.MeshBasicMaterial({
+    color: new THREE.Color(GLOW_COLORS[DEFAULT_GLOW]).multiplyScalar(STICK_BRIGHT),
+  });
+  private readonly haloGeometry = pointsGeometry([0, 0, 0], new THREE.Color(GLOW_COLORS[DEFAULT_GLOW]).multiplyScalar(HALO_BRIGHT).toArray(), [0.5]);
   private readonly eye: THREE.Vector3;
   private readonly lean = new THREE.Quaternion();
   private readonly euler = new THREE.Euler(0, 0, 0, 'ZXY');
@@ -370,6 +384,21 @@ export class Body {
     );
     glass.position.copy(helmet.position);
     this.trunk.add(neck, head, helmet, glass);
+    /** A glow stick at a point, upright or across, on the layer of what it is fixed to. */
+    const glowStick = (parent: THREE.Object3D, x: number, y: number, z: number, across: boolean, layer: number): void => {
+      const stick = new THREE.Mesh(STICK_GEOMETRY, this.stickMaterial);
+      if (across) stick.rotation.z = Math.PI / 2;
+      const halo = glowPoints(this.haloGeometry, HALO_MATERIAL);
+      for (const o of [stick, halo]) {
+        o.position.set(x, y, z);
+        o.layers.set(layer);
+        o.visible = false;
+        parent.add(o);
+        this.glowSticks.push(o);
+      }
+    };
+    glowStick(this.trunk, 0, helmet.position.y + 0.03, helmet.position.z + 0.136, false, OUTSIDE_LAYER);
+    glowStick(this.trunk, 0, middle + 0.1, front - 0.02, true, GEAR_LAYER);
     const marks = {} as Record<Joint, THREE.Object3D>;
     const mark = (joint: Joint, parent: THREE.Object3D, x: number, y: number, z: number): void => {
       const m = new THREE.Object3D();
@@ -414,7 +443,7 @@ export class Body {
         this.canister.add(cap);
         this.smokeOutlet.position.set(0.09, -shinLength + 0.05, 0.02);
         shin.add(this.canister, this.smokeOutlet);
-      }
+      } else glowStick(shin, -0.09, -shinLength + 0.15, 0.02, false, 0);
       const L = side < 0 ? 'L' : 'R';
       mark(`hip${L}`, this.trunk, side * HIP_APART, pilotY - HIP_DROP, HIP_BACK);
       mark(`knee${L}`, shin, 0, 0, 0);
@@ -464,16 +493,26 @@ export class Body {
     this.reserveHandle.visible = reserve;
   }
 
-  /** The colours of the jumpsuit and of the helmet. */
+  /** The colours of the jumpsuit, of the helmet and of the glow sticks. */
   setOutfit(outfit: Outfit): void {
     this.suitMaterial.color.setHex(outfit.suit);
     this.shellMaterial.color.setHex(outfit.helmet);
+    this.stickMaterial.color.setHex(outfit.glow).multiplyScalar(STICK_BRIGHT);
+    const halo = new THREE.Color(outfit.glow).multiplyScalar(HALO_BRIGHT);
+    const colors = this.haloGeometry.getAttribute('color');
+    colors.setXYZ(0, halo.r, halo.g, halo.b);
+    colors.needsUpdate = true;
+  }
+
+  /** Lights the glow sticks, or puts them away. */
+  setGlow(on: boolean): void {
+    for (const o of this.glowSticks) o.visible = on;
   }
 
   /** A smoke canister on the right ankle, of that colour, or none. */
   setSmoke(kind: SmokeKind): void {
     this.canister.visible = kind !== 'none';
-    if (kind !== 'none') this.canisterMaterial.color.setHex(SMOKE_COLORS[kind]);
+    this.canisterMaterial.color.setHex(canisterColor(kind));
   }
 
   /** Where the canister's smoke comes out, world frame, after the last pose and placing. */

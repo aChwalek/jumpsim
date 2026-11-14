@@ -39,6 +39,9 @@ export interface Grass {
   object: THREE.Group;
   /** Call every frame with the eye position and the time in seconds. */
   update(eye: THREE.Vector3, seconds: number): void;
+  /** A light near the ground (the pilot's sparks): where, and its colour times its strength, candela; black for none. */
+  readonly glareAt: THREE.Vector3;
+  readonly glare: THREE.Color;
 }
 
 const DEG = Math.PI / 180;
@@ -71,6 +74,8 @@ const VERTEX = /* glsl */ `
   uniform vec3 rough;
   uniform vec3 mown;
   uniform vec3 light;
+  uniform vec3 glareAt;
+  uniform vec3 glare;
   attribute vec2 lean;
   attribute vec3 color;
   attribute vec2 offset;
@@ -148,13 +153,17 @@ const VERTEX = /* glsl */ `
     vec3 wild = cover * mix(vec3(1.06, 1.03, 0.8), vec3(1.0), lush);
     vec3 ground = mix(wild, mix(rough, mown, cut), field) * mix(0.5, 1.6, seed.z);
     ground = mix(ground, vec3(0.5, 0.42, 0.16), 0.7 * step(0.86, fract(seed.x * 3.7)));
-    vColor = color * mix(vec3(1.0), ground, grassy) * light;
+    vec3 albedo = color * mix(vec3(1.0), ground, grassy);
+    // A light close by, falling off with the square of the distance, as on the ground under it.
+    vec3 toGlare = glareAt - vec3(at.x, land.x + position.y * tall, at.y);
+    vColor = albedo * (light + glare * (0.3183 / max(dot(toGlare, toGlare), 0.25)));
   }`;
 
 const FRAGMENT = /* glsl */ `
   varying vec3 vColor;
   void main() {
     gl_FragColor = vec4(vColor, 1.0);
+    #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }`;
 
@@ -256,6 +265,8 @@ export function buildGrass(spec: GrassSpec, light: THREE.Color): Grass {
   };
   const shared = {
     eye: { value: new THREE.Vector3() },
+    glareAt: { value: new THREE.Vector3(0, -1e4, 0) },
+    glare: { value: new THREE.Color(0, 0, 0) },
     time: { value: 0 },
     areaBox: { value: box(spec.area) },
     areaDir: { value: dir(spec.area) },
@@ -341,6 +352,8 @@ export function buildGrass(spec: GrassSpec, light: THREE.Color): Grass {
   const far = Math.max(...object.children.map((mesh) => mesh.userData.reach as number));
   return {
     object,
+    glareAt: shared.glareAt.value,
+    glare: shared.glare.value,
     update(eye, seconds) {
       const above = eye.y - spec.groundAt(eye.x, eye.z);
       for (const mesh of object.children) mesh.visible = above < mesh.userData.reach;

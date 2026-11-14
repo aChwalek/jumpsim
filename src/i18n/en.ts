@@ -473,9 +473,11 @@ export const en: Strings = {
         `Reserve ${size} ft², 7 cells. ${on ? `Cutting away (hold ${k}) opens the reserve by itself.` : 'After the cutaway, Space pulls the reserve handle.'}`,
       smoke: 'SMOKE',
       smokeHint: 'on the right ankle',
-      smokes: { none: 'None', red: 'Red', orange: 'Orange', yellow: 'Yellow', green: 'Green', blue: 'Blue', purple: 'Purple' },
+      smokes: { none: 'None', red: 'Red', orange: 'Orange', yellow: 'Yellow', green: 'Green', blue: 'Blue', purple: 'Purple', sparks: 'Sparks' },
       smokeNote: (on: boolean, s: string) =>
         on ? `Lit on exit (or from the start under canopy), it burns for ${s} s: the trail drifts with the wind.` : 'No smoke.',
+      sparksNote: (s: string) =>
+        `A shower of sparks, lit on exit, for ${s} s. It lights what is about you: legs, canopy, and the ground in the last metres. For night jumps.`,
       suit: 'TYPE',
       suits: { jumpsuit: 'Jumpsuit', track: 'Tracking', wingsuit: 'Wingsuit' },
       suitLine: { jumpsuit: '', track: (level: number) => `level ${level} tracking suit`, wingsuit: (level: number) => `level ${level} wingsuit` },
@@ -492,6 +494,10 @@ export const en: Strings = {
       suitColor: 'SUIT',
       suitColorNote: 'Its wings keep the canopy\'s colour.',
       helmet: 'HELMET',
+      glow: 'GLOW STICKS',
+      glowHint: 'helmet, chest, left ankle',
+      glowColors: { green: 'Green', yellow: 'Yellow', orange: 'Orange', red: 'Red', blue: 'Blue', pink: 'Pink' },
+      glowNote: 'Cracked by themselves at nightfall, so the others can see you. The bots each have their own.',
       outfitColors: {
         white: 'White',
         grey: 'Grey',
@@ -529,6 +535,23 @@ export const en: Strings = {
       hourHint: 'local time, early July',
       sunNote: (elevation: string, where: string, hidden: boolean) =>
         `Sun ${elevation}° above the horizon, ${where}${hidden ? ' (behind the clouds)' : ''}`,
+      nightNote: {
+        dusk: 'The sun has set: the sky stays light a while.',
+        dawn: 'Dawn: the sky lightens in the east, the sun is about to rise.',
+        daybreak: 'First light: the stars fade, the lamps are still on.',
+        nightfall: 'Nightfall: lamps come on, first stars.',
+        night: 'Dead of night: glow sticks on the jumpers, lamps round the target.',
+      },
+      moon: 'MOON',
+      moonHint: 'what lights the night',
+      moons: { new: 'New', quarter: 'Quarter', full: 'Full' },
+      moonShort: { new: 'no moon', quarter: 'quarter moon', full: 'full moon' },
+      moonNote: (phase: 'new' | 'quarter' | 'full', elevation: string | null, where: string) =>
+        phase === 'new'
+          ? 'No moon: stars, lamps, and next to nothing on the ground away from the target.'
+          : elevation === null
+            ? 'The moon is below the horizon at this hour.'
+            : `Moon ${elevation}° up, ${where}${phase === 'full' ? ': real shadows on the ground' : ''}.`,
       sky: 'SKY',
       windDir: 'WIND DIRECTION',
       windFrom: (from: string, point: string) => `from ${from} (${point})`,

@@ -7,6 +7,9 @@ import { DEG, set, type Vec3 } from './vec';
 
 export type SkyKind = 'clear' | 'cumulus' | 'hazy' | 'overcast';
 export type GustLevel = 'none' | 'light' | 'strong';
+/** How much of the moon is lit: none of it, half, or all. It only counts once the sun is down. */
+export type MoonPhase = 'new' | 'quarter' | 'full';
+export const MOON_PHASES: readonly MoonPhase[] = ['new', 'quarter', 'full'];
 
 export interface Weather {
   sky: SkyKind;
@@ -15,6 +18,8 @@ export interface Weather {
   /** Mean wind 10 m above the ground, km/h. */
   windKmh: number;
   gusts: GustLevel;
+  /** The moon of the night, which lights it. */
+  moon: MoonPhase;
 }
 
 export const WIND_MAX_KMH = 40;

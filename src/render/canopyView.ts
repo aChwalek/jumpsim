@@ -262,6 +262,8 @@ export class CanopyView {
       );
     };
     this.fabricMaterial.customProgramCacheKey = () => 'canopy-fabric';
+    // The material copies a colour given to it: share this one instead, so that it follows the light.
+    this.fabricMaterial.emissive = this.glow;
     const fabricMesh = new THREE.Mesh(this.fabric, this.fabricMaterial);
     fabricMesh.frustumCulled = false;
     this.object.add(fabricMesh);
@@ -1114,8 +1116,8 @@ export class CanopyView {
 
     // Light: sun and sky on the fabric, and through it, out of a cloud's shadow or in it.
     const centre = this.a.set(0, this.rig.canopyPos.y, 0).applyQuaternion(att).add(pos);
+    // Full in the sun, as the canopy was always drawn (the glow was stuck at full before it followed the light).
     this.glow.lerpColors(light.fabricShade, light.fabric, light.clouds.sunThrough(centre.x, centre.y, centre.z));
-    this.glow.multiplyScalar(0.78);
 
     // The shadow, from the sun, on the ground under it.
     const { sun } = light;

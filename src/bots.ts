@@ -6,7 +6,7 @@ import { emptySnapshot, type Snapshot } from './net/snapshot';
 import type { OtherJumper } from './replay/track';
 import { CANOPY_COLORS, type CanopyColorId } from './render/canopyColors';
 import { deployStage, jumpStance } from './render/jumpPose';
-import { OUTFIT_COLOR_IDS } from './render/outfit';
+import { GLOW_COLOR_IDS, OUTFIT_COLOR_IDS } from './render/outfit';
 import type { Lighting } from './render/scene';
 import { reserveRigFor, rigFor, type Gear } from './setup';
 import { airDensityAt } from './sim/atmosphere';
@@ -95,6 +95,7 @@ export class Bots implements Others {
         color: colors[index % colors.length]!,
         helmetColor: pick(OUTFIT_COLOR_IDS),
         suitColor: pick(OUTFIT_COLOR_IDS),
+        glowColor: pick(GLOW_COLOR_IDS),
         smoke: 'none',
         // Off an object, one canopy and nothing else, as anyone jumping one has.
         container: top ? 'base' : 'sport',
