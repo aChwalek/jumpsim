@@ -1,6 +1,7 @@
 """Builds a real drop zone for jumpsim from open data.
 
   python3 tools/dz/build.py <id> [--cache DIR] [--only relief,imagery,osm]
+  python3 tools/dz/build.py <id> --only close   the landing area's photo alone
 
 Reads tools/dz/<id>.json (what is specific to the drop zone: aerodrome,
 landing areas, target, buildings of the DZ, pattern, wind; WGS84 lat/lon)
@@ -13,7 +14,7 @@ and downloads, once, into the cache:
   - OpenStreetMap through Overpass: buildings, trees, woods, water, coastline.
 
 Writes:
-  public/dz/<id>/near.jpg, mid.jpg, far.jpg   imagery draped on the relief
+  public/dz/<id>/close.jpg, near.jpg, mid.jpg, far.jpg   imagery draped on the relief
   src/world/data/<id>.ts                      everything else, in local metres
 
 The local frame is web mercator scaled to true size at the origin, so the
@@ -807,6 +808,103 @@ def erase_bridges(rgb, px, size_m):
         print(f'  painted out {conf["name"]}: {count} pixels', flush=True)
 
 
+# --- Imagery levels ---------------------------------------------------------------
+IMG = CONF.get('imageryLevels', {})
+# Their centre, local metres, to the metre: the origin unless the drop zone's lines lie elsewhere.
+IMG_C = tuple(round(v) for v in local(*IMG['centre'])) if 'centre' in IMG else (0, 0)
+LEVELS = [
+    # name, metres a side, pixels a side, source, centre
+    ('far', 81920, 2048, 'sentinel', (0, 0)),
+    ('mid', IMG.get('mid_m', 16384), 4096, CONF['imagery'], IMG_C),
+    ('near', IMG.get('near_m', 4096), 4096, CONF['imagery'], IMG_C),
+    # The landing area, where the eye comes down to the ground: a quarter of a
+    # metre a pixel (zoom 19), as fine as the orthophotos go in France, Spain,
+    # Trentino; swisstopo's are finer, the NAIP coarser (0.6 m).
+    ('close', 512, 2048, CONF['imagery'], (0, 0)),
+]
+IMAGERY = [{'url': f'dz/{DZ_ID}/{name}.jpg', 'size': size_m, **({'x': c[0], 'z': c[1]} if c != (0, 0) else {})}
+           for name, size_m, _, _, c in reversed(LEVELS)]
+
+
+def level_zoom(source, size_m, size_px, finest=18):
+    return min(zoom_for(size_m / size_px * 1.25), finest if source != 'sentinel' else 13)
+
+
+def raw_file(name, data):
+    work = os.path.join(CACHE, 'stitch', f'{DZ_ID}-blend')
+    os.makedirs(work, exist_ok=True)
+    path = os.path.join(work, name)
+    with open(path, 'wb') as f:
+        f.write(data)
+    return path
+
+
+def blend(fine, coarse, label, sigma):
+    """
+    Where the fine level has no data, the coarse one shows through, with
+    a soft edge: the mask is blurred, then doubled so that it stays full
+    over the hole and fades out round it. The edge of the photos out at
+    sea follows the tiles, in steps, and its sea is not the same blue as
+    the satellite's: it takes a wide fade to hide.
+    """
+    rgb, mask, px, size_m, (fx, fz) = fine
+    c_rgb, c_px, c_m, (cx, cz) = coarse
+    if not any(mask):
+        return rgb
+    side = c_px * size_m / c_m
+    off_x = c_px / 2 + (fx - cx) / c_m * c_px - side / 2
+    off_z = c_px / 2 + (fz - cz) / c_m * c_px - side / 2
+    mask_path = raw_file(f'{label}-mask.gray', bytes(255 if m else 0 for m in mask))
+    out = subprocess.run(
+        ['ffmpeg', '-loglevel', 'error',
+         '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', f'{px}x{px}', '-i', raw_file(f'{label}.rgb', rgb),
+         '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', f'{c_px}x{c_px}', '-i', raw_file(f'{label}-under.rgb', c_rgb),
+         '-f', 'rawvideo', '-pix_fmt', 'gray', '-s', f'{px}x{px}', '-i', mask_path,
+         '-filter_complex',
+         f'[1]crop={side:.3f}:{side:.3f}:{off_x:.3f}:{off_z:.3f},scale={px}:{px}:flags=bicubic,format=gbrp[under];'
+         f'[0]format=gbrp[top];'
+         f'[2]gblur=sigma={sigma},lut=y=min(val*2\\,255),format=gbrp[m];'
+         f'[top][under][m]maskedmerge,format=rgb24',
+         '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'],
+        capture_output=True, check=True,
+    ).stdout
+    print(f'  {label}: {sum(mask)} pixels from the level beneath', flush=True)
+    return bytearray(out)
+
+
+def build_close(near_rgb, near_px, near_m, near_c):
+    """The landing area's photo, the near one showing where it has no data."""
+    name, size_m, size_px, source, centre = LEVELS[-1]
+    rgb, mask = mosaic(source, level_zoom(source, size_m, size_px, 19), size_m, size_px, name, *centre)
+    rgb = blend((rgb, mask, size_px, size_m, centre), (near_rgb, near_px, near_m, near_c), name, 40)
+    # Drawn about the origin, as erase_bridges takes it.
+    erase_bridges(rgb, size_px, size_m)
+    path = os.path.join(ROOT, 'public', 'dz', DZ_ID, f'{name}.jpg')
+    encode(rgb, size_px, size_px, path, quality=5)
+    print(f'  wrote {name}.jpg', os.path.getsize(path) // 1024, 'KB', flush=True)
+
+
+# `--only close`: the landing area's photo alone, for a drop zone built before
+# it existed, from the near photo already in public/dz, and the module's list of
+# photos updated. Needs neither the cached state nor Overpass.
+if ONLY == {'close'}:
+    import re  # noqa: PLC0415
+    print('close', DZ_ID, flush=True)
+    near_name, near_m, near_px, _, near_c = LEVELS[2]
+    near_rgb = bytearray(decode(os.path.join(ROOT, 'public', 'dz', DZ_ID, f'{near_name}.jpg'), near_px, near_px))
+    build_close(near_rgb, near_px, near_m, near_c)
+    module = os.path.join(ROOT, 'src', 'world', 'data', f'{DZ_ID}.ts')
+    with open(module) as f:
+        text = f.read()
+    text, n = re.subn(r'^  imagery: .*$', lambda _: f'  imagery: {json.dumps(IMAGERY)},', text, count=1, flags=re.M)
+    if n != 1:
+        raise SystemExit(f'{module}: no imagery line')
+    with open(module, 'w') as f:
+        f.write(text)
+    print(f'  {module}: imagery updated', flush=True)
+    sys.exit(0)
+
+
 # =================================================================================
 print('build', DZ_ID, flush=True)
 data_out = os.path.join(ROOT, 'src', 'world', 'data', f'{DZ_ID}.ts')
@@ -1071,17 +1169,6 @@ if EXIT_RELIEF and exit_lips() and (ONLY is None or 'relief' in ONLY):
 PLAIN = state['relief']['plain']
 
 # --- Imagery -------------------------------------------------------------------------
-IMG = CONF.get('imageryLevels', {})
-# Their centre, local metres, to the metre: the origin unless the drop zone's lines lie elsewhere.
-IMG_C = tuple(round(v) for v in local(*IMG['centre'])) if 'centre' in IMG else (0, 0)
-LEVELS = [
-    # name, metres a side, pixels a side, source, centre
-    ('far', 81920, 2048, 'sentinel', (0, 0)),
-    ('mid', IMG.get('mid_m', 16384), 4096, CONF['imagery'], IMG_C),
-    ('near', IMG.get('near_m', 4096), 4096, CONF['imagery'], IMG_C),
-]
-
-
 def spot_centres():
     """Squares of photo at 1 m about each exit and each landing, where the levels are coarser: centres, local metres."""
     if 'spots_m' not in IMG:
@@ -1096,9 +1183,9 @@ def spot_centres():
 SPOT_PX = 1024
 if ONLY is None or 'imagery' in ONLY:
     levels = {}
-    for name, size_m, size_px, source, middle in LEVELS:
-        zoom = min(zoom_for(size_m / size_px * 1.25), 18 if source != 'sentinel' else 13)
-        rgb, mask = mosaic(source, zoom, size_m, size_px, name, *middle)
+    # The landing area's, the finest, is built last, over the near one.
+    for name, size_m, size_px, source, middle in LEVELS[:-1]:
+        rgb, mask = mosaic(source, level_zoom(source, size_m, size_px), size_m, size_px, name, *middle)
         levels[name] = (rgb, mask, size_px, size_m, middle)
     # Colours of the satellite level matched to the photos over the ground they share.
     far_rgb, far_mask, far_px, far_m, far_c = levels['far']
@@ -1106,47 +1193,6 @@ if ONLY is None or 'imagery' in ONLY:
     gain = match_colours(mid_rgb, mid_mask, mid_px, mid_m, far_rgb, far_px, far_m, mid_c, far_c)
     print('  far scale and offset to match the photos', [(round(a, 2), round(b, 1)) for a, b in gain], flush=True)
     apply_gain(far_rgb, gain)
-    work = os.path.join(CACHE, 'stitch', f'{DZ_ID}-blend')
-    os.makedirs(work, exist_ok=True)
-
-    def raw_file(name, data):
-        path = os.path.join(work, name)
-        with open(path, 'wb') as f:
-            f.write(data)
-        return path
-
-    def blend(fine, coarse, label, sigma):
-        """
-        Where the fine level has no data, the coarse one shows through, with
-        a soft edge: the mask is blurred, then doubled so that it stays full
-        over the hole and fades out round it. The edge of the photos out at
-        sea follows the tiles, in steps, and its sea is not the same blue as
-        the satellite's: it takes a wide fade to hide.
-        """
-        rgb, mask, px, size_m, (fx, fz) = fine
-        c_rgb, c_px, c_m, (cx, cz) = coarse
-        if not any(mask):
-            return rgb
-        side = c_px * size_m / c_m
-        off_x = c_px / 2 + (fx - cx) / c_m * c_px - side / 2
-        off_z = c_px / 2 + (fz - cz) / c_m * c_px - side / 2
-        mask_path = raw_file(f'{label}-mask.gray', bytes(255 if m else 0 for m in mask))
-        out = subprocess.run(
-            ['ffmpeg', '-loglevel', 'error',
-             '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', f'{px}x{px}', '-i', raw_file(f'{label}.rgb', rgb),
-             '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', f'{c_px}x{c_px}', '-i', raw_file(f'{label}-under.rgb', c_rgb),
-             '-f', 'rawvideo', '-pix_fmt', 'gray', '-s', f'{px}x{px}', '-i', mask_path,
-             '-filter_complex',
-             f'[1]crop={side:.3f}:{side:.3f}:{off_x:.3f}:{off_z:.3f},scale={px}:{px}:flags=bicubic,format=gbrp[under];'
-             f'[0]format=gbrp[top];'
-             f'[2]gblur=sigma={sigma},lut=y=min(val*2\\,255),format=gbrp[m];'
-             f'[top][under][m]maskedmerge,format=rgb24',
-             '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'],
-            capture_output=True, check=True,
-        ).stdout
-        print(f'  {label}: {sum(mask)} pixels from the level beneath', flush=True)
-        return bytearray(out)
-
     mid_rgb = blend(levels['mid'], (far_rgb, far_px, far_m, far_c), 'mid', 100)
     near_rgb = blend(levels['near'], (mid_rgb, mid_px, mid_m, mid_c), 'near', 100)
     erase_bridges(mid_rgb, mid_px, mid_m)
@@ -1154,6 +1200,7 @@ if ONLY is None or 'imagery' in ONLY:
     for name, rgb, px in (('far', far_rgb, far_px), ('mid', mid_rgb, mid_px), ('near', near_rgb, levels['near'][2])):
         encode(rgb, px, px, os.path.join(img_dir, f'{name}.jpg'), quality={'near': 5, 'mid': 6, 'far': 6}[name])
         print(f'  wrote {name}.jpg', os.path.getsize(os.path.join(img_dir, f"{name}.jpg")) // 1024, 'KB', flush=True)
+    build_close(near_rgb, levels['near'][2], levels['near'][3], levels['near'][4])
     # The squares at 1 m, side by side in one picture, two to a row.
     spots = spot_centres()
     if spots:
@@ -1529,8 +1576,7 @@ out = {
     'origin': {'lat': LAT0, 'lon': LON0, 'elevation': round(PLAIN, 1)},
     'near': {'size': NEAR['size'], 'spacing': NEAR['spacing'], 'heights': [rel(h) for h in relief['near']]},
     'far': {'size': FAR['size'], 'spacing': FAR['spacing'], 'heights': [round(h - PLAIN) for h in relief['far']]},
-    'imagery': [{'url': f'dz/{DZ_ID}/{name}.jpg', 'size': size_m, **({'x': c[0], 'z': c[1]} if c != (0, 0) else {})}
-                for name, size_m, _, _, c in reversed(LEVELS)],
+    'imagery': IMAGERY,
 }
 if spot_centres():
     cells = 2 if len(spot_centres()) <= 4 else 3
