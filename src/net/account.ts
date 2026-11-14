@@ -13,8 +13,6 @@ const client = createAuthClient({ basePath: '/api/auth', plugins: [anonymousClie
 export interface Account {
   id: string;
   name: string;
-  /** Google's picture, once signed in with it. */
-  image: string | null;
   /** Made by the game, not signed in: it goes with this browser's cookies. */
   anonymous: boolean;
 }
@@ -22,11 +20,10 @@ export interface Account {
 interface SessionUser {
   id: string;
   name: string;
-  image?: string | null;
   isAnonymous?: boolean | null;
 }
 
-const toAccount = (user: SessionUser): Account => ({ id: user.id, name: user.name, image: user.image ?? null, anonymous: !!user.isAnonymous });
+const toAccount = (user: SessionUser): Account => ({ id: user.id, name: user.name, anonymous: !!user.isAnonymous });
 
 /** The account this browser is signed in with; null if none yet, or if the server cannot be reached. */
 export async function loadAccount(): Promise<Account | null> {
