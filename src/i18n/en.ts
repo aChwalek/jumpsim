@@ -40,6 +40,8 @@ export const en: Strings = {
       limska: 'The A9 viaduct over the Limska draga, in Istria',
       millau: 'The Millau viaduct over the Tarn, 270 m up (forbidden for real)',
       brento: "The Becco dell'Aquila, over the Sarca valley",
+      chamonix: 'The Aiguille des Deux Aigles, over the Pèlerins glacier, landing at the Planards',
+      'chamonix-durier': 'The Pointe Durier at 4000 m, over the Bossons glacier, landing at Taconnaz',
     },
     made: 'Imaginary DZ',
     credits: {
@@ -50,6 +52,7 @@ export const en: Strings = {
       croatia: 'Photos DOF5 2019/20 © DGU (Otvorena dozvola), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       usa: 'Photos USDA NAIP (USGS), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       trentino: 'Photos and LiDAR © Provincia autonoma di Trento (CC BY 4.0), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
+      franceLidar: 'Photos and LiDAR HD relief IGN, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
     },
   },
 

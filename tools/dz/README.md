@@ -32,7 +32,8 @@ heading, its length and the height down to the landing field). A cliff or a
 narrow valley needs finer relief than the near grid gives: `fineRelief` lays a
 square of it over the near grid, sampled from a national survey where one is
 open (`survey`: `swissalti3d` in Switzerland, `rgealti` in France, through the
-Géoplateforme's altimetry service, `pat` in Trentino), else from the terrain
+Géoplateforme's altimetry service, or `lidarhd`, the IGN's LiDAR HD through the
+same service, far truer in the high mountains, `pat` in Trentino), else from the terrain
 tiles at their finest (`terrarium`), which follow a valley floor better than
 the 100 m grid but know no more than the tiles do. Off a cliff, `fineRelief.exit`
 (`size_m`, a multiple of the fine spacing, and `spacing_m`) samples a smaller
@@ -56,6 +57,22 @@ on a bridge names it (`bridge`, an index), the station along it and the side:
 the exit is then on the lip of the deck, outside the parapet, square to the
 road, with no run-up, and its height is the road's above the landing field.
 
+`fineRelief.box_m` (west, north, east, south, local metres, on the mesh's lines:
+100 m apart within `nearRelief.size` × 50 m of the origin, 400 m beyond) makes it
+a rectangle instead of a square, for lines longer one way than the other.
+
+Several exits, each with its own landing (Chamonix): `exits` lists them, each
+with its `lip` (lat, lon), `heading_deg`, `runUp_m` (the run starts that far back
+from the lip), `width_m`, the index of its landing area in `landingAreas` and its
+`target`; its height above its target is worked out from the fine relief. Each
+gets its own square of exit relief. The look in `src/world/realDzs.ts` picks one
+(`exit`), and `src/world/dzs.ts` lists one entry per exit, sharing the data and
+the photos and grouped under one card in the menu (`place`). `osmAreas` fetches
+buildings and woods round each landing, `imageryLevels` centres the near and
+mid photos on the middle of the lines (`centre`, `near_m`, `mid_m`) and adds
+squares at 1 m about each exit and each landing (`spots_m`, in `spots.jpg`),
+and `snow` stops white patches being taken for the sea beyond the photo flights.
+
 `imagery` names the orthophotos (`ign`, `pnoa`, `swissimage`, `dgu`, `pat` or `naip`), and
 `overpass` may name servers to ask first, such as a national mirror.
 
@@ -77,8 +94,8 @@ z south, metres. The photos map onto it with no resampling distortion.
 
 - Orthophotos, France and overseas: IGN BD ORTHO, Géoplateforme WMTS,
   Licence Ouverte / Etalab 2.0.
-- Fine relief, France: RGE ALTI, IGN, Géoplateforme altimetry service,
-  Licence Ouverte / Etalab 2.0.
+- Fine relief, France: RGE ALTI and LiDAR HD, IGN, Géoplateforme altimetry
+  service, Licence Ouverte / Etalab 2.0.
 - Orthophotos, Spain: PNOA, © Instituto Geográfico Nacional de España,
   CC BY 4.0 (scne.es).
 - Orthophotos and fine relief, Switzerland: SWISSIMAGE and swissALTI3D,

@@ -13,6 +13,7 @@ import { SIM_DT } from '../src/sim/telemetry';
 import type { Suit } from '../src/sim/suit';
 import { vec3 } from '../src/sim/vec';
 import { DATA as BRENTO } from '../src/world/data/brento';
+import { DATA as CHAMONIX } from '../src/world/data/chamonix';
 import { DATA as LAUTERBRUNNEN } from '../src/world/data/lauterbrunnen';
 import { DATA as LIMSKA } from '../src/world/data/limska';
 import { DATA as MILLAU } from '../src/world/data/millau';
@@ -235,4 +236,18 @@ describe('bots off the real objects', () => {
     }
     allDown(r, dz, 150);
   }, 30_000);
+
+  test.each([
+    ['chamonix', 20, 600],
+    ['chamonix-durier', 60, 2500],
+  ] as const)('%s in wingsuits: the line flown straight out, the pull well over the face with the landing in reach, down on it', (id, seconds, out) => {
+    const dz = createRealDz(CHAMONIX, LOOKS[id]);
+    const r = flyOff(dz, 2, 'us', { elevation: CHAMONIX.origin.elevation, suit: { kind: 'wingsuit', level: 2 }, seconds: 900 });
+    for (const f of r.flown) {
+      expect(f.bot.jump.log.freefallSeconds).toBeGreaterThan(seconds);
+      expect(f.openOut!).toBeGreaterThan(out);
+      expect(f.openHeight!).toBeGreaterThan(250);
+    }
+    allDown(r, dz, 300);
+  }, 60_000);
 });

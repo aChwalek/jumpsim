@@ -227,6 +227,18 @@ const BASE_PULL_FROM = 3;
 /** And this long after the exit at the latest, s. */
 const BASE_LONGEST = 30;
 const BASE_LONGEST_WINGS = 60;
+/**
+ * In wings off a mountain this high, m, the face goes on down for kilometres
+ * under the line, never far below: the suit is flown straight out hands off,
+ * as the lines were checked to clear, and the pull comes once this long out,
+ * s, this high over the ground, m, with the landing within a canopy's glide
+ * (height over it per metre to go); at the latest this long out, s.
+ */
+const BASE_LINE_FROM = 1500;
+const BASE_LINE_SOONEST = 15;
+const BASE_LINE_CLEAR = 300;
+const BASE_LINE_GLIDE = 0.45;
+const BASE_LINE_LATEST = 90;
 /** This far out from the exit, m, the track comes round towards the landing area, this fast, degrees per second. */
 const BASE_CLEAR = 150;
 const BASE_TURNS = 8;
@@ -282,6 +294,8 @@ interface BaseJump {
   longest: number;
   /** Off this long after the one before it, s. */
   gap: number;
+  /** In wings down a long mountain line: flown straight out hands off until the landing is within reach. */
+  line: boolean;
 }
 
 /**
@@ -439,6 +453,7 @@ export class Bot {
         floor: wings ? BASE_FLOOR_WINGS : BASE_FLOOR,
         longest: wings ? BASE_LONGEST_WINGS : BASE_LONGEST,
         gap: track ? BASE_GAP_TRACKED : BASE_GAP,
+        line: wings && track && height > BASE_LINE_FROM,
       };
     }
   }
@@ -572,12 +587,21 @@ export class Bot {
     const t = jump.time;
     const p = this.model.state.pos;
     const { run, landing, groundAt } = this.plan;
+    const input = this.input;
+    if (base.line) {
+      // Out along the face, then the pull, well over it, the canopy to fly the rest of the way down.
+      const over = p.y - groundAt(landing.x, landing.z);
+      const reach = over / Math.max(1, Math.hypot(landing.x - p.x, landing.z - p.z));
+      if ((t > BASE_LINE_SOONEST && jump.height() > BASE_LINE_CLEAR && reach > BASE_LINE_GLIDE) || t > BASE_LINE_LATEST) return jump.act();
+      input.forward = 0;
+      input.turn = 0;
+      return;
+    }
     const low = () => jump.height() < base.floor || p.y - groundAt(landing.x, landing.z) < base.over;
     if (base.track ? (t > BASE_PULL_FROM && low()) || t > base.longest : t >= base.delay) {
       this.tracking = false;
       return jump.act();
     }
-    const input = this.input;
     if (base.track && t > BASE_TRACK_AFTER) {
       this.tracking = true;
       input.forward = BASE_DRIVE;
