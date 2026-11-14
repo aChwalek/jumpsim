@@ -2,7 +2,14 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   // The static site, and a small Worker for the multiplayer's signalling:
   // assets are served first, the Worker only sees /signal/<room>.
+  // The Worker keeps the project's first name: renaming it would make a new
+  // Worker (another workers.dev URL, empty rooms, Workers Builds unlinked).
   "name": "jumpsim",
+  // Served at lowpull.app (zone in the same account). workers_dev is kept on
+  // by hand: wrangler turns it off as soon as there are routes, which would
+  // break the links already shared and the branches' Preview URLs.
+  "routes": [{ "pattern": "lowpull.app", "custom_domain": true }],
+  "workers_dev": true,
   "compatibility_date": "2026-11-01",
   "main": "./worker/index.ts",
   "assets": {

@@ -1,6 +1,6 @@
 {
-  "name": "jumpsim",
-  "short_name": "jumpsim",
+  "name": "Low Pull",
+  "short_name": "Low Pull",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",

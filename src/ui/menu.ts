@@ -552,7 +552,7 @@ export class Menu {
     this.cornerLogbook.addEventListener('click', () => this.toggleScreen('logbook'));
     this.cornerSettings.addEventListener('click', () => this.toggleScreen('settings'));
     corner.append(this.nav.add(this.cornerLanguage), this.nav.add(this.cornerLogbook), this.nav.add(this.cornerSettings));
-    const brand = html(`<header class="menu-brand">${LOGO}<div><h1>jumpsim</h1><p>${T.menu.tagline}</p></div></header>`);
+    const brand = html(`<header class="menu-brand">${LOGO}<div><h1>Low Pull</h1><p>${T.menu.tagline}</p></div></header>`);
     this.root.replaceChildren(brand, this.panel, this.buildSide(), corner);
   }
 
