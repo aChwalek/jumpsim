@@ -5,10 +5,15 @@
   // The Worker keeps the project's first name: renaming it would make a new
   // Worker (another workers.dev URL, empty rooms, Workers Builds unlinked).
   "name": "jumpsim",
-  // Served at lowpull.app (zone in the same account). workers_dev is kept on
-  // by hand: wrangler turns it off as soon as there are routes, which would
-  // break the links already shared and the branches' Preview URLs.
-  "routes": [{ "pattern": "lowpull.app", "custom_domain": true }],
+  // Served at jump.lowpull.app (zone in the same account); lowpull.app itself
+  // is kept for other parachute apps later. Branch previews also get
+  // <branch>.jump.lowpull.app (previews_enabled). Every custom domain must be
+  // listed here: a deploy replaces the Worker's domains with this list, so one
+  // added only in the dashboard disappears at the next deploy.
+  // workers_dev is kept on by hand: wrangler turns it off as soon as there are
+  // routes, which would break the links already shared and the branches'
+  // Preview URLs.
+  "routes": [{ "pattern": "jump.lowpull.app", "custom_domain": true, "previews_enabled": true }],
   "workers_dev": true,
   "compatibility_date": "2026-11-01",
   "main": "./worker/index.ts",
