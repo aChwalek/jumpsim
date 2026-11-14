@@ -531,6 +531,13 @@
   html:not(.sideways) #menu .tiles { grid-template-columns: 1fr 1fr; }
   html:not(.sideways) #menu .aside-dz .thumb { width: 64px; height: 42px; }
 }
+/* Narrower still, the name shares its row with the corner's buttons: smaller, then only the logo. */
+@media (max-width: 440px) {
+  html:not(.sideways) #menu .menu-brand h1 { font-size: 22px; }
+}
+@media (max-width: 380px) {
+  html:not(.sideways) #menu .menu-brand h1 { display: none; }
+}
 
 /* A phone on its side, or upright and turned on its side (see viewport.ts): little height. */
 @media (max-height: 500px) and (orientation: landscape) {
