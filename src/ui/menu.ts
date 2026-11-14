@@ -25,6 +25,7 @@ import { CANOPY_COLORS, type CanopyColorId } from '../render/canopyColors';
 import { CrewView, type CrewLook, type CrewMember } from '../render/crewView';
 import { SMOKE_BURN, SMOKE_COLORS, SMOKE_KINDS, type SmokeColor, type SmokeKind } from '../render/smoke';
 import { OUTFIT_COLORS, OUTFIT_COLOR_IDS, type OutfitColor } from '../render/outfit';
+import { bestScore } from '../challenge';
 import { OUTCOME_GROUPS, clearLogbook, loadLogbook, logStats, type LogEntry } from '../logbook';
 import { clearTracks, storedTracks, trackId } from '../replay/store';
 import { PROGRESSIVE_RATE_MAX, PROGRESSIVE_RATE_MIN, QUALITY_LEVELS, SENSITIVITY_MAX, SENSITIVITY_MIN, type Settings } from '../settings';
@@ -93,17 +94,23 @@ import {
   ICON_PEOPLE,
   ICON_PLANE,
   ICON_PLAY,
+  ICON_TROPHY,
+  ICON_USER,
   ICON_WEATHER,
   LOGO,
 } from './icons';
 import { Nav } from './nav';
 import { MAX_PEERS } from '../net/protocol';
-import type { SharedSetup } from '../net/room';
+import { NAME_MAX, cleanName, type SharedSetup } from '../net/room';
+import { loadBoard, loadPlaces, madeUpName } from '../net/leaderboard';
+import type { Account } from '../net/account';
+import type { Board, BoardRow, Place } from '../net/scores';
 
 export type { Start } from '../setup';
 
 type Category = 'dz' | 'gear' | 'jump' | 'team' | 'weather';
-type ScreenId = 'home' | Category | 'settings' | 'logbook';
+type ScreenId = 'home' | Category | 'settings' | 'logbook' | 'leaderboard' | 'profile';
+type CornerScreen = 'settings' | 'logbook' | 'leaderboard';
 
 const CATEGORIES: { id: Category; icon: string }[] = [
   { id: 'dz', icon: ICON_DZ },
@@ -314,6 +321,11 @@ export class Menu {
   onJoinPublic: () => void = () => {};
   onLeaveRoom: () => void = () => {};
   onRename: () => void = () => {};
+  /** A name typed in the menu: the settings are changed by the callee, which resolves once the boards have it too. */
+  onNameChange: (name: string) => Promise<void> = async () => {};
+  /** Off to Google to sign in (the page goes, and comes back signed in). */
+  onSignIn: () => void = () => {};
+  onSignOut: () => void = () => {};
   /** In a room, the jump button: ready for the next jump, or no longer. */
   onReady: (ready: boolean) => void = () => {};
   /** Leading a room: everyone goes now, ready or not. */
@@ -341,7 +353,26 @@ export class Menu {
   private cornerSettings!: HTMLButtonElement;
   private cornerLogbook!: HTMLButtonElement;
   private cornerLanguage!: HTMLButtonElement;
+  private cornerBoard!: HTMLButtonElement;
   private logbookBody!: HTMLElement;
+  /** The drop zone whose leaderboard shows, and where its rows go. */
+  private boardDz: DzId = 'valbrise';
+  private boardBody!: HTMLElement;
+  private boardDzRow!: HTMLElement;
+  /** Each board asked for gets the next number: an answer for an older one is dropped. */
+  private boardAsks = 0;
+  /** How many have a score on the board shown; null until it comes. */
+  private boardPlayers: number | null = null;
+  /** The account signed in (null: none yet), whether Google is offered, and the account's places (undefined while asked, null when they could not be). */
+  private account: Account | null = null;
+  private google = false;
+  private places: Place[] | null | undefined = undefined;
+  /** From the logbook, read again when the menu opens: for the profile. */
+  private profileStats = { jumps: 0, bestScore: null as number | null };
+  private profileLine!: HTMLButtonElement;
+  private profileBody!: HTMLElement;
+  /** On each drop zone's card, its best accuracy score. */
+  private readonly dzRecords = new Map<DzId, HTMLElement>();
   private clearArmed = 0;
   /** The last jump of the logbook watched again, to come back to its line. */
   private watched: string | null = null;
@@ -388,6 +419,9 @@ export class Menu {
     this.isOpen = true;
     this.root.style.display = 'grid';
     this.nav.holdUntilReleased();
+    // A jump may have gone in the logbook, and up the boards, since last time.
+    this.readStats();
+    this.readPlaces();
     if (screen !== 'logbook') return this.show('home', canCancel ? this.resume : this.jump);
     this.show('logbook');
     // Back on the line of the jump just watched.
@@ -431,6 +465,49 @@ export class Menu {
     this.map.update(this.setup);
     this.crew.show(this.crewLook());
     this.nav.refresh();
+  }
+
+  /** The player's name changed outside the menu's own fields: shown again, and on the board. */
+  refreshNames(): void {
+    this.refresh();
+    if (this.screen === 'leaderboard') this.fillBoard();
+    if (this.screen === 'profile') this.fillProfile();
+  }
+
+  /** The account signed in, or none: on the home's pilot line and the profile. */
+  setAccount(account: Account | null): void {
+    const changed = account?.id !== this.account?.id;
+    this.account = account;
+    if (changed) {
+      this.places = undefined;
+      this.readPlaces();
+    }
+    this.refresh();
+    if (this.screen === 'profile') this.fillProfile();
+  }
+
+  /** Whether signing in with Google is offered. */
+  setGoogle(offered: boolean): void {
+    this.google = offered;
+    if (this.screen === 'profile') this.fillProfile();
+  }
+
+  /** The account's places, asked for again: on the pilot line and the profile once they come. */
+  private readPlaces(): void {
+    if (!this.account) return;
+    const asked = this.account.id;
+    void loadPlaces().then((places) => {
+      if (this.account?.id !== asked) return;
+      this.places = places;
+      this.refresh();
+      if (this.screen === 'profile') this.fillProfile();
+    });
+  }
+
+  /** The logbook read again for the profile: jumps, best score. */
+  private readStats(): void {
+    const stats = logStats(loadLogbook());
+    this.profileStats = { jumps: stats.jumps, bestScore: stats.bestScore };
   }
 
   /** Who stands on the right: us, and the others in the room, or the bots that jump with us. */
@@ -535,6 +612,8 @@ export class Menu {
     this.screens.set('settings', this.buildSettings());
     this.logbookBody = h('div', 'body logbook');
     this.screens.set('logbook', this.buildLogbook());
+    this.screens.set('leaderboard', this.buildLeaderboard());
+    this.screens.set('profile', this.buildProfile());
     for (const s of this.screens.values()) this.panel.append(s);
 
     const corner = h('div', 'menu-corner');
@@ -543,15 +622,25 @@ export class Menu {
     this.cornerLanguage.title = T.menu.languageTitle;
     this.cornerLanguage.dataset.key = 'lang';
     this.cornerLanguage.addEventListener('click', () => this.setLanguage(LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length]!));
+    this.cornerBoard = button('corner-btn');
     this.cornerLogbook = button('corner-btn');
     this.cornerSettings = button('corner-btn');
+    this.cornerBoard.innerHTML = `${ICON_TROPHY}<span>${T.menu.leaderboard}</span>`;
     this.cornerLogbook.innerHTML = `${ICON_BOOK}<span>${T.menu.logbook}</span><i class="btn pad">X</i>`;
     this.cornerSettings.innerHTML = `${ICON_COG}<span>${T.menu.settings}</span><i class="btn pad">Y</i>`;
+    this.cornerBoard.title = T.menu.leaderboardTitle;
     this.cornerLogbook.title = T.menu.logbookTitle;
     this.cornerSettings.title = T.menu.settingsTitle;
+    this.cornerBoard.dataset.key = 'corner-leaderboard';
+    this.cornerBoard.addEventListener('click', () => this.toggleScreen('leaderboard'));
     this.cornerLogbook.addEventListener('click', () => this.toggleScreen('logbook'));
     this.cornerSettings.addEventListener('click', () => this.toggleScreen('settings'));
-    corner.append(this.nav.add(this.cornerLanguage), this.nav.add(this.cornerLogbook), this.nav.add(this.cornerSettings));
+    corner.append(
+      this.nav.add(this.cornerLanguage),
+      this.nav.add(this.cornerBoard),
+      this.nav.add(this.cornerLogbook),
+      this.nav.add(this.cornerSettings),
+    );
     const brand = html(`<header class="menu-brand">${LOGO}<div><h1>jumpsim</h1><p>${T.menu.tagline}</p></div></header>`);
     this.root.replaceChildren(brand, this.panel, this.buildSide(), corner);
   }
@@ -636,15 +725,24 @@ export class Menu {
     this.crew.setActive(this.isOpen && !map);
     this.cornerSettings.classList.toggle('on', id === 'settings');
     this.cornerLogbook.classList.toggle('on', id === 'logbook');
+    this.cornerBoard.classList.toggle('on', id === 'leaderboard');
     if (id === 'logbook') this.fillLogbook();
+    if (id === 'dz') this.fillRecords();
+    // The board of the drop zone chosen, each time it is opened (and again when rebuilt in another language).
+    if (id === 'leaderboard') {
+      if (from !== 'leaderboard') this.boardDz = this.setup.dz;
+      this.fillBoard();
+    }
+    if (id === 'profile') this.fillProfile();
     this.refresh();
     const screen = this.screens.get(id)!;
     screen.querySelector('.body')?.scrollTo(0, 0);
     let target = focus ?? null;
     if (!target && id === 'home') {
       // Back home, the focus goes back to where the screen just left was opened from.
-      const opener = from === 'settings' ? this.cornerSettings : from === 'logbook' ? this.cornerLogbook : null;
-      target = this.lines.get(from as Category) ?? opener ?? (this.canCancel ? this.resume : this.jump);
+      const opener =
+        from === 'settings' ? this.cornerSettings : from === 'logbook' ? this.cornerLogbook : from === 'leaderboard' ? this.cornerBoard : null;
+      target = this.lines.get(from as Category) ?? opener ?? (from === 'profile' ? this.profileLine : null) ?? (this.canCancel ? this.resume : this.jump);
     }
     // Elsewhere it goes to the first line, not to the back button.
     target ??= screen.querySelector<HTMLElement>('.body [data-nav]:not(.disabled)');
@@ -656,7 +754,7 @@ export class Menu {
     else this.show('home');
   }
 
-  private toggleScreen(id: 'settings' | 'logbook'): void {
+  private toggleScreen(id: CornerScreen): void {
     this.show(this.screen === id ? 'home' : id);
   }
 
@@ -754,7 +852,9 @@ export class Menu {
     Object.assign(plan, change);
     plan.exitHeight = validExitHeight(plan.exitHeight);
     if (plan.runDeg !== null) plan.runDeg = validHeading(plan.runDeg);
-    this.changedSetup();
+    // The challenges lay their target on the ground, which shows behind the menu and on the map.
+    if ('challenges' in change) this.changedScenery();
+    else this.changedSetup();
   }
 
   private setBots(change: Partial<BotsPlan>): void {
@@ -911,9 +1011,149 @@ export class Menu {
     return hints(T.menu.hints.detail, T.menu.hints.detailPad);
   }
 
+  /** The player's picture: Google's, or the first letter of their name. */
+  private avatar(cls: string): HTMLElement {
+    const box = h('span', `avatar ${cls}`);
+    const img = h('img');
+    img.alt = '';
+    img.referrerPolicy = 'no-referrer';
+    // A picture that does not load: the letter instead, for good.
+    let failed = '';
+    img.addEventListener('error', () => {
+      failed = img.getAttribute('src') ?? '';
+      box.classList.remove('photo');
+    });
+    const letter = h('span', 'letter');
+    box.append(img, letter);
+    this.updaters.push(() => {
+      const src = this.account?.image ?? '';
+      if (img.getAttribute('src') !== src) {
+        if (src) img.src = src;
+        else img.removeAttribute('src');
+      }
+      box.classList.toggle('photo', !!src && src !== failed);
+      letter.textContent = (this.settings.playerName || T.menu.room.defaultName).charAt(0).toUpperCase();
+    });
+    return box;
+  }
+
+  /** How the player stands, in a line: guest or signed in, jumps, best score, best place. */
+  private profileSummary(): string {
+    const p = T.menu.profile;
+    const { jumps, bestScore } = this.profileStats;
+    const best = this.places?.[0];
+    return [
+      this.account && !this.account.anonymous ? p.google : p.guest,
+      p.jumps(jumps),
+      bestScore === null ? '' : p.record(num(bestScore)),
+      best ? p.place(T.ordinal(best.rank), dzInfo(best.dz).name) : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
+
+  /** At the top of the home: who is jumping. To the profile. */
+  private buildProfileLine(): HTMLButtonElement {
+    const p = T.menu.profile;
+    const label = html(`<span class="line-label">${ICON_USER}<span>${p.line}</span></span>`);
+    const big = h('span', 'big');
+    const sub = h('span', 'sub');
+    const main = h('span', 'line-main', big, sub);
+    const aside = h('span', 'line-aside', this.avatar('small'));
+    const more = h('span', 'line-more');
+    more.innerHTML = ICON_MORE;
+    const line = button('line line-profile', label, main, aside, more);
+    line.dataset.key = 'line-profile';
+    line.addEventListener('click', () => this.show('profile'));
+    this.updaters.push(() => {
+      // The name is the player's own: text, not markup.
+      big.textContent = this.settings.playerName || T.menu.room.defaultName;
+      sub.textContent = this.profileSummary();
+    });
+    this.profileLine = line;
+    return line;
+  }
+
+  /** The profile: name, account, numbers, places on the boards. */
+  private buildProfile(): HTMLElement {
+    const p = T.menu.profile;
+    const { screen, body } = this.screenShell('profile', p.title);
+    const name = h('b', 'profile-name');
+    const status = h('span', 'profile-status');
+    this.updaters.push(() => {
+      name.textContent = this.settings.playerName || T.menu.room.defaultName;
+      status.textContent = this.account && !this.account.anonymous ? p.google : p.guest;
+    });
+    const head = h('div', 'profile-head', this.avatar('big'), h('div', 'profile-who', name, status));
+    this.profileBody = h('div', 'profile-more');
+    body.append(head, this.nameRow('name-profile'), this.profileBody);
+    screen.append(hints(T.menu.hints.profile, T.menu.hints.profilePad));
+    return screen;
+  }
+
+  /** The part of the profile that changes with the account and the places: laid out again. */
+  private fillProfile(): void {
+    const p = T.menu.profile;
+    const body = this.profileBody;
+    const hadFocus = body.contains(this.nav.current);
+    const parts: HTMLElement[] = [h('h3', 'section', p.account)];
+    const signedIn = this.account && !this.account.anonymous;
+    if (signedIn) {
+      parts.push(this.action(p.signOut, () => this.onSignOut(), { note: () => p.signOutNote }));
+    } else if (this.google) {
+      const go = this.action(p.signIn, () => this.onSignIn(), { note: () => p.signInNote, key: 'sign-in' });
+      go.querySelector('.action')?.classList.add('google');
+      parts.push(go, h('p', 'note profile-note', p.guestNote));
+    } else {
+      parts.push(h('p', 'note profile-note', `${p.guestNote} ${p.unavailable}`));
+    }
+
+    const { jumps, bestScore } = this.profileStats;
+    const best = this.places?.[0];
+    const tile = (value: string, label: string, sub = ''): HTMLElement =>
+      h('div', 'tile', h('b', '', value), h('span', '', label), ...(sub ? [h('small', '', sub)] : []));
+    parts.push(
+      h('h3', 'section', p.stats),
+      h(
+        'div',
+        'tiles',
+        tile(num(jumps), p.jumpsTile(jumps)),
+        tile(bestScore === null ? '—' : `${num(bestScore)} pts`, p.recordTile),
+        tile(best ? T.ordinal(best.rank) : '—', p.bestPlaceTile, best ? `${dzInfo(best.dz).name} · ${p.of(best.players)}` : ''),
+      ),
+      h('h3', 'section', p.places),
+    );
+    if (!this.account || this.places?.length === 0) parts.push(h('p', 'empty', p.noPlaces));
+    else if (this.places === undefined) parts.push(h('p', 'empty', T.menu.loading));
+    else if (this.places === null) parts.push(h('p', 'empty', p.offline));
+    for (const place of this.places ?? []) {
+      const open = (): void => {
+        this.show('leaderboard');
+        this.boardDz = place.dz;
+        this.refresh();
+        this.fillBoard();
+      };
+      const row = h(
+        'div',
+        `row entry board-row place-row${place.rank <= 3 ? ` podium p${place.rank}` : ''}`,
+        h('span', 'n', T.ordinal(place.rank)),
+        h('span', 'what', h('b', '', dzInfo(place.dz).name), h('small', '', p.of(place.players))),
+        h('span', 'res', h('b', '', `${num(place.points)} pts`)),
+      );
+      row.addEventListener('click', open);
+      parts.push(this.nav.add(row, { activate: open }));
+    }
+    body.replaceChildren(...parts);
+    this.refresh();
+    // Its lines went: the focus to the first of the new ones.
+    const first = hadFocus ? body.querySelector<HTMLElement>('[data-nav]') : null;
+    if (first) this.nav.focus(first, false);
+  }
+
   private buildHome(): HTMLElement {
     const screen = h('section', 'screen screen-home');
     const list = h('div', 'lines');
+    list.append(this.nav.add(this.buildProfileLine()));
     for (const c of CATEGORIES) {
       const label = html(`<span class="line-label">${c.icon}<span>${T.menu.lines[c.id]}</span></span>`);
       const main = h('span', 'line-main');
@@ -1266,6 +1506,9 @@ export class Menu {
           d.club ?? T.dz.made
         }</span><span class="note">${d.note}</span></span>`,
       );
+      const record = h('span', 'record');
+      this.dzRecords.set(d.id, record);
+      text.append(record);
       const card = button('dz', h('span', 'thumb-box', thumb), text, check);
       card.dataset.key = `dz-${d.id}`;
       card.addEventListener('click', () => this.setDz(d.id));
@@ -1458,6 +1701,9 @@ export class Menu {
           disabled: () => noPlane() && plan().start !== 'base',
         },
       ),
+      this.choice<boolean>(j.challenges, yesNo(), () => plan().challenges, (challenges) => this.setJump({ challenges }), {
+        note: () => (plan().challenges ? j.challengesOn : j.challengesOff),
+      }),
     );
     screen.append(this.detailHints());
     return screen;
@@ -1575,6 +1821,151 @@ export class Menu {
     return screen;
   }
 
+  /**
+   * The player's name, typed in: the one the others see in a room and on the
+   * leaderboard. Enter or leaving the field keeps it, Escape puts the old one
+   * back. Enter or A on the row goes into the field.
+   */
+  private nameRow(key: string): HTMLElement {
+    const t = T.menu.leaderboardScreen;
+    const input = h('input', 'name-input');
+    input.type = 'text';
+    input.maxLength = NAME_MAX;
+    input.placeholder = t.namePlaceholder;
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.tabIndex = -1;
+    const keep = (): void => {
+      const name = cleanName(input.value);
+      if (!name) input.value = this.settings.playerName;
+      else if (name !== this.settings.playerName) void this.onNameChange(name).then(() => this.refreshNames());
+    };
+    input.addEventListener('change', keep);
+    let row!: HTMLElement;
+    input.addEventListener('keydown', (e) => {
+      // Up, down and Tab leave the field for the menu to take; Enter and Escape end the typing there.
+      if (e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'Tab') return row.focus({ preventScroll: true });
+      // The rest is typing: not for the menu, nor for the keys of the flight.
+      e.stopPropagation();
+      if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Escape') {
+        e.preventDefault();
+        if (e.code === 'Escape') input.value = this.settings.playerName;
+        row.focus({ preventScroll: true });
+      }
+    });
+    row = this.row(
+      t.name,
+      {
+        key,
+        note: () => (madeUpName(this.settings.playerName) ? t.nameMadeUp : t.nameNote),
+        activate: () => {
+          input.focus();
+          input.select();
+        },
+      },
+      input,
+    );
+    this.updaters.push(() => {
+      if (document.activeElement !== input) input.value = this.settings.playerName;
+    });
+    return row;
+  }
+
+  private buildLeaderboard(): HTMLElement {
+    const t = T.menu.leaderboardScreen;
+    const { screen, body } = this.screenShell('leaderboard', t.title);
+    const prev = button('step');
+    const next = button('step');
+    prev.innerHTML = ICON_BACK;
+    next.innerHTML = ICON_MORE;
+    prev.title = t.previous;
+    next.title = t.next;
+    prev.tabIndex = next.tabIndex = -1;
+    prev.addEventListener('click', () => this.stepBoard(-1));
+    next.addEventListener('click', () => this.stepBoard(1));
+    const dzName = h('b', 'board-dz-name');
+    const note = h('p', 'note board-note');
+    this.updaters.push(() => {
+      dzName.textContent = dzInfo(this.boardDz).name;
+      note.textContent = this.setup.jump.challenges ? t.how : t.challengesOff;
+      note.classList.toggle('warn', !this.setup.jump.challenges);
+    });
+    this.boardDzRow = this.row(
+      t.dz,
+      { key: 'board-dz', adjust: (step) => this.stepBoard(step), value: () => (this.boardPlayers ? t.players(this.boardPlayers) : '') },
+      h('div', 'board-dz', prev, dzName, next),
+    );
+    this.boardBody = h('div', 'board');
+    body.append(this.nameRow('name-board'), this.boardDzRow, note, this.boardBody);
+    screen.append(hints(T.menu.hints.leaderboard, T.menu.hints.leaderboardPad));
+    return screen;
+  }
+
+  /** The board of the drop zone before or after, in the order of the DZ screen. */
+  private stepBoard(step: -1 | 1): void {
+    const i = DZS.findIndex((d) => d.id === this.boardDz);
+    this.boardDz = DZS[(i + step + DZS.length) % DZS.length]!.id;
+    this.refresh();
+    this.fillBoard();
+  }
+
+  /** Asks for the board of the drop zone shown, and lays it out when it comes. */
+  private fillBoard(): void {
+    const t = T.menu.leaderboardScreen;
+    const ask = ++this.boardAsks;
+    const dz = this.boardDz;
+    const body = this.boardBody;
+    // Rows about to go: the focus goes back to the drop zone's line.
+    const hadFocus = body.contains(this.nav.current);
+    body.replaceChildren(h('p', 'empty', t.loading));
+    if (hadFocus) this.nav.focus(this.boardDzRow, false);
+    this.boardPlayers = null;
+    this.refresh();
+    void loadBoard(dz).then((board) => {
+      if (ask !== this.boardAsks || this.screen !== 'leaderboard') return;
+      this.boardPlayers = board?.players ?? null;
+      this.layBoard(board);
+      this.refresh();
+    });
+  }
+
+  private layBoard(board: Board | null): void {
+    const t = T.menu.leaderboardScreen;
+    const body = this.boardBody;
+    if (!board) return body.replaceChildren(h('p', 'empty', t.offline));
+    if (!board.top.length) return body.replaceChildren(h('p', 'empty', t.empty));
+    const rows = board.top.map((r) => this.boardRow(r));
+    if (board.you) rows.push(h('h3', 'section', t.yourRank), this.boardRow(board.you));
+    body.replaceChildren(...rows);
+  }
+
+  /** One player's best on the board: place, name, how it was flown, points and distance. Names are theirs: text only. */
+  private boardRow(r: BoardRow): HTMLElement {
+    const t = T.menu.logbookScreen;
+    const when = new Date(r.time).toLocaleDateString(T.locale, { day: '2-digit', month: '2-digit', year: '2-digit' });
+    const canopy = `${r.canopy.areaFt2} ft²${r.canopy.kind === 'triCell' ? ` ${kindName('triCell')}` : ''}`;
+    const start = T.menu.jump.starts[r.start] ?? '';
+    const name = h('b', '', r.name);
+    if (r.you) name.append(h('span', 'chip you', T.menu.leaderboardScreen.you));
+    const row = h(
+      'div',
+      `row entry board-row${r.you ? ' you' : ''}${r.rank <= 3 ? ` podium p${r.rank}` : ''}`,
+      h('span', 'n', T.ordinal(r.rank)),
+      h('span', 'what', name, h('small', '', `${start} · ${canopy} · ${t.wind(String(r.windKmh))} · ${when}`)),
+      h('span', 'res', h('b', '', `${num(r.points)} pts`), h('small', '', `${num(r.distance, r.distance < 10 ? 1 : 0)} m`)),
+    );
+    return this.nav.add(row, { adjust: (step) => this.stepBoard(step) });
+  }
+
+  /** Reads the logbook again for the best accuracy score at each drop zone, on its card. */
+  private fillRecords(): void {
+    const entries = loadLogbook();
+    for (const [dz, el] of this.dzRecords) {
+      const best = bestScore(entries, dz);
+      el.textContent = best === null ? '' : T.menu.dz.record(num(best));
+    }
+  }
+
   /** Reads the logbook again and lays it out. */
   private fillLogbook(): void {
     const entries = loadLogbook();
@@ -1595,7 +1986,14 @@ export class Menu {
       tile(time(stats.freefallSeconds), t.freefall),
       tile(time(stats.canopySeconds), t.canopy),
       tile(stats.jumps ? `${Math.round((100 * upright) / stats.jumps)} %` : '—', t.upright),
-      tile(stats.bestDistance === null ? '—' : `${num(stats.bestDistance)} m`, t.best, stats.recentDistance === null ? '' : t.recent(num(stats.recentDistance))),
+      // Once the accuracy challenge has scored a landing, its best score; until then the closest landing.
+      stats.bestScore !== null
+        ? tile(
+            `${num(stats.bestScore)} pts`,
+            t.bestScore,
+            t.recentScore(num(Math.round(stats.recentScore ?? 0)), stats.bestDistance === null ? null : num(stats.bestDistance, 1)),
+          )
+        : tile(stats.bestDistance === null ? '—' : `${num(stats.bestDistance)} m`, t.best, stats.recentDistance === null ? '' : t.recent(num(stats.recentDistance))),
       tile(stats.lowestPull === null ? '—' : `${num(stats.lowestPull)} m`, t.lowest, stats.aadFires ? t.aadFires(stats.aadFires) : ''),
     ].join('');
     body.append(tiles);
@@ -1670,7 +2068,7 @@ export class Menu {
     const result =
       e.outcome === 'impact'
         ? `${num(e.sink * 3.6)} km/h`
-        : `${e.distance === undefined ? '' : t.fromTarget(num(e.distance))}${num(e.sink, 1)} m/s${e.wet ? t.wet : ''}`;
+        : `${e.accuracy === undefined ? '' : t.points(num(e.accuracy))}${e.distance === undefined ? '' : t.fromTarget(num(e.distance, e.accuracy !== undefined && e.distance < 10 ? 1 : 0))}${num(e.sink, 1)} m/s${e.wet ? t.wet : ''}`;
     const row = h('div', 'row entry');
     row.innerHTML = `
       <span class="n">#${e.n}</span>

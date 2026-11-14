@@ -1,0 +1,9 @@
+# Copy to .dev.vars (not committed) for `npm run dev:signal`.
+# Any long random string: `openssl rand -hex 32`.
+BETTER_AUTH_SECRET=
+# Where the browser sees the game in development (Vite), for the accounts' cookies and redirects.
+AUTH_ORIGIN=http://127.0.0.1:5173
+# Optional, to try signing in with Google locally (a Web client in Google Cloud,
+# with http://127.0.0.1:5173/api/auth/callback/google as a redirect URI).
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=

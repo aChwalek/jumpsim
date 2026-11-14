@@ -109,6 +109,8 @@ export interface JumpPlan {
   exitSpot: ExitSpot;
   /** The plane to jump from, or null for the one the drop zone flies. */
   aircraft: AircraftId | null;
+  /** The drop zone's challenges laid out and scored: the accuracy target. */
+  challenges: boolean;
 }
 
 /** The plane jumped from: the one picked, or the drop zone's own. */
@@ -190,7 +192,7 @@ export function defaultSetup(): Setup {
       helmetColor: DEFAULT_HELMET,
       suitColor: DEFAULT_SUIT,
     },
-    jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'sometimes', exitSpot: 'low', aircraft: null },
+    jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'sometimes', exitSpot: 'low', aircraft: null, challenges: true },
     bots: { count: 0, mode: 'formation', lead: 'us' },
   };
 }
@@ -243,6 +245,7 @@ export function validSetup(saved: unknown): Setup {
   if (oneOf(j.malfunction, MALFUNCTION_RATES)) setup.jump.malfunction = j.malfunction;
   if (oneOf(j.exitSpot, EXIT_SPOTS)) setup.jump.exitSpot = j.exitSpot;
   if (oneOf(j.aircraft, AIRCRAFT_IDS)) setup.jump.aircraft = j.aircraft;
+  if (typeof j.challenges === 'boolean') setup.jump.challenges = j.challenges;
   const b = (s.bots ?? {}) as Partial<Record<keyof BotsPlan, unknown>>;
   if (finite(b.count)) setup.bots.count = Math.min(BOTS_MAX, Math.max(0, Math.round(b.count)));
   if (oneOf(b.mode, BOT_MODES)) setup.bots.mode = b.mode;

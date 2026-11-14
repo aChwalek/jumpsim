@@ -129,6 +129,19 @@
       .card td { padding: 3px 10px; }
       .card td:first-child { font-weight: 650; white-space: nowrap; }
       .card .hint { margin-top: 12px; font-size: 12px; opacity: 0.7; }
+      /* The accuracy challenge: the points, big, and how they stand against the best done here. */
+      .card .score { margin: 12px auto 4px; padding: 8px 18px 9px; border-radius: 10px; background: rgba(255, 255, 255, 0.07); display: inline-block; min-width: 200px; }
+      .card .score .label { display: block; font: 600 11px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.16em; opacity: 0.7; }
+      .card .score b { display: block; margin: 3px 0 2px; font: 700 40px/1 'Barlow Condensed', sans-serif; }
+      .card .score b small { margin-left: 5px; font-size: 16px; font-weight: 600; opacity: 0.75; }
+      .card .score .standing { display: block; font-size: 13px; opacity: 0.85; }
+      .card .score.best { background: rgba(255, 216, 74, 0.16); box-shadow: inset 0 0 0 1px rgba(255, 216, 74, 0.55); }
+      .card .score.best b, .card .score.best .standing { color: #ffd84a; opacity: 1; }
+      .card .score.spoilt b { opacity: 0.45; }
+      .card .score .board { display: block; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, 0.12); font-size: 12.5px; opacity: 0.85; }
+      .card .score .board:empty { display: none; }
+      .card .score .board small { display: block; margin-top: 2px; font-size: 11.5px; opacity: 0.75; }
+      .card .score .board.top { color: #ffd84a; font-weight: 600; opacity: 1; }
       .card .actions { display: flex; gap: 10px; justify-content: center; margin-top: 16px; pointer-events: auto; }
       .card button {
         font: 600 14px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #fff; cursor: pointer;
@@ -142,6 +155,12 @@
       .card.compact { top: auto; bottom: 18px; transform: translateX(-50%); padding: 12px 18px; }
       .card.compact h1 { font-size: 18px; margin: 0; }
       .card.compact p, .card.compact table { display: none; }
+      /* The score stays, on one short line: the points, and the place on the board. */
+      .card.compact .score { margin: 8px auto 0; padding: 5px 14px 6px; min-width: 0; }
+      .card.compact .score .label, .card.compact .score .standing, .card.compact .score .board small { display: none; }
+      .card.compact .score b { margin: 0; font-size: 24px; }
+      .card.compact .score b small { font-size: 13px; }
+      .card.compact .score .board { margin-top: 3px; padding-top: 3px; font-size: 11.5px; }
       .card.compact .actions { margin-top: 10px; }
       #replay { position: absolute; left: 26px; top: 22px; display: none; font: 700 22px/1 'Barlow Condensed', sans-serif; letter-spacing: 0.14em; }
       #replay::before { content: ''; display: inline-block; width: 13px; height: 13px; margin-right: 9px; border-radius: 50%; background: #ff3b30; animation: rec 1s steps(2) infinite; }

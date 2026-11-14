@@ -49,6 +49,11 @@ export interface LogEntry {
   /** From the target, m: landings only. */
   distance?: number;
   wet?: boolean;
+  /**
+   * Points of the accuracy challenge, 0 to 1000: landings with the challenges
+   * on only. (Named so that scores out of 100 kept by a first version are left out.)
+   */
+  accuracy?: number;
 }
 
 /** The outcomes, grouped as the logbook shows them; named in T.logbook. */
@@ -107,6 +112,10 @@ export interface LogStats {
   bestDistance: number | null;
   /** Mean distance to the target over the last ten landings, m. */
   recentDistance: number | null;
+  /** Best accuracy score, or null with none scored yet. */
+  bestScore: number | null;
+  /** Mean accuracy score over the last ten scored landings. */
+  recentScore: number | null;
   /** Lowest pull by hand, m. */
   lowestPull: number | null;
   aadFires: number;
@@ -117,6 +126,8 @@ export function logStats(entries: readonly LogEntry[]): LogStats {
   const landed = entries.filter((e) => e.outcome !== 'impact' && e.distance !== undefined);
   const distances = landed.map((e) => e.distance!);
   const recent = distances.slice(-10);
+  const scores = entries.flatMap((e) => (e.accuracy !== undefined ? [e.accuracy] : []));
+  const recentScores = scores.slice(-10);
   const pulls = entries.flatMap((e) => (e.freefall?.pullHeight != null ? [e.freefall.pullHeight] : []));
   return {
     jumps: entries.length,
@@ -127,6 +138,8 @@ export function logStats(entries: readonly LogEntry[]): LogStats {
     landings: landed.length,
     bestDistance: distances.length ? Math.min(...distances) : null,
     recentDistance: recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : null,
+    bestScore: scores.length ? Math.max(...scores) : null,
+    recentScore: recentScores.length ? recentScores.reduce((a, b) => a + b, 0) / recentScores.length : null,
     lowestPull: pulls.length ? Math.min(...pulls) : null,
     aadFires: entries.filter((e) => e.freefall?.aad).length,
   };

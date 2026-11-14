@@ -20,7 +20,13 @@ export const ICON_PLANE = icon(`<path d="${PLANE_PATH}"/>`);
 /** A helicopter from above, nose up, centred on its rotor's mast. */
 export const HELI_PATH =
   'M0 -7.5C2.3 -7.5 3 -4.8 3 -2.2 3 1 1.8 2.8.8 3.2L.6 9.4 2.8 9.8V11H-2.8V9.8L-.6 9.4-.8 3.2C-1.8 2.8-3 1-3 -2.2-3 -4.8-2.3 -7.5 0 -7.5Z';
-export const ICON_BOOK = icon('<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5a1.5 1.5 0 0 0 0 3H19M8.5 7h7M8.5 10.5h7"/>');
+/** Head and shoulders, for the pilot's profile. */
+export const ICON_USER = icon('<circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>');
+/** A cup on its stand, for the leaderboard. */
+export const ICON_TROPHY = icon(
+  '<path d="M7.5 4h9v5a4.5 4.5 0 0 1-9 0Z"/><path d="M7.5 6H4.5v1.5A3 3 0 0 0 7.8 10.4M16.5 6h3v1.5a3 3 0 0 1-3.3 2.9"/><path d="M12 13.5V17M8.5 20.5h7M9.5 17h5v3.5h-5Z"/>',
+);
+export const ICON_BOOK =icon('<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5a1.5 1.5 0 0 0 0 3H19M8.5 7h7M8.5 10.5h7"/>');
 export const ICON_COG = icon(
   '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/><circle cx="12" cy="12" r="6.6"/>',
 );

@@ -1,4 +1,6 @@
+import type { AccuracyScore } from '../challenge';
 import { T, num } from '../i18n';
+import type { Standing } from '../net/scores';
 import { keyLabel } from '../input/keyLabels';
 import type { AltimeterKind } from '../setup';
 import type { Controls } from '../sim/flightModel';
@@ -45,6 +47,49 @@ export interface HudData {
 
 /** A height in whole metres, with the thousands as the language writes them. */
 const metres = (m: number): string => num(Math.round(m));
+/** Close in, to the decimetre: where accuracy is played. */
+const nearMetres = (m: number): string => (m < 10 ? num(m, 1) : metres(m));
+
+/** The accuracy challenge on the card: the points, and how they stand against the best done here before. */
+function scoreBlock({ score, record }: { score: AccuracyScore; record: number | null }, board: BoardState | null): string {
+  const t = T.hud.score;
+  const { points, spoilt } = score;
+  const standing = spoilt
+    ? t.spoilt[spoilt]
+    : record === null
+      ? t.first
+      : points > record
+        ? t.newRecord(num(record))
+        : points === record
+          ? t.equalled
+          : t.record(num(record));
+  const best = !spoilt && (record === null || points > record);
+  return `<div class="score${best ? ' best' : ''}${spoilt ? ' spoilt' : ''}">
+    <span class="label">${t.title}</span>
+    <b>${num(points)}<small>${t.points}</small></b>
+    <span class="standing">${standing}</span>
+    <span class="board${board?.kind === 'standing' && board.standing.rank === 1 ? ' top' : ''}">${boardLine(board)}</span>
+  </div>`;
+}
+
+/** The landing sent to the leaderboard: on its way, not sent, or where it leaves the player. */
+export type BoardState =
+  | { kind: 'sending' }
+  | { kind: 'offline' }
+  /** `asName`: the name it went under, when the game made it up. */
+  | { kind: 'standing'; standing: Standing; dzName: string; asName: string | null };
+
+const escape = (s: string): string => s.replace(/[<>&"]/g, (c) => `&#${c.charCodeAt(0)};`);
+
+function boardLine(board: BoardState | null): string {
+  if (!board) return '';
+  const t = T.hud.score.board;
+  if (board.kind !== 'standing') return t[board.kind];
+  const { standing: s, dzName, asName } = board;
+  const place = T.ordinal(s.rank);
+  const line = !s.improved ? t.kept(place, s.players, dzName, num(s.points)) : s.rank === 1 ? t.top(dzName) : t.rank(place, s.players, dzName);
+  return asName ? `${line}<small>${t.asName(escape(asName))}</small>` : line;
+}
 
 /** What went wrong with the main, for the card at the end: its name, and what it did. */
 const MALFUNCTION_ROWS: Record<Malfunction, () => [string, string]> = {
@@ -139,6 +184,8 @@ export class Hud {
   private lastWatched = '';
   /** The card's button chosen with the cross or the arrows, if any. */
   private cardFocus: HTMLElement | null = null;
+  /** The last landing on the leaderboard, for the card: it may come back before or after the card shows. */
+  private board: BoardState | null = null;
 
   constructor() {
     this.result.addEventListener('click', (e) => {
@@ -344,8 +391,19 @@ export class Hud {
     this.result.style.display = 'block';
   }
 
-  /** `wet`: the feet came down in a pond. `log`: the jump, if it started from the plane. */
-  showResult(t: Touchdown | null, distanceToTarget = 0, wet = false, log: JumpLog | null = null, vines = false): void {
+  /**
+   * `wet`: the feet came down in a pond. `log`: the jump, if it started from
+   * the plane. `scored`: the accuracy challenge, when the challenges are on,
+   * with the best score at this drop zone before this jump.
+   */
+  showResult(
+    t: Touchdown | null,
+    distanceToTarget = 0,
+    wet = false,
+    log: JumpLog | null = null,
+    vines = false,
+    scored: { score: AccuracyScore; record: number | null } | null = null,
+  ): void {
     if (!t) {
       this.result.style.display = 'none';
       return;
@@ -354,14 +412,24 @@ export class Hud {
     this.result.innerHTML = `
       <h1>${T.hud.titles[t.rating]}</h1>
       <p>${T.hud.comments[t.rating]}${wet ? T.hud.wet : ''}${vines ? T.hud.vines : ''}</p>
+      ${scored ? scoreBlock(scored, this.board) : ''}
       <table>
         <tr><td>${num(t.sink, 1)} m/s</td><td>${T.hud.sink}</td></tr>
         <tr><td>${(t.groundSpeed * 3.6).toFixed(0)} km/h</td><td>${T.hud.groundSpeedRow}</td></tr>
-        <tr><td>${metres(distanceToTarget)} m</td><td>${T.hud.fromTarget}</td></tr>
+        <tr><td>${nearMetres(distanceToTarget)} m</td><td>${T.hud.fromTarget}</td></tr>
         ${log ? jumpRows(log) : ''}
       </table>
       ${hint()}`;
     this.result.style.display = 'block';
+  }
+
+  /** Where the landing stands on the leaderboard: on the card if it shows, else when it does. */
+  setBoard(board: BoardState | null): void {
+    this.board = board;
+    const line = this.result.querySelector<HTMLElement>('.score .board');
+    if (!line) return;
+    line.innerHTML = boardLine(board);
+    line.classList.toggle('top', board?.kind === 'standing' && board.standing.rank === 1);
   }
 
   update(d: HudData, frameSeconds: number): void {

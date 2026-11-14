@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Lighting } from '../render/scene';
 import { buildBridges } from './bridge';
+import { buildAccuracyTarget } from './accuracyTarget';
 import { buildCliffTop, rockTexture, type RockMask } from './cliffTop';
 import { facetedHeight, surfaceColorAt } from './cover';
 import { isWet, type DzPack } from './dz';
@@ -14,6 +15,8 @@ export interface World {
   setWind(fromDeg: number, speed: number): void;
   /** Lays the shadows for the current light. */
   setDaylight(light: Lighting): void;
+  /** Shows or hides what the challenges lay on the ground: the accuracy target. */
+  showChallenges(on: boolean): void;
   /** Call every frame with the eye position and the time in seconds. */
   update(eye: THREE.Vector3, seconds: number): void;
   /** Whether the aerial photos, if any, have all come in. */
@@ -81,6 +84,13 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     object.add(buildDisc(dz.target.x, dz.target.z, dz.target.radius, dz.targetColor ?? 0xcdbf9a, dz.targetLayer ?? 4));
     if (dz.targetCentre !== false) object.add(buildDisc(dz.target.x, dz.target.z, 0.6, 0xe0452a, (dz.targetLayer ?? 4) + 1));
   }
+  // The accuracy challenge's rings, over the target and what lies about it; shown when the challenges are on.
+  const challenge = named(
+    'challenge',
+    buildAccuracyTarget(dz.target.x, dz.target.z, facetedHeight(groundAt, TERRAIN_SPACING, dz.terrainDetail), (dz.targetLayer ?? 4) + 2),
+  );
+  challenge.visible = false;
+  object.add(challenge);
   // Whatever the sun lights loses it under a cloud, and cast shadows fade there.
   const shaded = new Set<THREE.Material>();
   object.traverse((node) => {
@@ -100,6 +110,9 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     },
     setDaylight(l) {
       trees.setSun(l.sun, l.shadow);
+    },
+    showChallenges(on) {
+      challenge.visible = on;
     },
     update(eye, seconds) {
       grassLight.lerpColors(light.groundShade, light.ground, light.clouds.sunThrough(eye.x, groundAt(eye.x, eye.z), eye.z));
