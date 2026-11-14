@@ -6,7 +6,7 @@ import {
   type Environment,
 } from './flightModel';
 import { AIR_DENSITY_SEA_LEVEL, type RigParams } from './rig';
-import { DEG, quat, quatFromYaw, rotate, set, vec3, type Quat, type Vec3 } from './vec';
+import { DEG, quat, quatFromYaw, quatSlerp, rotate, set, vec3, type Quat, type Vec3 } from './vec';
 
 export const SIM_DT = 1 / 240;
 
@@ -81,25 +81,66 @@ interface Trim {
   pilotAtt: Quat;
 }
 
+/**
+ * The steady glides are found every this much of toggle, and read in between.
+ * Each takes 40 s of flight to settle (9600 steps): found for every value the
+ * toggles went through as a canopy opened, they stalled the frames by hundreds
+ * of ms while the toggles moved.
+ */
+export const TRIM_STEP = 0.1;
+
 const trimCache = new WeakMap<RigParams, Map<number, Trim>>();
 
-/**
- * Steady glide of a rig with both toggles at `brake` (0 is hands up), found
- * by letting the model settle in sea-level air.
- */
-function trimFor(rig: RigParams, brake = 0): Trim {
-  let byBrake = trimCache.get(rig);
-  if (!byBrake) trimCache.set(rig, (byBrake = new Map()));
-  let trim = byBrake.get(brake);
+/** Steady glide of a rig with both toggles at the `i`th step, found by letting the model settle in sea-level air. */
+function trimAt(rig: RigParams, i: number): Trim {
+  let byStep = trimCache.get(rig);
+  if (!byStep) trimCache.set(rig, (byStep = new Map()));
+  let trim = byStep.get(i);
   if (!trim) {
+    const brake = i * TRIM_STEP;
     const model = new FlightModel(rig);
     set(model.state.vel, 0, -5, -12);
     simulate(model, 40, { ...neutralControls(), brakeL: brake, brakeR: brake }, calmAir());
     const s = model.state;
     trim = { vel: vec3(s.vel.x, s.vel.y, s.vel.z), att: { ...s.att }, pilotAtt: { ...s.pilotAtt } };
-    byBrake.set(brake, trim);
+    byStep.set(i, trim);
   }
   return trim;
+}
+
+/** Where the steady glides between two steps are read: used at once, by the caller. */
+const between: Trim = { vel: vec3(), att: quat(), pilotAtt: quat() };
+
+/**
+ * Steady glide of a rig with both toggles at `brake` (0 is hands up): found
+ * at the steps either side of it, and read in between.
+ */
+function trimFor(rig: RigParams, brake = 0): Trim {
+  const x = Math.max(0, brake) / TRIM_STEP;
+  const i = Math.floor(x + 1e-6);
+  const t = x - i;
+  const a = trimAt(rig, i);
+  if (t < 1e-6) return a;
+  const b = trimAt(rig, i + 1);
+  set(between.vel, a.vel.x + (b.vel.x - a.vel.x) * t, a.vel.y + (b.vel.y - a.vel.y) * t, a.vel.z + (b.vel.z - a.vel.z) * t);
+  quatSlerp(between.att, a.att, b.att, t);
+  quatSlerp(between.pilotAtt, a.pilotAtt, b.pilotAtt, t);
+  return between;
+}
+
+/**
+ * Finds the steady glides of a rig at every step of the toggles ahead of
+ * time, a few at a time between frames: the first opening then has them all.
+ */
+export function warmTrims(rig: RigParams, upTo = 1): void {
+  const last = Math.round(upTo / TRIM_STEP);
+  let i = 0;
+  const next = (): void => {
+    if (i > last) return;
+    trimAt(rig, i++);
+    setTimeout(next, 0);
+  };
+  setTimeout(next, 0);
 }
 
 /** Speeds of the steady hands-up glide of a rig, m/s. */

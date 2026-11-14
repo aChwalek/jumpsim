@@ -59,7 +59,7 @@ import { detectTouchdown, feetHeight, worst, type Touchdown } from './sim/landin
 import { engineHubs } from './sim/plane';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import type { RunUp } from './sim/runUp';
-import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry } from './sim/telemetry';
+import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry, warmTrims } from './sim/telemetry';
 import { blowAt, contact, newContact, rebound, tumbleAxis } from './sim/midair';
 import { DEG, quat, rotateInv, vec3 } from './sim/vec';
 import { gustPeakKmh, windAt } from './sim/weather';
@@ -711,6 +711,11 @@ function spawn(kind: Start): void {
     env.airDensity = airDensityAt(y);
     windAt(env.wind, setup.weather, s.height + canopyAboveFeet(), airTime);
     initTrimmed(model, vec3(s.x, y, s.z), s.headingDeg, env);
+  }
+  // The canopies' steady glides, found before they open rather than as they do.
+  if (jump) {
+    warmTrims(rig);
+    if (!jump.single) warmTrims(reserveRig);
   }
   planeView.object.visible = jump?.plane != null;
   if (jump?.plane) trackRecorder.setPlane(jump.plane.type.id, jump.plane.pos, jump.plane.vel, jump.plane.att);
@@ -2366,6 +2371,7 @@ function frame(now: number): void {
   // After the devices: Start may just have opened the menu, which then ignores it until let go.
   menu.poll();
   hud.setMenuOpen(menu.isOpen);
+  perf.mark(0);
   const live = !waiting && !paused;
   /** How far the replay of the whole jump went on this frame, s of its own clock. */
   let watched = 0;
@@ -2434,6 +2440,7 @@ function frame(now: number): void {
     }
   }
 
+  perf.mark(1);
   const moving = live && !replay && !watching ? Math.min(elapsed, 0.1) : 0;
   const pose = stance();
   const inflation = replay ? replay.frame.inflation : jump ? jump.inflation : 1;
