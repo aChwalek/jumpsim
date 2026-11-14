@@ -8,7 +8,20 @@ import { createRealDz, type RealDzData, type RealDzLook } from './real';
 import { LOOKS } from './realDzs';
 import { TOWER_HEIGHT, createTowerZone } from './tower';
 
-export type DzId = 'valbrise' | 'tower' | 'pujaut' | 'empuriabrava' | 'chambery' | 'guadeloupe' | 'deland' | 'lauterbrunnen' | 'limska' | 'millau' | 'brento';
+export type DzId =
+  | 'valbrise'
+  | 'tower'
+  | 'pujaut'
+  | 'empuriabrava'
+  | 'chambery'
+  | 'guadeloupe'
+  | 'deland'
+  | 'lauterbrunnen'
+  | 'limska'
+  | 'millau'
+  | 'brento'
+  | 'chamonix'
+  | 'chamonix-durier';
 
 export interface DzInfo {
   id: DzId;
@@ -34,6 +47,12 @@ export interface DzInfo {
   aircraft: AircraftId;
   /** An object to BASE jump from, its height, m, and whether one stands at its edge rather than run to it (a bridge). */
   base?: { height: number; standing?: boolean };
+  /**
+   * Where one place has several exits, each its own entry: the place they
+   * share (one card in the menu) and this exit's name. They share the data
+   * and the photos too.
+   */
+  place?: { id: string; name: string; exit: string };
   /** The pack, if it has been loaded. */
   loaded(): DzPack | undefined;
   /** Loads the pack, the first time only. */
@@ -99,6 +118,7 @@ function real(
   credit: Credit,
   data: () => Promise<{ DATA: RealDzData }>,
   base?: { height: number; standing?: boolean },
+  place?: { id: string; name: string; exit: string },
 ): DzInfo {
   const look: RealDzLook & { lat: number; lon: number; utcOffsetH: number } = LOOKS[id];
   let pack: DzPack | undefined;
@@ -109,6 +129,7 @@ function real(
     club,
     icao,
     base,
+    place,
     get note() {
       return T.dz.notes[id];
     },
@@ -131,6 +152,9 @@ function real(
   };
 }
 
+/** The Chamonix exits' heights above their landings, m, as built into data/chamonix.ts (checked by tests/chamonix.test.ts). */
+const CHAMONIX_HEIGHTS = [2348.3, 2876.3] as const;
+
 export const DZS: DzInfo[] = [
   built('valbrise', 'Valbrise', createValbrise),
   built('tower', 'Valbrise BASE', createTowerZone, undefined, { height: TOWER_HEIGHT }),
@@ -147,6 +171,18 @@ export const DZS: DzInfo[] = [
   real('millau', 'Viaduc de Millau', undefined, 'franceAlti', () => import('./data/millau'), { height: 277, standing: true }),
   // The Becco dell'Aquila: the height down to the landing field, as in tools/dz/brento.json.
   real('brento', "Becco dell'Aquila", undefined, 'trentino', () => import('./data/brento'), { height: 1232 }),
+  // Chamonix: two exits over one valley, the same data. Their heights down to
+  // their own landings, as built into data/chamonix.ts.
+  real('chamonix', 'Aiguille des Deux Aigles', undefined, 'franceLidar', () => import('./data/chamonix'), { height: CHAMONIX_HEIGHTS[0] }, {
+    id: 'chamonix',
+    name: 'Chamonix',
+    exit: 'Deux Aigles → Planards',
+  }),
+  real('chamonix-durier', 'Pointe Durier', undefined, 'franceLidar', () => import('./data/chamonix'), { height: CHAMONIX_HEIGHTS[1] }, {
+    id: 'chamonix',
+    name: 'Chamonix',
+    exit: 'Pointe Durier → Taconnaz',
+  }),
 ];
 
 export function dzInfo(id: DzId): DzInfo {

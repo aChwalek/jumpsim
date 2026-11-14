@@ -64,7 +64,7 @@ import {
   type Start,
 } from '../setup';
 import { AIRCRAFT, AIRCRAFT_IDS, EXIT_SPOTS, type Aircraft, type AircraftId, type ExitSpot } from '../sim/plane';
-import { BOTS_MAX, BOT_LEADS, BOT_MODES, botHeights, leaderLed, type BotLead, type BotMode } from '../sim/bot';
+import { BOTS_MAX, BOT_LEADS, BOT_MODES, baseDelay, basePullOver, baseTracked, botHeights, leaderLed, type BotLead, type BotMode } from '../sim/bot';
 import { SUIT_KINDS, SUIT_LEVELS, hasWings, suitGlide, type SuitKind, type SuitLevel } from '../sim/suit';
 import { reserveSize, type CanopyKind } from '../sim/rig';
 import { trimSpeeds } from '../sim/telemetry';
@@ -79,7 +79,7 @@ import {
 } from '../sim/weather';
 import { freefallSeconds } from '../sim/freefall';
 import { hoverUpwind, landingHeading } from '../world/dz';
-import { DZS, dzInfo, type DzId } from '../world/dzs';
+import { DZS, dzInfo, type DzId, type DzInfo } from '../world/dzs';
 import { keyLabel } from '../input/keyLabels';
 import { DzMap } from './dzMap';
 import {
@@ -533,8 +533,8 @@ export class Menu {
       room.players.filter((p) => !p.self).forEach((p, i) => members.push({ gear: other(i, false), name: p.name || '…', ready: p.ready }));
     } else {
       members.push({ gear });
-      const count = jump.start === 'plane' ? bots.count : 0;
-      for (let i = 0; i < count; i++) members.push({ gear: other(i, true) });
+      const count = jump.start === 'plane' || jump.start === 'base' ? bots.count : 0;
+      for (let i = 0; i < count; i++) members.push({ gear: { ...other(i, true), container: jump.start === 'base' ? 'base' : 'sport' } });
     }
     return { members, aircraft: jump.start === 'plane' ? aircraftOf(this.setup) : null };
   }
@@ -641,7 +641,7 @@ export class Menu {
       this.nav.add(this.cornerLogbook),
       this.nav.add(this.cornerSettings),
     );
-    const brand = html(`<header class="menu-brand">${LOGO}<div><h1>jumpsim</h1><p>${T.menu.tagline}</p></div></header>`);
+    const brand = html(`<header class="menu-brand">${LOGO}<div><h1>Low Pull</h1><p>${T.menu.tagline}</p></div></header>`);
     this.root.replaceChildren(brand, this.panel, this.buildSide(), corner);
   }
 
@@ -1362,8 +1362,9 @@ export class Menu {
             room.online ? `${t.players(players)} · ${r.readyCount(ready, players)}` : r.connecting,
           );
         }
-        if (jump.start !== 'plane') return line(t.solo, bots.count ? t.planeOnly : t.soloNote);
+        if (jump.start !== 'plane' && jump.start !== 'base') return line(t.solo, bots.count ? t.planeOnly : t.soloNote);
         if (!bots.count) return line(t.solo, t.soloNote);
+        if (jump.start === 'base') return line(`${t.withBots(bots.count)} <small>${T.menu.jump.botModes.base}</small>`, bots.lead === 'bot' ? t.baseThemFirst : t.baseYouFirst);
         const suit = suitOf(gear);
         const mode = hasWings(suit) ? 'track' : bots.mode;
         const led = leaderLed(bots.mode, suit) || bots.lead === 'bot';
@@ -1494,7 +1495,13 @@ export class Menu {
   private buildDz(): HTMLElement {
     const { screen, body } = this.screenShell('dz', null);
     const list = h('div', 'dzs');
+    const places = new Set<string>();
     for (const d of DZS) {
+      // A place with several exits has one card, and a strip to pick the exit under it.
+      if (d.place && places.has(d.place.id)) continue;
+      if (d.place) places.add(d.place.id);
+      const exits = d.place ? DZS.filter((o) => o.place?.id === d.place!.id) : [d];
+      const chosen = (): DzInfo => exits.find((o) => o.id === this.setup.dz) ?? d;
       const check = h('i', 'check');
       const thumb = h('img', 'thumb');
       thumb.src = thumbUrl(d.id);
@@ -1502,7 +1509,7 @@ export class Menu {
       thumb.loading = 'lazy';
       thumb.addEventListener('error', () => thumb.classList.add('missing'));
       const text = html(
-        `<span class="dz-text"><b>${d.name}${d.icao ? `<small class="chip">${d.icao}</small>` : ''}</b><span class="club">${
+        `<span class="dz-text"><b>${d.place?.name ?? d.name}${d.icao ? `<small class="chip">${d.icao}</small>` : ''}</b><span class="club">${
           d.club ?? T.dz.made
         }</span><span class="note">${d.note}</span></span>`,
       );
@@ -1511,16 +1518,34 @@ export class Menu {
       text.append(record);
       const card = button('dz', h('span', 'thumb-box', thumb), text, check);
       card.dataset.key = `dz-${d.id}`;
-      card.addEventListener('click', () => this.setDz(d.id));
+      card.addEventListener('click', () => this.setDz(chosen().id));
       list.append(this.nav.add(card));
       this.updaters.push(() => {
-        const on = this.setup.dz === d.id;
+        const on = exits.some((o) => o.id === this.setup.dz);
+        const shown = chosen();
         // The real ones come with megabytes of photos: loaded when first chosen.
-        const loading = on && !d.loaded();
+        const loading = on && !shown.loaded();
         card.classList.toggle('on', on);
         card.classList.toggle('loading', loading);
         check.innerHTML = loading ? `<i class="spinner"></i>` : on ? '✓' : '';
+        if (d.place) {
+          text.querySelector('.club')!.textContent = shown.club ?? T.dz.made;
+          text.querySelector('.note')!.textContent = shown.note;
+          const picture = thumbUrl(shown.id);
+          if (thumb.getAttribute('src') !== picture) thumb.src = picture;
+        }
       });
+      if (exits.length > 1) {
+        const strip = h('div', 'choices dz-exits');
+        for (const o of exits) {
+          const pick = button('', o.place!.exit);
+          pick.dataset.key = `dz-${o.id}-exit`;
+          pick.addEventListener('click', () => this.setDz(o.id));
+          strip.append(this.nav.add(pick));
+          this.updaters.push(() => pick.classList.toggle('on', this.setup.dz === o.id));
+        }
+        list.append(strip);
+      }
     }
     const note = h('p', 'note');
     this.updaters.push(() => {
@@ -1714,28 +1739,46 @@ export class Menu {
     const { screen, body } = this.screenShell('team', null);
     const j = T.menu.jump;
     const plan = (): JumpPlan => this.setup.jump;
-    const noBots = (): boolean => plan().start !== 'plane' || this.room !== null;
+    const base = (): boolean => plan().start === 'base';
+    const noBots = (): boolean => (plan().start !== 'plane' && !base()) || this.room !== null;
     const wings = (): boolean => hasWings(suitOf(this.setup.gear));
-    const led = (): boolean => leaderLed(this.setup.bots.mode, suitOf(this.setup.gear));
+    // Off an object nobody leads a track: who goes first is ours to say, in wings too.
+    const led = (): boolean => !base() && leaderLed(this.setup.bots.mode, suitOf(this.setup.gear));
+    /** Off this object: the delay, or off a cliff, the track and about where they pull. */
+    const offNote = (): string => {
+      const top = dzInfo(this.setup.dz).base;
+      if (!top) return '';
+      const standing = !!top.standing;
+      if (baseTracked(top.height, standing)) return j.botModeNote.baseTrack(num(basePullOver(top.height)));
+      return j.botModeNote.baseDelay(num(baseDelay(top.height), 1), standing);
+    };
     body.append(
       h('h3', 'section', T.menu.team.botsSection),
       this.slider(j.bots, { min: 0, max: BOTS_MAX, step: 1, big: 1 }, () => this.setup.bots.count, (count) => this.setBots({ count }), {
         hint: j.botsHint,
         value: () => (this.setup.bots.count ? String(this.setup.bots.count) : j.botsNone),
-        note: () => (this.room ? j.botsRoom : j.botsNote),
+        note: () => (this.room ? j.botsRoom : base() ? j.botsNoteBase : j.botsNote),
         disabled: noBots,
       }),
-      this.choice<BotMode>(j.botMode, options(BOT_MODES, (m) => j.botModes[m]), () => (wings() ? 'track' : this.setup.bots.mode), (mode) => this.setBots({ mode }), {
-        note: () => {
-          const { pull, breakOff } = botHeights(plan().exitHeight);
-          if (wings()) return j.botModeNote.wings(num(breakOff), num(pull));
-          return j.botModeNote[this.setup.bots.mode](num(breakOff), num(pull));
+      this.choice<BotMode>(
+        j.botMode,
+        // Off an object there is one way: each in turn.
+        () => (base() ? [{ value: this.setup.bots.mode, label: j.botModes.base }] : options(BOT_MODES, (m) => j.botModes[m])),
+        () => (wings() && !base() ? 'track' : this.setup.bots.mode),
+        (mode) => this.setBots({ mode }),
+        {
+          note: () => {
+            if (base()) return offNote();
+            const { pull, breakOff } = botHeights(plan().exitHeight);
+            if (wings()) return j.botModeNote.wings(num(breakOff), num(pull));
+            return j.botModeNote[this.setup.bots.mode](num(breakOff), num(pull));
+          },
+          // In wings there is always a leader, and off an object only the one way: nothing to choose.
+          disabled: () => noBots() || this.setup.bots.count === 0 || wings() || base(),
         },
-        // In wings there is always a leader: nothing to choose.
-        disabled: () => noBots() || this.setup.bots.count === 0 || wings(),
-      }),
+      ),
       this.choice<BotLead>(j.botLead, options(BOT_LEADS, (l) => j.botLeads[l]), () => (led() ? 'bot' : this.setup.bots.lead), (lead) => this.setBots({ lead }), {
-        note: () => j.botLeadNote[led() ? 'track' : this.setup.bots.lead],
+        note: () => (base() ? j.botLeadNote.base[this.setup.bots.lead] : j.botLeadNote[led() ? 'track' : this.setup.bots.lead]),
         // A track, and anything in wings, is behind a bot: nothing to choose.
         disabled: () => noBots() || this.setup.bots.count === 0 || led(),
       }),

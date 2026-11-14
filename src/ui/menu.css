@@ -360,6 +360,9 @@
 #menu .dz-text .record:empty { display: none; }
 #menu .dz .check { font-style: normal; font-size: 20px; color: var(--accent); justify-self: center; }
 #menu .dz.on { border-color: var(--accent-line); background: var(--accent-soft); }
+/* The exits of a place with several, under its card. */
+#menu .dz-exits { margin: -4px 0 4px 92px; }
+#menu .dz-exits button { font-size: 13px; }
 #menu .screen-dz .body > .note { margin: 12px 4px 0; font-size: 12.5px; color: var(--dim); }
 
 #menu .spinner {
@@ -582,6 +585,13 @@
   html:not(.sideways) #menu .room-choices { grid-template-columns: 1fr; }
   html:not(.sideways) #menu .tiles { grid-template-columns: 1fr 1fr; }
   html:not(.sideways) #menu .aside-dz .thumb { width: 64px; height: 42px; }
+}
+/* Narrower still, the name shares its row with the corner's buttons: smaller, then only the logo. */
+@media (max-width: 440px) {
+  html:not(.sideways) #menu .menu-brand h1 { font-size: 22px; }
+}
+@media (max-width: 380px) {
+  html:not(.sideways) #menu .menu-brand h1 { display: none; }
 }
 
 /* A phone on its side, or upright and turned on its side (see viewport.ts): little height. */

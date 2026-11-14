@@ -17,6 +17,8 @@ export const BOARD_DZS = [
   'limska',
   'millau',
   'brento',
+  'chamonix',
+  'chamonix-durier',
 ] as const;
 export type BoardDz = (typeof BOARD_DZS)[number];
 

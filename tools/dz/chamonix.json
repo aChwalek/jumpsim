@@ -1,0 +1,86 @@
+{
+  "id": "chamonix",
+  "displayName": "Chamonix-Mont-Blanc",
+  "menuNote": "Deux lignes wingsuit du massif du Mont-Blanc, posé dans la vallée",
+  "operator": "No drop zone: BASE and wingsuit exits of the Mont-Blanc massif, allowed by the town's arrêté of 16 September 2021 from two exit zones, each with its own landing. Jumpers call the PGHM and the helicopter company before jumping.",
+  "aerodrome": {"name": "Chamonix-Mont-Blanc, BASE landings of the arrêté of 2021", "icao": "BASE", "elevation_m": 1084, "lat": 45.9249, "lon": 6.8815},
+  "utcOffsetSummer_h": 2,
+  "inland": true,
+  "snow": true,
+  "imagery": "ign",
+  "imageryLevels": {
+    "why": "The two lines run 4 and 6 km from their exits to their landings, 8 km apart from end to end: the photos are centred on the middle of the lines rather than on the Planards, 9.6 km at 2.3 m a pixel and 20 km at 5 m, with four squares of 1 km at 1 m about the exits and the landings.",
+    "centre": [45.8889, 6.8699],
+    "near_m": 9600,
+    "mid_m": 20480,
+    "spots_m": 1024
+  },
+  "nearRelief": {"size": 241, "why": "Mont Blanc's summit is 10 km from the Planards: the 100 m grid reaches 12 km out, where it otherwise stops at 6."},
+  "osmAreas": [
+    {"centre": [45.9249, 6.8815], "core_m": 2000, "woods_m": 4500, "why": "the Planards and the east of the town"},
+    {"centre": [45.8952, 6.8338], "core_m": 1500, "woods_m": 2500, "why": "Taconnaz and Les Bossons"}
+  ],
+  "fineRelief": {
+    "survey": "lidarhd",
+    "source": "IGN LiDAR HD MNT 50 cm",
+    "box_m": [-4400, -800, 2600, 8800],
+    "spacing_m": 10,
+    "why": "The terrain tiles know the massif to a few tens of metres, and the RGE ALTI, made from photos in the high mountains, is 80 m out on the Deux Aigles: the IGN's LiDAR HD, flown over the massif, every 10 m from the Planards and Taconnaz up to Mont Maudit.",
+    "exit": {"size_m": 200, "spacing_m": 1, "why": "The ridge and the lip about each exit as the LiDAR knows them, every metre."}
+  },
+  "origin": {"lat": 45.9249, "lon": 6.8815, "what": "the lawn at the foot of the Planards beginner slope, where the landing of the Aiguilles de Chamonix exits is taken to be"},
+  "boundary": [[45.92459, 6.88065], [45.92514, 6.8813], [45.92532, 6.8824], [45.9257, 6.8832], [45.92598, 6.8841], [45.92584, 6.88435], [45.92563, 6.8841], [45.92508, 6.8828], [45.92459, 6.8818], [45.92438, 6.8811]],
+  "runways": [],
+  "paved": [],
+  "landingAreas": [
+    {"name": "Les Planards, below the Grépon avalanche defences", "use": "sport", "surface": "grass",
+     "polygon": [[45.92459, 6.88065], [45.92514, 6.8813], [45.92532, 6.8824], [45.9257, 6.8832], [45.92598, 6.8841], [45.92584, 6.88435], [45.92563, 6.8841], [45.92508, 6.8828], [45.92459, 6.8818], [45.92438, 6.8811]]},
+    {"name": "Paravalanche de Taconnaz, the basin", "use": "base", "surface": "gravel",
+     "polygon": [[45.89492, 6.83173], [45.89607, 6.83405], [45.89586, 6.83518], [45.89539, 6.8354], [45.89431, 6.83375], [45.89434, 6.833], [45.8945, 6.83195]]}
+  ],
+  "target": {"lat": 45.9249, "lon": 6.8815, "radius_m": 10, "shown": false, "evidence": "No target: the lawn in the middle of the beginner slope's open ground."},
+  "windsocks": [[45.92514, 6.8815], [45.8957, 6.8345]],
+  "flags": [],
+  "people": [[45.92478, 6.88128], [45.92482, 6.88136], [45.92475, 6.8812]],
+  "exits": [
+    {
+      "id": "aiguilles",
+      "name": "Aiguille des Deux Aigles",
+      "lip": [45.8934634, 6.9049226],
+      "heading_deg": 255,
+      "runUp_m": 6,
+      "width_m": 3,
+      "landing": 0,
+      "target": {"lat": 45.9249, "lon": 6.8815, "radius_m": 10, "shown": false},
+      "evidence": "The GMHM's paralpinists jumped from the summit of the Aiguille des Deux Aigles (3487 m), near the Aiguille du Plan, on 27 February 2023, reached from the Aiguille du Midi across the Midi-Plan, a glacier and a hundred metres of climbing, and landed in Chamonix 2500 m lower after less than two minutes (chamonix.net). The summit is in the LiDAR HD at 45.893823, 6.90531, 3486 m. The lip used here, 53 m below it on its west-south-west face, is where the LiDAR at 1 m has a drop clear enough for a wingsuit leaving at a run: 65 m within 20 m, 227 m within 80, 342 within 160, 534 within 320, toward the Pèlerins; the north-west face toward Chamonix stops on a glacier bench 180 m down. From there the line turns north for the town.",
+      "zone": "a: north face of the Aiguilles de Chamonix, from the Col du Plan to the Aiguille de la République; landing below the Grépon avalanche defences, Planards sector."
+    },
+    {
+      "id": "durier",
+      "name": "Pointe Durier",
+      "lip": [45.852934, 6.8696142],
+      "heading_deg": 325,
+      "runUp_m": 6,
+      "width_m": 3,
+      "landing": 1,
+      "target": {"lat": 45.8952, "lon": 6.8338, "radius_m": 10, "shown": false},
+      "evidence": "Géraldine Fasnacht and Julien Meyer jumped from the Pointe Durier (3997 m, Mont Maudit's north-west shoulder) in September 2013, after a night at the Cosmiques and the climb over the Tacul and Mont Maudit, and flew over the Bossons glacier to Chamonix (chamonix.net). The LiDAR's top there is 4022 m at 45.85294, 6.87075; the lip used here, 60 m west of it at 3969 m, faces 325, toward the Bossons: 97 m within 10 m, 143 m within 20, 245 m within 80.",
+      "zone": "b: Chamonix side between the Col du Midi and the Aiguille du Goûter (the arrêté names the Mont Blanc du Tacul to Mont Maudit stretch); landing on the Taconnaz avalanche defences."
+    }
+  ],
+  "wind": {"usual": {"fromDeg": 230, "kmh": 12}, "description": "Up the valley from the south-west by day, strongest about 1 pm (4 to 5 m/s measured near the centre of Chamonix in July 2003); down the valley from the north-east at night."},
+  "invented": [
+    "Planards landing: the arrêté's maps are no longer online and nothing maps the 'paravalanche du Grépon'; the open ground of the Planards beginner slope downstream of the Torrent du Grépon's defences is taken for it, and the lawn in its middle for the spot people aim at.",
+    "Taconnaz landing: the gravel basin inside the avalanche defences, the only open ground within them.",
+    "Exit lips: chosen in the LiDAR HD, at 1 m, next to each documented summit, where a wingsuit leaving at a run clears the face; the run up to each is a guess.",
+    "Windsocks and people."
+  ],
+  "sources": [
+    "https://www.chamonix.net/francais/actualite/chamonix-la-pratique-du-wingsuit-de-nouveau-autorisee: the arrêté of 16 September 2021, exit zones a and b and their landings",
+    "https://www.chamonix.net/english/news/wingsuit-flight-eagles-gmhm-just-above-les-aiguilles-chamonix: the Aiguille des Deux Aigles, 27 February 2023",
+    "https://www.chamonix.net/francais/actualite/geraldine-fasnacht-wingsuit-point-durier: the Pointe Durier, September 2013",
+    "https://ams.confex.com/ams/BLTAIRSE/webprogram/Paper79956.html: the valley winds of Chamonix",
+    "OpenStreetMap: Paravalanche de Taconnaz (way 359770184), the Planards, Pointe Durier and the Aiguilles",
+    "IGN: LiDAR HD MNT, BD ORTHO, through the Géoplateforme, Licence Ouverte / Etalab 2.0"
+  ]
+}

@@ -46,6 +46,8 @@ export const fr = {
       limska: 'Le viaduc de l\'A9 au-dessus de la Limska draga, en Istrie',
       millau: 'Le viaduc de Millau au-dessus du Tarn, à 270 m (interdit en vrai)',
       brento: "Le Becco dell'Aquila, au-dessus de la vallée de la Sarca",
+      chamonix: "L'Aiguille des Deux Aigles, au-dessus du glacier des Pèlerins, posé aux Planards",
+      'chamonix-durier': 'La Pointe Durier à 4000 m, au-dessus du glacier des Bossons, posé à Taconnaz',
     },
     made: 'DZ imaginaire',
     credits: {
@@ -56,6 +58,7 @@ export const fr = {
       croatia: 'Photos DOF5 2019/20 © DGU (Otvorena dozvola), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       usa: 'Photos USDA NAIP (USGS), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       trentino: 'Photos et LiDAR © Provincia autonoma di Trento (CC BY 4.0), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
+      franceLidar: 'Photos et relief LiDAR HD IGN, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
     },
   },
 
@@ -616,7 +619,8 @@ export const fr = {
       bots: 'NOMBRE',
       botsHint: 'en saut solo',
       botsNone: 'Aucun',
-      botsNote: 'Ils sortent juste après toi, de l\'avion seulement, dans la même combinaison que toi.',
+      botsNote: 'Ils sortent de l\'avion juste après toi, dans la même combinaison que toi.',
+      botsNoteBase: 'En haut, ils attendent à côté de toi et sautent un par un, dans ta combinaison et sous une voile comme la tienne.',
       botsRoom: 'À plusieurs dans une room, pas de sautants IA.',
       botLead: 'QUI MÈNE',
       botLeads: { us: 'Moi', bot: 'Un sautant IA' },
@@ -624,10 +628,18 @@ export const fr = {
         us: 'Ils se placent autour de toi et font comme toi.',
         bot: 'Le premier vole comme il veut ; les autres se placent autour de lui, et une place t\'attend. Les aides te disent où.',
         track: 'En dérive et en wingsuit, c\'est toujours un sautant IA qui mène.',
+        base: {
+          us: 'Tu sautes en premier ; ils suivent un par un, chacun une fois la voile du précédent ouverte.',
+          bot: 'Ils sautent avant toi, un par un, le premier quelques secondes après le départ : à toi après le dernier.',
+        },
       },
       botMode: 'ILS VOLENT',
-      botModes: { formation: 'À plat', vertical: 'Vertical', track: 'Dérive' },
+      botModes: { formation: 'À plat', vertical: 'Vertical', track: 'Dérive', base: 'Chacun son tour' },
       botModeNote: {
+        baseDelay: (seconds: string, bridge: boolean) =>
+          `${bridge ? 'Du bord du tablier' : 'Après l\'élan'}, environ ${seconds} s de délai en tenant le cap, puis la voile et l'atterrissage.`,
+        baseTrack: (over: string) =>
+          `Quelques secondes droit vers le bas, puis une dérive pour s'éloigner de la paroi, qui tourne ensuite vers l'atterro. Ouverture vers ${over} m au-dessus de l'atterro, plus tôt si la pente remonte.`,
         formation: (breakOff: string, pull: string) =>
           `À plat, en ronde avec toi, tout près. Si tu changes de position, ils te suivent. Séparation à ${breakOff} m, ouverture vers ${pull} m.`,
         vertical: (breakOff: string, pull: string) =>
@@ -643,7 +655,9 @@ export const fr = {
       botsSection: 'SAUTANTS IA',
       solo: 'Solo',
       soloNote: 'Ajoute des sautants IA, ou saute à plusieurs dans une salle',
-      planeOnly: 'Les sautants IA ne sortent que d\'avion',
+      planeOnly: 'Les sautants IA sautent de l\'avion ou en BASE',
+      baseYouFirst: 'Tu sautes en premier',
+      baseThemFirst: 'Ils sautent avant toi',
       withBots: (n: number) => `${n} sautant${n > 1 ? 's' : ''} IA`,
       leadUs: 'Ils se placent autour de toi',
       leadBot: 'Derrière un leader IA',

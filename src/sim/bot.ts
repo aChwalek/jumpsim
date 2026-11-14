@@ -8,10 +8,14 @@
 // fast it is closing (D), so it stops in the slot and not past it. Under
 // canopy it is cruder: to the start of a final, round it until low enough,
 // then in against the wind and a flare.
+//
+// Off a BASE object it is a jump of its own too, one at a time: beside us on
+// top until its turn, then the run or the jump out, a delay held on heading,
+// off a high cliff a track away from the wall, the pull, and the same canopy.
 
 import { FlightModel, neutralControls, type Controls, type Environment } from './flightModel';
 import { noBodyInputs, type BodyInputs, type BodyPosition } from './freefall';
-import { Jump, type JumpOptions } from './jump';
+import { Jump, isLedge, type JumpOptions, type Ledge } from './jump';
 import { detectTouchdown, feetHeight, type Touchdown } from './landing';
 import { EXIT_SPOTS, type ExitSpot, type JumpRun } from './plane';
 import type { RigParams } from './rig';
@@ -57,9 +61,13 @@ export interface BotPlan {
   index: number;
   of: number;
   mode: BotMode;
-  /** Who the round forms on: us, the bots then flying as we do; or the first bot, which flies as it likes. A track always has a bot leading. */
+  /**
+   * Who the round forms on: us, the bots then flying as we do; or the first bot, which flies as it likes. A track always has a bot leading.
+   * Off an object, who goes first: us, the bots after us; or the bots, we last.
+   */
   lead?: BotLead;
-  run: JumpRun;
+  /** The plane's jump run; or off a BASE object, this bot's own place on top (see botLedge). */
+  run: JumpRun | Ledge;
   /** Where we wait in the plane: the bots take the other places. */
   spot: ExitSpot;
   /** Where to land, and the compass heading finals are flown on. */
@@ -146,8 +154,21 @@ const TRACK_SLIDE = 0.5;
 const KP_TRACK = 0.12;
 const KD_TRACK = 0.35;
 
-/** Under canopy: where the final starts, m above the ground, and how far back for each metre of it in still air. */
+/**
+ * Under canopy: where the final starts, m above the ground, and how far back for each metre of it in still air.
+ * Opened low, off an object, the whole pattern is smaller, and short of the object rather than back at it: the
+ * final at most this share of the height it opened at, never lower than this, m.
+ */
 const FINAL_HEIGHT = 90;
+const FINAL_SHARE = 0.25;
+const FINAL_LOWEST = 20;
+/** Opened lower than this, m, there is no pattern to fly: straight in at the target. */
+const PATTERN_FROM = 100;
+/**
+ * Whatever the pattern, it turns in for the target while it still gets
+ * there: once the target is this many times the height away, in still air.
+ */
+const FINAL_REACH = 2.2;
 const FINAL_GLIDE = 2.2;
 /** A canopy flies at about this through the air, m/s: what a headwind is held against. */
 const CANOPY_SPEED = 11;
@@ -162,6 +183,120 @@ const HAND_RATE = 1.6;
 /** After the opening: a moment, then both toggles down to free the brakes, s. */
 const UNSTOW_AT = 1.5;
 const UNSTOW_FOR = 0.6;
+
+/** The top of a BASE object: where we start, which way the run goes, how long it is (none off a bridge), how high. */
+export interface ObjectTop {
+  x: number;
+  z: number;
+  headingDeg: number;
+  runUp: number;
+  height: number;
+}
+
+/** Off a bridge, side by side on the lip of the deck, this far apart, m. */
+const LIP_SPACING = 1.2;
+/** On a run, a pair beside us this far out to either side, inside the lane, and the next pair this far behind them, m. */
+const RUN_SIDE = 1.3;
+const RUN_BEHIND = 2.5;
+/**
+ * Off an object, one at a time: each goes this long after the one before is
+ * off, s, for that one's canopy to be open and away from under the exit. Off
+ * a cliff they track away from it, so closer together, on the same line.
+ */
+const BASE_GAP = 7;
+const BASE_GAP_TRACKED = 4;
+/** The bots going first, the first of them goes this long after the start: time for us to look round, s. */
+const BASE_READY = 5;
+/** Off a cliff higher than this, m, a bot tracks away from the wall before the pull; off anything lower it falls straight on heading. */
+const BASE_TRACK_FROM = 400;
+/** Off a cliff, straight down this long first, s, for the air to build up; then the track. */
+const BASE_TRACK_AFTER = 2;
+/** How hard the track is driven off a cliff, of what the body has. */
+const BASE_DRIVE = 0.6;
+/**
+ * Tracking off a cliff, the pull comes once down to half the cliff's height
+ * over the landing area, where a canopy still gets home; sooner where the
+ * slope under comes up to this, m (a wing keeps more off it: it opens slower).
+ * Not before this long after the exit, s: under the lip the ground known is
+ * the face of the wall itself, nowhere near.
+ */
+const BASE_PULL_OVER = 0.5;
+const BASE_FLOOR = 280;
+const BASE_FLOOR_WINGS = 200;
+const BASE_PULL_FROM = 3;
+/** And this long after the exit at the latest, s. */
+const BASE_LONGEST = 30;
+const BASE_LONGEST_WINGS = 60;
+/**
+ * In wings off a mountain this high, m, the face goes on down for kilometres
+ * under the line, never far below: the suit is flown straight out hands off,
+ * as the lines were checked to clear, and the pull comes once this long out,
+ * s, this high over the ground, m, with the landing within a canopy's glide
+ * (height over it per metre to go); at the latest this long out, s.
+ */
+const BASE_LINE_FROM = 1500;
+const BASE_LINE_SOONEST = 15;
+const BASE_LINE_CLEAR = 300;
+const BASE_LINE_GLIDE = 0.45;
+const BASE_LINE_LATEST = 90;
+/** This far out from the exit, m, the track comes round towards the landing area, this fast, degrees per second. */
+const BASE_CLEAR = 150;
+const BASE_TURNS = 8;
+/** Nobody counts a delay to the tenth: each bot's is this much either way, s. */
+const DELAY_SPREAD = 0.25;
+
+/**
+ * The delay off an object too low to track from, s, before the pull: a second
+ * off 120 m and below (the body has to be flat to pull, which takes about
+ * that), about three off 300 m, never more than four.
+ */
+export const baseDelay = (height: number): number => clamp((height - 60) / 80, 1, 4);
+/** Whether a bot tracks away off this object: a cliff (a run to its edge, not a bridge's lip) high enough. */
+export const baseTracked = (height: number, standing: boolean): boolean => !standing && height > BASE_TRACK_FROM;
+/** Tracking off a cliff this high, about where over the landing area the pull comes, m. */
+export const basePullOver = (height: number): number => BASE_PULL_OVER * height;
+
+/**
+ * Where on top of an object a bot waits for its turn: off a bridge, on the lip
+ * beside us, right, left, then further out; on a run, beside us inside the
+ * lane, a pair level with us and the next pair a little behind. It runs from
+ * there, straight along the run.
+ */
+export function botLedge(index: number, top: ObjectTop): Ledge {
+  const h = top.headingDeg * DEG;
+  const side = index % 2 ? -1 : 1;
+  const row = Math.floor(index / 2);
+  const standing = top.runUp === 0;
+  const across = side * (standing ? LIP_SPACING * (row + 1) : RUN_SIDE);
+  const back = standing ? 0 : RUN_BEHIND * row;
+  return {
+    kind: 'ledge',
+    x: top.x + Math.cos(h) * across - Math.sin(h) * back,
+    z: top.z + Math.sin(h) * across + Math.cos(h) * back,
+    headingDeg: top.headingDeg,
+    height: top.height,
+    standing,
+  };
+}
+
+/** How a bot jumps off an object. */
+interface BaseJump {
+  /** Off a cliff high enough: a track away from the wall, the pull at a height. */
+  track: boolean;
+  /** Otherwise the pull this long after the exit, s. */
+  delay: number;
+  /**
+   * Tracking: the pull this high over the landing area, m, or sooner this
+   * high over what is under it, m, or this long after the exit at the latest, s.
+   */
+  over: number;
+  floor: number;
+  longest: number;
+  /** Off this long after the one before it, s. */
+  gap: number;
+  /** In wings down a long mountain line: flown straight out hands off until the landing is within reach. */
+  line: boolean;
+}
 
 /**
  * Whether the first bot leads and the others follow it: a track, and whatever is flown in wings.
@@ -261,6 +396,8 @@ export class Bot {
   private away: number | null = null;
   /** Under an open canopy, s. */
   private flown = 0;
+  /** Where its final starts, m above the ground: set once the canopy flies; null with no pattern to fly, straight in. */
+  private finalAt: number | null | undefined = undefined;
   private readonly wanted: Controls = neutralControls();
   private readonly slot = vec3();
   private readonly tmp = vec3();
@@ -286,6 +423,8 @@ export class Bot {
   /** Nobody holds a slot to the centimetre: where this one wanders, and how fast. */
   private readonly wander: [number, number, number];
   private time = 0;
+  /** Off an object: how it jumps it; null out of a plane. */
+  private readonly base: BaseJump | null = null;
 
   constructor(
     rig: RigParams,
@@ -296,13 +435,27 @@ export class Bot {
     this.model = new FlightModel(rig);
     const spot = botSpot(plan.index, plan.spot);
     this.jump = new Jump(this.model, plan.run, env, plan.groundAt, random, { ...plan.options, malfunction: null, spot });
-    const heights = botHeights(plan.run.height);
+    const heights = botHeights(plan.run.height ?? 0);
     this.pullAt = heights.pull + PULL_STEP * plan.index;
     this.breakOffAt = heights.breakOff;
     this.trackDeg = plan.run.headingDeg + TRACK_OFF_RUN;
     this.goingDeg = plan.run.headingDeg;
     this.outDeg = plan.run.headingDeg + 180 + (360 * plan.index) / plan.of;
     this.wander = [random() * 6.28, random() * 6.28, 0.5 + 0.4 * random()];
+    if (isLedge(plan.run)) {
+      const height = plan.run.height ?? 0;
+      const wings = hasWings(plan.options.suit);
+      const track = baseTracked(height, !!plan.run.standing);
+      this.base = {
+        track,
+        delay: baseDelay(height) + DELAY_SPREAD * (2 * random() - 1),
+        over: basePullOver(height),
+        floor: wings ? BASE_FLOOR_WINGS : BASE_FLOOR,
+        longest: wings ? BASE_LONGEST_WINGS : BASE_LONGEST,
+        gap: track ? BASE_GAP_TRACKED : BASE_GAP,
+        line: wings && track && height > BASE_LINE_FROM,
+      };
+    }
   }
 
   /** A track, or whatever is flown in wings: a line behind a leader, where round us or round a bot is a round. */
@@ -318,9 +471,9 @@ export class Bot {
     return phase === 'opening' || phase === 'canopy' ? 'hanging' : null;
   }
 
-  /** Leading: the others, and we, follow this one. */
+  /** Leading: the others, and we, follow this one. Off an object nobody does: each goes in turn. */
   get leads(): boolean {
-    return this.plan.index === 0 && (this.line || this.plan.lead === 'bot');
+    return this.base === null && this.plan.index === 0 && (this.line || this.plan.lead === 'bot');
   }
 
   /** As a lead for the bots that follow this one. */
@@ -332,7 +485,7 @@ export class Bot {
     return {
       pos: s.pos,
       vel: s.vel,
-      out: phase !== 'plane',
+      out: phase !== 'plane' && phase !== 'standing',
       falling,
       drive: this.input.forward,
       tracking: this.tracking,
@@ -345,7 +498,8 @@ export class Bot {
 
   /**
    * Flies on by `seconds`. `us`: the player. `leader`: the bot leading the
-   * track, for those behind it. The brain looks once, the sim then steps as ours does.
+   * track, for those behind it; off an object, the bot that goes just before
+   * this one (none for the first). The brain looks once, the sim then steps as ours does.
    */
   step(seconds: number, env: Environment, us: Lead, leader: Lead | null = null): void {
     if (this.touchdown) {
@@ -395,14 +549,67 @@ export class Bot {
     const input = this.input;
     this.time += dt;
     input.turn = input.forward = input.slide = input.fall = 0;
-    if (jump.phase === 'plane') {
+    if (jump.phase === 'standing') this.wait(dt, us, leader);
+    else if (jump.phase === 'plane') {
       // Upright from the door, where that is how the jump is flown.
       if (this.plan.mode === 'vertical' && !jump.wings) jump.fly('sit');
       const first = leader ?? us;
       if (this.exitIn === null && first.out) this.exitIn = EXIT_AFTER + (leader ? 0 : EXIT_GAP * this.plan.index);
       if (this.exitIn !== null && (this.exitIn -= dt) <= 0) jump.act();
-    } else if (jump.phase === 'freefall') this.fall(dt, us, leader);
-    else if (jump.phase === 'canopy') this.steer(env);
+    } else if (jump.phase === 'freefall') {
+      if (this.base) this.fallOff(dt, this.base);
+      else this.fall(dt, us, leader);
+    } else if (jump.phase === 'canopy') this.steer(env);
+  }
+
+  /**
+   * On top of the object: its turn comes once the one before it is off (us,
+   * or the bot before; the first of the bots when they go before us, once we
+   * have had time to look round), then the run, or off a bridge, the jump out.
+   */
+  private wait(dt: number, us: Lead, before: Lead | null): void {
+    if (this.exitIn === null) {
+      if (this.plan.index === 0 && this.plan.lead === 'bot') {
+        if (this.time > BASE_READY) this.exitIn = 0;
+      } else if ((before ?? us).out) this.exitIn = this.base!.gap;
+    }
+    if (this.exitIn !== null && (this.exitIn -= dt) <= 0) this.input.forward = 1;
+  }
+
+  /**
+   * Off an object: on heading, and the pull after the delay; off a high cliff,
+   * a moment straight down, then a track away from the wall that comes round
+   * towards the landing area once well out, and the pull high enough over the slope.
+   */
+  private fallOff(dt: number, base: BaseJump): void {
+    const jump = this.jump;
+    if (jump.cutawayAt !== null || jump.pullWhenFlat) return;
+    const t = jump.time;
+    const p = this.model.state.pos;
+    const { run, landing, groundAt } = this.plan;
+    const input = this.input;
+    if (base.line) {
+      // Out along the face, then the pull, well over it, the canopy to fly the rest of the way down.
+      const over = p.y - groundAt(landing.x, landing.z);
+      const reach = over / Math.max(1, Math.hypot(landing.x - p.x, landing.z - p.z));
+      if ((t > BASE_LINE_SOONEST && jump.height() > BASE_LINE_CLEAR && reach > BASE_LINE_GLIDE) || t > BASE_LINE_LATEST) return jump.act();
+      input.forward = 0;
+      input.turn = 0;
+      return;
+    }
+    const low = () => jump.height() < base.floor || p.y - groundAt(landing.x, landing.z) < base.over;
+    if (base.track ? (t > BASE_PULL_FROM && low()) || t > base.longest : t >= base.delay) {
+      this.tracking = false;
+      return jump.act();
+    }
+    if (base.track && t > BASE_TRACK_AFTER) {
+      this.tracking = true;
+      input.forward = BASE_DRIVE;
+      if (Math.hypot(p.x - run.x, p.z - run.z) > BASE_CLEAR) {
+        this.goingDeg += clamp(turnTo(this.goingDeg, bearing(landing.x - p.x, landing.z - p.z)), -BASE_TURNS * dt, BASE_TURNS * dt);
+      }
+    }
+    input.turn = clamp(this.turn(jump.body.headingDeg(), this.goingDeg), -TRACK_TURN, TRACK_TURN);
   }
 
   /** Freefall: into the slot and held there, then away and the pull. */
@@ -582,13 +789,15 @@ export class Bot {
   private steer(env: Environment): void {
     const w = this.wanted;
     w.brakeL = w.brakeR = 0;
+    const height = feetHeight(this.model, this.plan.groundAt);
+    if (this.finalAt === undefined) this.finalAt = height < PATTERN_FROM ? null : clamp(FINAL_SHARE * height, FINAL_LOWEST, FINAL_HEIGHT);
     if (this.flown < UNSTOW_AT) return;
     if (this.flown < UNSTOW_AT + UNSTOW_FOR) {
       w.brakeL = w.brakeR = 0.7;
       return;
     }
     const s = this.model.state;
-    const height = feetHeight(this.model, this.plan.groundAt);
+    const final = this.finalAt;
     if (height < FLARE_HEIGHT) {
       w.brakeL = w.brakeR = 1;
       return;
@@ -603,18 +812,21 @@ export class Bot {
     const tz = landing.z + Math.sin(l) * lane;
     // Against the wind the final is shorter over the ground.
     const head = -(env.wind.x * Math.sin(l) - env.wind.z * Math.cos(l));
-    const back = FINAL_HEIGHT * FINAL_GLIDE * clamp(1 - head / CANOPY_SPEED, 0.15, 1.5);
+    const glide = clamp(1 - head / CANOPY_SPEED, 0.15, 1.5);
+    // Low for how far the target is: in at it now, from wherever.
+    const late = final === null || Math.hypot(tx - s.pos.x, tz - s.pos.z) > height * FINAL_REACH * glide;
     let to: number;
-    if (height > FINAL_HEIGHT) {
+    if (height > (final ?? 0) && !late) {
+      const back = final * FINAL_GLIDE * glide;
       const gx = tx - Math.sin(l) * back - s.pos.x;
       const gz = tz + Math.cos(l) * back - s.pos.z;
       to = bearing(gx, gz);
       // There with height to spare: round it.
       if (Math.hypot(gx, gz) < HOLD_RADIUS) to += 80;
     } else {
-      // On final: at the target while it is ahead, else straight on into the wind.
+      // On final: at the target while it is ahead, else straight on into the wind; late, at the target whatever.
       to = bearing(tx - s.pos.x, tz - s.pos.z);
-      if (Math.abs(turnTo(landing.headingDeg, to)) > 50) to = landing.headingDeg;
+      if (!late && Math.abs(turnTo(landing.headingDeg, to)) > 50) to = landing.headingDeg;
     }
     const off = turnTo(heading, to);
     // Low, no more turning than a touch: wings level for the flare.

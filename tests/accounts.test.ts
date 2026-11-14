@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { sharesAccounts } from '../worker/auth';
+import { sharesAccounts } from '../worker/hosts';
 
 test('the apps under lowpull.app share a session, the previews and other addresses do not', () => {
   expect(sharesAccounts('lowpull.app')).toBe(true);

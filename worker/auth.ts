@@ -1,6 +1,7 @@
 import { betterAuth } from 'better-auth';
 import { anonymous } from 'better-auth/plugins/anonymous';
 import { cleanName, madeUpName } from '../src/net/scores';
+import { ACCOUNTS_DOMAIN, sharesAccounts } from './hosts';
 
 /** Secrets (`wrangler secret put`, or .dev.vars when run locally). Without Google's, signing in with Google is not offered. */
 export interface AuthSecrets {
@@ -11,8 +12,6 @@ export interface AuthSecrets {
   AUTH_ORIGIN?: string;
 }
 
-/** Accounts live under this domain: one sign-in for the game and whatever else comes under it. */
-const ACCOUNTS_DOMAIN = 'lowpull.app';
 /** How long a session lasts, s: about the longest browsers keep a cookie. An anonymous account is lost with it. */
 const SESSION_SECONDS = 400 * 24 * 3600;
 /** An account whose first session came this soon after it was made was made by that sign-in, ms. */
@@ -93,9 +92,6 @@ export function createAuth(env: Env & AuthSecrets, request: Request) {
     },
   });
 }
-
-/** lowpull.app and the apps right under it, not what is deeper (the previews). */
-export const sharesAccounts = (host: string): boolean => host === ACCOUNTS_DOMAIN || /^[a-z0-9-]+\.lowpull\.app$/.test(host);
 
 /** The account a request comes from, if it has a session. */
 export async function sessionUser(env: Env & AuthSecrets, request: Request): Promise<{ id: string; name: string } | null> {

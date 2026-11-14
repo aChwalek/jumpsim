@@ -6,6 +6,8 @@
 
 import { decodeTrack, encodeTrack, type Track } from './track';
 
+// Still named after the project's first name: renaming it would lose the
+// tracks already kept in every browser.
 const DB = 'jumpsim';
 const STORE = 'tracks';
 /** The tracks kept, the oldest going first: some 100 to 300 kB each. */
