@@ -360,7 +360,7 @@ export const en: Strings = {
   },
 
   menu: {
-    tagline: 'canopy piloting simulator',
+    tagline: 'The ground is the limit.',
     categories: { dz: 'DZ', gear: 'GEAR', jump: 'JUMP', team: 'TEAM', weather: 'WEATHER' },
     lines: { dz: 'DROP ZONE', gear: 'GEAR', jump: 'JUMP', team: 'TEAM', weather: 'WEATHER' },
     dragHint: 'Drag to turn around',

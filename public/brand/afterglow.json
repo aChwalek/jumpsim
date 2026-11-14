@@ -1,0 +1,24 @@
+{
+  "name": "lowpull",
+  "direction": "Afterglow",
+  "signature": "The ground is the limit.",
+  "secondarySignature": "Nice sky. Bad ideas.",
+  "palette": {
+    "violet": "#4F2A7F",
+    "rose": "#A74087",
+    "orange": "#F47B42",
+    "solar": "#FFD56B",
+    "ink": "#211A2F",
+    "cream": "#FFF0E3"
+  },
+  "sunset": "linear-gradient(155deg, #4F2A7F 5%, #A74087 45%, #DB5F72 72%, #F47B42 100%)",
+  "wordmark": "lowpull.svg",
+  "monochromeWordmark": "lowpull-mono.svg",
+  "icon": "../icons/icon.svg",
+  "usage": {
+    "panels": "Dark plum with cream text",
+    "actions": "Solar yellow with plum text",
+    "accents": "Solar yellow for labels and altitude; sunset for the panel rule",
+    "imagery": "Keep the game landscape visible; no mascot"
+  }
+}
