@@ -13,5 +13,5 @@
     "noEmit": true,
     "types": []
   },
-  "include": ["index.ts", "worker-configuration.d.ts", "../src/net/protocol.ts"]
+  "include": ["index.ts", "worker-configuration.d.ts", "../src/net/protocol.ts", "../src/net/perfSchema.ts"]
 }

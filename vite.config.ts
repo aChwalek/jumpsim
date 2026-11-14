@@ -1,6 +1,12 @@
 import { defineConfig } from 'vitest/config';
 
+// Which build a browser runs, in its reports of how the picture runs (src/perf.ts):
+// the commit on Cloudflare's Workers Builds, else when it was built.
+const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
+const build = env.WORKERS_CI_COMMIT_SHA?.slice(0, 7) || new Date().toISOString().slice(0, 16);
+
 export default defineConfig({
+  define: { __BUILD__: JSON.stringify(build) },
   server: {
     port: 5173,
     strictPort: false,
