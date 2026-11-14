@@ -67,7 +67,10 @@ import { Hud } from './ui/hud';
 import { padIcon, type KeysPhase, type PadControl } from './ui/keys';
 import { Menu } from './ui/menu';
 import { goLandscape, TouchControls, type TouchLayout } from './ui/touchControls';
-import { updateSideways, viewSize } from './viewport';
+import { handheld, updateSideways, viewSize } from './viewport';
+import { PerfMeter, type PerfScene } from './perf';
+import { hiding, runBench, type BenchStep } from './bench';
+import { DZS } from './world/dzs';
 import { Markers, type MarkerTarget } from './net/markers';
 import { Bots, type Others } from './bots';
 import type { Lead } from './sim/bot';
@@ -338,6 +341,20 @@ function apply(next: Setup, withGear: boolean): boolean {
 }
 
 const resolution = new Resolution(renderer, QUALITY_LEVELS[settings.quality]!.ratio);
+/** How the picture runs, reported to the Worker every few seconds (see perf.ts). */
+const perf = new PerfMeter(
+  renderer,
+  () => ({
+    pixelRatio: renderer.getPixelRatio(),
+    bufferWidth: renderer.domElement.width,
+    bufferHeight: renderer.domElement.height,
+    renderScale: resolution.scale,
+    quality: settings.quality,
+  }),
+  handheld(),
+);
+/** A bench is running (?bench): the resolution stays where it puts it. */
+let benching = false;
 
 /** Puts the settings to work, and keeps them for next time. */
 function applySettings(): void {
@@ -2328,10 +2345,11 @@ let frameAverage = 1 / 60;
 
 function frame(now: number): void {
   requestAnimationFrame(frame);
+  perf.begin();
   const elapsed = (now - last) / 1000;
   last = now;
   frameAverage += (elapsed - frameAverage) * 0.05;
-  if (elapsed < 0.25 && settings.autoResolution) resolution.track(elapsed);
+  if (elapsed < 0.25 && settings.autoResolution && !benching) resolution.track(elapsed);
 
   devices.padMode = padMode();
   devices.feetTurn = onFoot() && !locked;
@@ -2533,6 +2551,7 @@ function frame(now: number): void {
   }
   if (!paused) light.clouds.drift(cloudWind.x, cloudWind.z, Math.min(elapsed, 0.1));
   world.update(camera.position, now / 1000);
+  perf.beforeRender();
   drawMap(now);
   renderer.render(scene, camera);
   if (view === 'eyes' && !replay && !watching) {
@@ -2544,6 +2563,7 @@ function frame(now: number): void {
     renderer.render(scene, gearCamera);
     renderer.autoClearColor = true;
   }
+  perf.afterRender(elapsed, perfScene());
 
   // The air past the head, in the head's own axes. On the ground that is
   // what is left of the speed, then only the wind.
@@ -2669,6 +2689,76 @@ const roomInUrl = roomFromUrl();
 if (roomInUrl) joinRoom(roomInUrl);
 else void countPublic();
 requestAnimationFrame(frame);
+
+/** What the picture shows, for the reports of how it runs. */
+function perfScene(): PerfScene {
+  const phase = menu.isOpen
+    ? 'menu'
+    : watching
+      ? 'watch'
+      : replay
+        ? 'replay'
+        : paused
+          ? 'paused'
+          : touchdown || arrival || impact
+            ? 'ground'
+            : (jump?.phase ?? 'canopy');
+  return { phase, dz: setup.dz, sky: setup.weather.sky, view };
+}
+
+/**
+ * `?bench` (or `?bench=<dz id>`): a jump under canopy over the drop zone, frozen,
+ * under cumulus; each part of the picture is hidden in turn and the frame rate
+ * of each step reported, to see what costs what on this device.
+ */
+async function bench(dzId: string): Promise<void> {
+  const known = DZS.find((d) => d.id === dzId);
+  const chosen = cloneSetup(setup);
+  if (known) chosen.dz = known.id;
+  chosen.weather.sky = 'cumulus';
+  await menu.onStart(chosen, 'pattern');
+  menu.hide();
+  paused = true;
+  // The aerial photos come in after the drop zone: they are part of what is drawn.
+  const since = performance.now();
+  while (!world.ready() && performance.now() - since < 20_000) await new Promise((r) => setTimeout(r, 500));
+  benching = true;
+  resolution.scale = 1;
+  resolution.apply();
+  const steps: BenchStep[] = world.object.children.filter((c) => c.name).map((c) => hiding(c.name, c));
+  steps.push(
+    hiding('clouds', light.clouds.layer),
+    hiding('sky', sky),
+    hiding('canopy+pilot', rigView.object),
+    {
+      label: 'half pixels',
+      apply: () => {
+        resolution.scale = Math.SQRT1_2;
+        resolution.apply();
+      },
+      undo: () => {
+        resolution.scale = 1;
+        resolution.apply();
+      },
+    },
+    {
+      label: 'nothing',
+      apply: () => {
+        for (const c of scene.children) {
+          c.userData.benchWas = c.visible;
+          c.visible = false;
+        }
+      },
+      undo: () => {
+        for (const c of scene.children) c.visible = c.userData.benchWas !== false;
+      },
+    },
+  );
+  await runBench(perf, steps, perfScene);
+  benching = false;
+}
+const benchDz = new URLSearchParams(location.search).get('bench');
+if (benchDz !== null) void bench(benchDz);
 
 if (import.meta.env.DEV) {
   // The rig can change between jumps: these always give the current one.

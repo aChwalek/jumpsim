@@ -13,11 +13,16 @@
     "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  // How the picture runs in the browsers (POST /perf): frame rate, phase, device.
+  // Queried with the SQL API, dataset jumpsim_perf (see src/net/perfSchema.ts).
+  "analytics_engine_datasets": [{ "binding": "PERF", "dataset": "jumpsim_perf" }],
   // Branches other than main get their own Preview URL (`wrangler preview`).
   // Bindings are not inherited: each Preview gets its own rooms.
   "previews": {
     "durable_objects": {
       "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
-    }
+    },
+    // Previews report to their own dataset, not mixed with the live site's.
+    "analytics_engine_datasets": [{ "binding": "PERF", "dataset": "jumpsim_perf_preview" }]
   }
 }

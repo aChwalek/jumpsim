@@ -57,22 +57,24 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
   // Bare rock about a BASE exit on a cliff, which the photos taken from above miss.
   const rock = dz.cliffTop ? rockTexture(dz.cliffTop.rock) : undefined;
   const cliffTop = dz.cliffTop ? buildCliffTop(dz.cliffTop, groundAt, dz.base?.pad) : undefined;
+  // Named for the bench (?bench), which hides each in turn.
+  const named = <T extends THREE.Object3D>(name: string, o: T): T => Object.assign(o, { name });
   object.add(
-    buildTerrain(dz.grass.area.color, groundAt, dz.landColor, photos, dz.terrainDetail, rock),
-    buildSurfaces(dz.surfaces, dz.areas),
-    buildBuildings(dz.buildings, groundAt),
-    trees.object,
-    buildCars(dz.cars, groundAt),
-    buildPeople(dz.people, groundAt),
-    windsock.object,
-    grass.object,
-    water.object,
-    flags.object,
+    named('terrain', buildTerrain(dz.grass.area.color, groundAt, dz.landColor, photos, dz.terrainDetail, rock)),
+    named('surfaces', buildSurfaces(dz.surfaces, dz.areas)),
+    named('buildings', buildBuildings(dz.buildings, groundAt)),
+    named('trees', trees.object),
+    named('cars', buildCars(dz.cars, groundAt)),
+    named('people', buildPeople(dz.people, groundAt)),
+    named('windsock', windsock.object),
+    named('grass', grass.object),
+    named('water', water.object),
+    named('flags', flags.object),
   );
   const vines = dz.vineRows?.length ? buildVines(dz.vineRows, groundAt) : undefined;
-  if (vines) object.add(vines.object);
-  if (dz.bridges) object.add(buildBridges(dz.bridges, groundAt));
-  if (cliffTop) object.add(cliffTop.object);
+  if (vines) object.add(named('vines', vines.object));
+  if (dz.bridges) object.add(named('bridges', buildBridges(dz.bridges, groundAt)));
+  if (cliffTop) object.add(named('cliffTop', cliffTop.object));
   // The run is painted on a tower's roof; a cliff has nothing on it, and off a bridge there is no run.
   if (dz.base?.marked && dz.topAt && dz.base.runUp > 0) object.add(buildLedgeMarks(dz.base, dz.topAt(dz.base.x, dz.base.z)));
   if (dz.targetShown !== false) {

@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { MAX_PEERS, PUBLIC_PREFIX, ROOM_NAME, type ClientMessage, type Member, type ServerMessage } from '../src/net/protocol';
+import { PERF_BLOBS, PERF_DOUBLES, PERF_MAX_BYTES } from '../src/net/perfSchema';
 
 /** Secrets for the TURN relay (`wrangler secret put`); without them, STUN only. */
 interface Secrets {
@@ -12,13 +13,15 @@ interface Secrets {
  *  - `/signal/<room>`: a WebSocket to the room's Durable Object, which
  *    introduces the browsers to each other;
  *  - `/players/<room>` (GET): how many are in a drop zone's public room;
- *  - `/turn` (POST): short-lived credentials for Cloudflare's TURN relay.
+ *  - `/turn` (POST): short-lived credentials for Cloudflare's TURN relay;
+ *  - `/perf` (POST): how the picture runs in a browser, to Analytics Engine.
  * Assets are served before the Worker runs, so it only sees what is not a file.
  */
 export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === '/turn') return iceServers(request, env as Env & Secrets);
+    if (url.pathname === '/perf') return perf(request, env);
     const match = url.pathname.match(/^\/(signal|players)\/([^/]+)$/);
     if (!match) return new Response('Not found', { status: 404 });
     const room = match[2] ?? '';
@@ -62,6 +65,44 @@ async function iceServers(request: Request, env: Secrets): Promise<Response> {
 }
 
 const STUN = 'stun:stun.cloudflare.com:3478';
+
+/** Whether a POST comes from a page of this site: browsers say where it comes from. */
+function sameOrigin(request: Request): boolean {
+  const origin = request.headers.get('Origin');
+  if (!origin) return false;
+  try {
+    return new URL(origin).host === request.headers.get('Host');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * One report of how the picture runs (see perfSchema), written as one data
+ * point: strings and numbers in their fixed order, the visit's id as the index.
+ */
+async function perf(request: Request, env: Env): Promise<Response> {
+  if (request.method !== 'POST') return new Response('Expected POST', { status: 405 });
+  if (!sameOrigin(request)) return new Response('Forbidden', { status: 403 });
+  const text = await request.text();
+  if (text.length > PERF_MAX_BYTES) return new Response('Too large', { status: 413 });
+  let report: Record<string, unknown>;
+  try {
+    report = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return new Response('Bad JSON', { status: 400 });
+  }
+  if (typeof report !== 'object' || report === null) return new Response('Bad report', { status: 400 });
+  const blob = (v: unknown): string => (typeof v === 'string' ? v.slice(0, 256) : '');
+  const double = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  // Not bound when run on its own (wrangler dev without it): nothing to write to.
+  env.PERF?.writeDataPoint({
+    indexes: [blob(report.session).slice(0, 32)],
+    blobs: PERF_BLOBS.map((k) => blob(report[k])),
+    doubles: PERF_DOUBLES.map((k) => double(report[k])),
+  });
+  return new Response(null, { status: 204 });
+}
 
 const json = (body: unknown): Response =>
   new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
