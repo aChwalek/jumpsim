@@ -6,7 +6,7 @@
 
 import { bridgeSolid, nearPier, underBridge, undersideAt } from './bridge';
 import { cliffTopOf, onPad, placePad } from './cliffTop';
-import type { Area, Bridge, Building, DzPack, Flag, Placed, Rect, Tree } from './dz';
+import type { Area, Bridge, Building, DzPack, Flag, ImagerySpots, Placed, Rect, Tree } from './dz';
 import { inArea, seeded } from './dz';
 import { gridOf, reliefFrom } from './terrain';
 import { VINE_LENGTH, onVineRow, vineRows, vineyardOf, type Vineyard } from './vines';
@@ -29,10 +29,14 @@ export interface RealDzData {
    * decimetres above the plain, little-endian 16-bit integers in base64, rows
    * north to south.
    */
-  fine?: { x: number; z: number; size: number; spacing: number; heights: string };
+  fine?: { x: number; z: number; size: number; rows?: number; spacing: number; heights: string };
   /** Finer still about a BASE exit on a cliff, inside the fine square, packed the same way. */
   exitRelief?: { x: number; z: number; size: number; spacing: number; heights: string };
-  imagery: { url: string; size: number }[];
+  /** The same about each of several exits, in the order of `dz.exits`. */
+  exitReliefs?: { x: number; z: number; size: number; spacing: number; heights: string }[];
+  /** The photos, finest first: squares centred on the origin, or on (x, z). */
+  imagery: { url: string; size: number; x?: number; z?: number }[];
+  imagerySpots?: ImagerySpots;
   /** x, z, length, width, heading, height, roof colour (-1: none), wall colour (-1), flat roof, hangar door, greenhouse. */
   buildings: number[][];
   /** Kind letter, ring, then holes. */
@@ -72,6 +76,16 @@ export interface RealDzData {
     };
     /** Bridges: the deck's axis, the road's height above the plain, the piers along it. */
     bridges?: (Bridge & { name: string })[];
+    /**
+     * Several exits, each with its own landing area (an index into `landing`)
+     * and target: a drop zone's look picks one. `base` is then the first's.
+     */
+    exits?: {
+      name: string;
+      landing: number;
+      base: NonNullable<RealDzData['dz']['base']>;
+      target: { x: number; z: number; radius: number; shown?: boolean };
+    }[];
   };
 }
 
@@ -101,8 +115,16 @@ export interface RealDzLook {
   /**
    * Ground less than `flatBelow` above the landing area is laid flat, the
    * hills growing out of it over `blend` metres: 12 and 20 if not given.
+   * Ground lower than the landing area is laid flat at its level too, unless
+   * `below` keeps it as it is.
    */
-  relief?: { flatBelow: number; blend: number };
+  relief?: { flatBelow: number; blend: number; below?: boolean };
+  /** Which of the data's exits this look jumps from, where it has several. */
+  exit?: number;
+  /** No grass nor stones drawn about the exit: high mountains, rock and snow. */
+  bareExit?: boolean;
+  /** No grass higher than this above the landing area, m. */
+  grassBelow?: number;
   /** Where the sport jumpers aim, if not the data's target. */
   target?: { x: number; z: number; radius: number };
   targetColor?: number;
@@ -167,21 +189,31 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
   const random = seeded(20261112);
   const pick = <T>(list: T[]): T => list[Math.floor(random() * list.length)]!;
 
-  const fine = data.fine ? { ...gridOf(data.fine.size, data.fine.spacing, decimetres(data.fine.heights)), x: data.fine.x, z: data.fine.z } : undefined;
-  const exit = data.exitRelief;
+  // Of several exits, the one this look jumps from, with its own landing.
+  const chosen = data.dz.exits?.[look.exit ?? 0];
+  const fine = data.fine
+    ? { ...gridOf(data.fine.size, data.fine.spacing, decimetres(data.fine.heights), data.fine.rows), x: data.fine.x, z: data.fine.z }
+    : undefined;
+  const exit = data.exitReliefs?.[look.exit ?? 0] ?? data.exitRelief;
   const finer = fine && exit ? { ...gridOf(exit.size, exit.spacing, decimetres(exit.heights)), x: exit.x, z: exit.z } : undefined;
-  const groundAt = reliefFrom(gridOf(data.near.size, data.near.spacing, data.near.heights), {
+  const relief = reliefFrom(gridOf(data.near.size, data.near.spacing, data.near.heights), {
     plain: 0,
     flatBelow: look.relief?.flatBelow ?? 12,
     blend: look.relief?.blend ?? 20,
+    below: look.relief?.below,
     far: gridOf(data.far.size, data.far.spacing, data.far.heights),
     fine,
     finer,
   });
+  // On a ridge of rock and snow, the run is a track trodden even from where
+  // it starts to the lip: the relief, every metre, keeps every knob of snow,
+  // and the first step off one would be taken for the edge.
+  const runBase = chosen?.base ?? data.dz.base;
+  const groundAt = look.bareExit && runBase && runBase.runUp > 0 ? trodden(relief, runBase) : relief;
 
   // --- The field ------------------------------------------------------------------
   // Grass blades grow round the landing area, mown short on it.
-  const sport = data.dz.landing.find((l) => l.use === 'sport') ?? data.dz.landing[0]!;
+  const sport = chosen ? data.dz.landing[chosen.landing]! : (data.dz.landing.find((l) => l.use === 'sport') ?? data.dz.landing[0]!);
   const mown = rect(sport.rect, look.grass.mown);
   const field: Rect = { ...mown, length: mown.length + 400, width: mown.width + 300, color: look.grass.rough };
   const bare: Rect[] = [];
@@ -189,7 +221,11 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     if (r.surface !== 'grass') bare.push(strip(r.a[0], r.a[1], r.b[0], r.b[1], r.width));
   }
   for (const p of data.dz.paved) bare.push(rect(p.rect));
-  const target = look.target ?? (data.dz.target ? { x: data.dz.target.x, z: data.dz.target.z, radius: data.dz.target.radius } : { x: 0, z: 0, radius: 2.5 });
+  const dataTarget = chosen?.target ?? data.dz.target;
+  const target = look.target ?? (dataTarget ? { x: dataTarget.x, z: dataTarget.z, radius: dataTarget.radius } : { x: 0, z: 0, radius: 2.5 });
+  // Where the trees are thickest and the eye comes closest: the landing of the
+  // exit jumped from, which may lie far from the origin.
+  const [hubX, hubZ] = chosen ? [target.x, target.z] : [0, 0];
 
   // --- Water ------------------------------------------------------------------------
   // The sea lies flat at the level of the plain; lakes and rivers lie on the
@@ -238,7 +274,7 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
       const ring = w[1] as number[];
       const holes = w.slice(2) as number[][];
       const [x0, z0, x1, z1] = bounds(ring);
-      return { kind, area: { points: ring, holes, color: 0, layer: 0 }, box: [x0, z0, x1, z1], far: Math.hypot((x0 + x1) / 2, (z0 + z1) / 2) };
+      return { kind, area: { points: ring, holes, color: 0, layer: 0 }, box: [x0, z0, x1, z1], far: Math.hypot((x0 + x1) / 2 - hubX, (z0 + z1) / 2 - hubZ) };
     })
     .sort((a, b) => a.far - b.far);
   // Vineyards are rows of vines, off the airfield.
@@ -273,7 +309,7 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
       const x = x0 + random() * (x1 - x0);
       const z = z0 + random() * (z1 - z0);
       if (!inArea(w.area, x, z) || !clear(x, z)) continue;
-      const d = Math.hypot(x, z);
+      const d = Math.hypot(x - hubX, z - hubZ);
       const [h0, h1] = spec.height;
       trees.push({ x, z, height: (h0 + random() * (h1 - h0)) * (d > 3000 ? 1.3 : 1), slim: spec.slim });
       placed++;
@@ -307,7 +343,7 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
   }
 
   // Nothing grows on the run up to a BASE exit, nor just either side of it.
-  const base = data.dz.base;
+  const base = chosen?.base ?? data.dz.base;
   if (base && base.runUp > 0) {
     const h = base.headingDeg * DEG;
     let kept = 0;
@@ -331,7 +367,10 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
   }
 
   // --- Life on the DZ -------------------------------------------------------------------
-  const people: Placed[] = data.dz.people.map(([x, z]) => ({ x, z, headingDeg: random() * 360, color: pick(SHIRT_COLORS) }));
+  // Of several landings, only the one jumped to has people on it.
+  const people: Placed[] = data.dz.people
+    .filter(([x, z]) => !chosen || Math.hypot(x - target.x, z - target.z) < 400)
+    .map(([x, z]) => ({ x, z, headingDeg: random() * 360, color: pick(SHIRT_COLORS) }));
   // Car parks partly full, in rows along their length.
   const cars: Placed[] = [];
   for (const p of data.dz.paved) {
@@ -358,16 +397,26 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     }
   }
   const flags: Flag[] = data.dz.flags.map(([x, z, height]) => ({ x, z, height, color: 0xe8501e }));
-  const [wx, wz] = data.dz.windsocks[0] ?? [target.x + 40, target.z - 40];
+  // The windsock nearest the landing.
+  const sock = [...data.dz.windsocks].sort((a, b) => Math.hypot(a[0] - target.x, a[1] - target.z) - Math.hypot(b[0] - target.x, b[1] - target.z))[0];
+  const [wx, wz] = sock ?? [target.x + 40, target.z - 40];
 
   // --- The top of the cliff -----------------------------------------------------------------
   // The steel step on the lip, solid; the bare rock, grass and stones round
   // the exit, where the relief is known every metre.
   const exitBase = base && { x: base.x, z: base.z, headingDeg: base.headingDeg, runUp: base.runUp, width: base.width, height: base.height };
   const pad = exitBase && base.pad && base.runUp > 0 ? placePad(exitBase, base.pad, groundAt) : undefined;
-  const squares = [fine, finer].filter((g) => !!g).map((g) => ({ x: g.x, z: g.z, size: (g.size - 1) * g.spacing, spacing: g.spacing }));
+  const squares = [fine, finer]
+    .filter((g) => !!g)
+    .map((g) => ({
+      x: g.x,
+      z: g.z,
+      size: (g.size - 1) * g.spacing,
+      ...(g.rows && g.rows !== g.size ? { sizeZ: (g.rows - 1) * g.spacing } : {}),
+      spacing: g.spacing,
+    }));
   const closest = finer && squares[squares.length - 1];
-  const cliffTop = exitBase && closest && exitBase.runUp > 0 ? cliffTopOf(closest, groundAt, exitBase, pad) : undefined;
+  const cliffTop = exitBase && closest && exitBase.runUp > 0 && !look.bareExit ? cliffTopOf(closest, groundAt, exitBase, pad) : undefined;
   const bridgeTop = bridges.length ? bridgeSolid(bridges, groundAt) : undefined;
   const solidAt = (x: number, z: number, y?: number): number => {
     const under = bridgeTop ? bridgeTop(x, z, y) : groundAt(x, z);
@@ -380,6 +429,7 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     lon: data.origin.lon,
     utcOffsetH: data.utcOffsetH,
     imagery: data.imagery,
+    imagerySpots: data.imagerySpots,
     imageryGain: look.imageryGain,
     rockTint: look.rockTint,
     wind: look.wind,
@@ -388,7 +438,7 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     bridges: bridges.length ? bridges : undefined,
     target,
     targetLayer: 6,
-    targetShown: data.dz.target?.shown !== false,
+    targetShown: dataTarget?.shown !== false,
     targetCentre: false,
     targetColor: look.targetColor ?? (data.dz.target?.color ? hex(data.dz.target.color, 0xcdbf9a) : undefined),
     surfaces: [],
@@ -412,7 +462,43 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     base: exitBase && { ...exitBase, pad },
     // The cliff drawn as finely as it is known, short of the edge where it blends away.
     terrainDetail: squares.length ? squares : undefined,
+    grassBelow: look.grassBelow,
+    // The 100 m terrain reaches as far as the 100 m relief does.
+    terrainReach: Math.max(6000, Math.floor(((data.near.size - 1) * data.near.spacing) / 2 / 100) * 100),
     cliffTop,
+  };
+}
+
+/**
+ * The ground with a run trodden into it: from `back` metres behind the start
+ * to the lip, as wide as the run and a metre more each side, the ground lies
+ * on the straight line between the two ends, blending into the relief over
+ * the last metre either side and behind. Over the lip it falls away as it
+ * does, but no knob of snow stands up above the line there to stop a runner.
+ */
+function trodden(
+  groundAt: (x: number, z: number) => number,
+  base: { x: number; z: number; headingDeg: number; runUp: number; width: number },
+): (x: number, z: number) => number {
+  const back = 3;
+  const h = base.headingDeg * DEG;
+  const ux = Math.sin(h);
+  const uz = -Math.cos(h);
+  const from = groundAt(base.x - ux * back, base.z - uz * back);
+  const to = groundAt(base.x + ux * base.runUp, base.z + uz * base.runUp);
+  const half = base.width / 2 + 1;
+  const ease = (t: number): number => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+  return (x, z) => {
+    const dx = x - base.x;
+    const dz = z - base.z;
+    const along = dx * ux + dz * uz;
+    const across = Math.abs(dx * uz - dz * ux);
+    if (along < -back - 1 || along > base.runUp + 3 || across > half + 1) return groundAt(x, z);
+    const line = from + ((to - from) * (along + back)) / (base.runUp + back);
+    const w = ease(half + 1 - across) * ease(along + back + 1);
+    const raw = groundAt(x, z);
+    const trod = along > base.runUp ? Math.min(raw, line) : line;
+    return w >= 1 ? trod : raw + (trod - raw) * w;
   };
 }
 

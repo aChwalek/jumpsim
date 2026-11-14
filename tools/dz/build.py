@@ -119,7 +119,8 @@ def cached(url, ext, data=None, content_type=None):
             if e.code in (400, 404):
                 body = b''
                 break
-            if e.code < 500 or attempt == TRIES - 1:
+            # 429: too many requests for the service's quota; once more, a little later.
+            if (e.code < 500 and e.code != 429) or attempt == TRIES - 1:
                 raise
         except (urllib.error.URLError, ConnectionError, TimeoutError):
             # A connection dropped by a busy server: once more, a little later.
@@ -204,23 +205,27 @@ def is_blank(path, photo):
         raw = decode(path, 256, 256)
     except (subprocess.CalledProcessError, RuntimeError):
         return True
+    # A glacier's snow is nearly as even: among snow, only a tile all of one
+    # colour, to the last level, is taken for no picture.
+    least = 0.5 if CONF.get('snow') else 9
     for c in range(3):
         channel = raw[c::3][::7]
         mean = sum(channel) / len(channel)
-        if sum((v - mean) ** 2 for v in channel) / len(channel) > 9:
+        if sum((v - mean) ** 2 for v in channel) / len(channel) > least:
             return False
     return True
 
 
-def mosaic(source, zoom, size_m, px_out, label):
+def mosaic(source, zoom, size_m, px_out, label, cx=0.0, cz=0.0):
     """
-    The square of `size_m` metres centred on the origin, from a tile source,
-    as raw RGB `px_out` pixels a side, and a mask of the pixels the source has
-    no data for (1 = missing).
+    The square of `size_m` metres centred on (cx, cz), the origin unless
+    given, from a tile source, as raw RGB `px_out` pixels a side, and a mask
+    of the pixels the source has no data for (1 = missing).
     """
     half = size_m / 2 / K
-    left, top = world_px(MX0 - half, MY0 + half, zoom)
-    right, bottom = world_px(MX0 + half, MY0 - half, zoom)
+    mx, my = MX0 + cx / K, MY0 - cz / K
+    left, top = world_px(mx - half, my + half, zoom)
+    right, bottom = world_px(mx + half, my - half, zoom)
     tx0, ty0, tx1, ty1 = int(left // 256), int(top // 256), int(right // 256), int(bottom // 256)
     cols, rows = tx1 - tx0 + 1, ty1 - ty0 + 1
     print(f'  {label}: {source} z{zoom}, {cols}x{rows} tiles', flush=True)
@@ -265,9 +270,10 @@ def mosaic(source, zoom, size_m, px_out, label):
             for j in range(j0, j1):
                 mask[j * px_out + i0:j * px_out + i1] = b'\x01' * (i1 - i0)
     # ...and from the open sea beyond the photo flights, which comes out
-    # white: big white patches only, not white roofs.
+    # white: big white patches only, not white roofs. Not among glaciers,
+    # whose snow is as white and as wide.
     B = 32
-    for bj in range(0, px_out, B):
+    for bj in range(0, px_out, B) if not CONF.get('snow') else ():
         for bi in range(0, px_out, B):
             white = []
             for j in range(bj, min(px_out, bj + B)):
@@ -303,7 +309,7 @@ def sample_rgb(rgb, size_px, u, v):
     return out
 
 
-def match_colours(fine, fine_mask, fine_px, fine_m, coarse, coarse_px, coarse_m):
+def match_colours(fine, fine_mask, fine_px, fine_m, coarse, coarse_px, coarse_m, fine_c=(0, 0), coarse_c=(0, 0)):
     """
     Per channel, the scale and offset bringing the coarse level to the colours
     of the finer one over the ground they share, mean and spread: two sources
@@ -318,9 +324,9 @@ def match_colours(fine, fine_mask, fine_px, fine_m, coarse, coarse_px, coarse_m)
             k = j * fine_px + i
             if fine_mask[k]:
                 continue
-            x = (i + 0.5) / fine_px * fine_m - fine_m / 2
-            z = (j + 0.5) / fine_px * fine_m - fine_m / 2
-            c = sample_rgb(coarse, coarse_px, x / coarse_m + 0.5, z / coarse_m + 0.5)
+            x = fine_c[0] + (i + 0.5) / fine_px * fine_m - fine_m / 2
+            z = fine_c[1] + (j + 0.5) / fine_px * fine_m - fine_m / 2
+            c = sample_rgb(coarse, coarse_px, (x - coarse_c[0]) / coarse_m + 0.5, (z - coarse_c[1]) / coarse_m + 0.5)
             for ch in range(3):
                 f = fine[k * 3 + ch]
                 acc_f[ch][0] += f
@@ -422,9 +428,9 @@ def overpass(query, label):
     raise RuntimeError('overpass failed')
 
 
-def bbox_around(metres):
-    s, w = latlon(-metres, metres)
-    n, e = latlon(metres, -metres)
+def bbox_around(metres, cx=0.0, cz=0.0):
+    s, w = latlon(cx - metres, cz + metres)
+    n, e = latlon(cx + metres, cz - metres)
     return f'{s:.5f},{w:.5f},{n:.5f},{e:.5f}'
 
 
@@ -803,22 +809,25 @@ def erase_bridges(rgb, px, size_m):
 
 
 # --- Imagery levels ---------------------------------------------------------------
+IMG = CONF.get('imageryLevels', {})
+# Their centre, local metres, to the metre: the origin unless the drop zone's lines lie elsewhere.
+IMG_C = tuple(round(v) for v in local(*IMG['centre'])) if 'centre' in IMG else (0, 0)
 LEVELS = [
-    # name, metres a side, pixels a side, source
-    ('far', 81920, 2048, 'sentinel'),
-    ('mid', 16384, 4096, CONF['imagery']),
-    ('near', 4096, 4096, CONF['imagery']),
+    # name, metres a side, pixels a side, source, centre
+    ('far', 81920, 2048, 'sentinel', (0, 0)),
+    ('mid', IMG.get('mid_m', 16384), 4096, CONF['imagery'], IMG_C),
+    ('near', IMG.get('near_m', 4096), 4096, CONF['imagery'], IMG_C),
     # The landing area, where the eye comes down to the ground: a quarter of a
     # metre a pixel (zoom 19), as fine as the orthophotos go in France, Spain,
     # Trentino; swisstopo's are finer, the NAIP coarser (0.6 m).
-    ('close', 512, 2048, CONF['imagery']),
+    ('close', 512, 2048, CONF['imagery'], (0, 0)),
 ]
-PHOTO_MAX_ZOOM = 19
-IMAGERY = [{'url': f'dz/{DZ_ID}/{name}.jpg', 'size': size_m} for name, size_m, _, _ in reversed(LEVELS)]
+IMAGERY = [{'url': f'dz/{DZ_ID}/{name}.jpg', 'size': size_m, **({'x': c[0], 'z': c[1]} if c != (0, 0) else {})}
+           for name, size_m, _, _, c in reversed(LEVELS)]
 
 
-def level_zoom(source, size_m, size_px):
-    return min(zoom_for(size_m / size_px * 1.25), PHOTO_MAX_ZOOM if source != 'sentinel' else 13)
+def level_zoom(source, size_m, size_px, finest=18):
+    return min(zoom_for(size_m / size_px * 1.25), finest if source != 'sentinel' else 13)
 
 
 def raw_file(name, data):
@@ -838,12 +847,13 @@ def blend(fine, coarse, label, sigma):
     sea follows the tiles, in steps, and its sea is not the same blue as
     the satellite's: it takes a wide fade to hide.
     """
-    rgb, mask, px, size_m = fine
-    c_rgb, c_px, c_m = coarse
+    rgb, mask, px, size_m, (fx, fz) = fine
+    c_rgb, c_px, c_m, (cx, cz) = coarse
     if not any(mask):
         return rgb
     side = c_px * size_m / c_m
-    off = (c_px - side) / 2
+    off_x = c_px / 2 + (fx - cx) / c_m * c_px - side / 2
+    off_z = c_px / 2 + (fz - cz) / c_m * c_px - side / 2
     mask_path = raw_file(f'{label}-mask.gray', bytes(255 if m else 0 for m in mask))
     out = subprocess.run(
         ['ffmpeg', '-loglevel', 'error',
@@ -851,7 +861,7 @@ def blend(fine, coarse, label, sigma):
          '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', f'{c_px}x{c_px}', '-i', raw_file(f'{label}-under.rgb', c_rgb),
          '-f', 'rawvideo', '-pix_fmt', 'gray', '-s', f'{px}x{px}', '-i', mask_path,
          '-filter_complex',
-         f'[1]crop={side:.3f}:{side:.3f}:{off:.3f}:{off:.3f},scale={px}:{px}:flags=bicubic,format=gbrp[under];'
+         f'[1]crop={side:.3f}:{side:.3f}:{off_x:.3f}:{off_z:.3f},scale={px}:{px}:flags=bicubic,format=gbrp[under];'
          f'[0]format=gbrp[top];'
          f'[2]gblur=sigma={sigma},lut=y=min(val*2\\,255),format=gbrp[m];'
          f'[top][under][m]maskedmerge,format=rgb24',
@@ -862,11 +872,12 @@ def blend(fine, coarse, label, sigma):
     return bytearray(out)
 
 
-def build_close(near_rgb, near_px, near_m):
+def build_close(near_rgb, near_px, near_m, near_c):
     """The landing area's photo, the near one showing where it has no data."""
-    name, size_m, size_px, source = LEVELS[-1]
-    rgb, mask = mosaic(source, level_zoom(source, size_m, size_px), size_m, size_px, name)
-    rgb = blend((rgb, mask, size_px, size_m), (near_rgb, near_px, near_m), name, 40)
+    name, size_m, size_px, source, centre = LEVELS[-1]
+    rgb, mask = mosaic(source, level_zoom(source, size_m, size_px, 19), size_m, size_px, name, *centre)
+    rgb = blend((rgb, mask, size_px, size_m, centre), (near_rgb, near_px, near_m, near_c), name, 40)
+    # Drawn about the origin, as erase_bridges takes it.
     erase_bridges(rgb, size_px, size_m)
     path = os.path.join(ROOT, 'public', 'dz', DZ_ID, f'{name}.jpg')
     encode(rgb, size_px, size_px, path, quality=5)
@@ -879,9 +890,9 @@ def build_close(near_rgb, near_px, near_m):
 if ONLY == {'close'}:
     import re  # noqa: PLC0415
     print('close', DZ_ID, flush=True)
-    near_name, near_m, near_px, _ = LEVELS[2]
+    near_name, near_m, near_px, _, near_c = LEVELS[2]
     near_rgb = bytearray(decode(os.path.join(ROOT, 'public', 'dz', DZ_ID, f'{near_name}.jpg'), near_px, near_px))
-    build_close(near_rgb, near_px, near_m)
+    build_close(near_rgb, near_px, near_m, near_c)
     module = os.path.join(ROOT, 'src', 'world', 'data', f'{DZ_ID}.ts')
     with open(module) as f:
         text = f.read()
@@ -907,7 +918,7 @@ if os.path.exists(state_path):
         state = json.load(f)
 
 # --- Relief -------------------------------------------------------------------------
-NEAR = {'size': 121, 'spacing': 100}
+NEAR = {'size': CONF.get('nearRelief', {}).get('size', 121), 'spacing': 100}
 FAR = {'size': 161, 'spacing': 500}
 if ONLY is None or 'relief' in ONLY:
     plain = elevation(LAT0, LON0, 13)
@@ -986,26 +997,36 @@ def terrarium(points):
     return [elevation(lat, lon, zoom) for lat, lon in points]
 
 
-def rgealti(points):
+def rgealti(points, resource='ign_rge_alti_wld', threads=4, label='RGE ALTI'):
     """
     Heights of WGS84 points from the IGN's RGE ALTI (1 m to 5 m) through the
     Géoplateforme's altimetry service, 5000 points a request.
     """
     url = 'https://data.geopf.fr/altimetrie/1.0/calcul/alti/rest/elevation.json'
     batches = [points[i:i + 5000] for i in range(0, len(points), 5000)]
-    print(f'  fine relief: RGE ALTI, {len(batches)} requests', flush=True)
+    print(f'  fine relief: {label}, {len(batches)} requests', flush=True)
 
     def batch(pts):
         body = json.dumps({'lon': '|'.join(f'{p[1]:.7f}' for p in pts), 'lat': '|'.join(f'{p[0]:.7f}' for p in pts),
-                           'resource': 'ign_rge_alti_wld', 'zonly': 'true'})
+                           'resource': resource, 'zonly': 'true'})
         with open(cached(url, '.json', body, 'application/json')) as f:
             return json.load(f)['elevations']
 
-    with concurrent.futures.ThreadPoolExecutor(4) as pool:
+    with concurrent.futures.ThreadPoolExecutor(threads) as pool:
         heights = [h for part in pool.map(batch, batches) for h in part]
     if len(heights) != len(points) or min(heights) < -1000:
-        raise RuntimeError('RGE ALTI: no height for some points')
+        raise RuntimeError(f'{label}: no height for some points')
     return heights
+
+
+def lidarhd(points):
+    """
+    Heights from the IGN's LiDAR HD terrain model (50 cm), through the same
+    service: where it has been flown, the high mountains included, it is far
+    truer than the RGE ALTI, made there from photos (80 m out on a summit of
+    the Aiguilles de Chamonix). The service counts requests: two at a time.
+    """
+    return rgealti(points, 'ign_lidar_hd_mnt_mono_wld', 2, 'LiDAR HD')
 
 
 def utm32(lat, lon):
@@ -1085,66 +1106,116 @@ def wgs84(e, n):
     return p * 100 / 36, l * 100 / 36
 
 
+SURVEYS = {'swissalti3d': swissalti3d, 'terrarium': terrarium, 'rgealti': rgealti, 'lidarhd': lidarhd, 'pat': pat}
+
 if FINE and (ONLY is None or 'relief' in ONLY):
-    cx, cz = local(*FINE['centre'])
-    cx, cz = round(cx / 100) * 100, round(cz / 100) * 100
-    size = int(FINE['size_m'] / FINE['spacing_m']) + 1
-    half = FINE['size_m'] / 2
-    grid = [latlon(cx - half + c * FINE['spacing_m'], cz - half + r * FINE['spacing_m']) for r in range(size) for c in range(size)]
-    survey = {'swissalti3d': swissalti3d, 'terrarium': terrarium, 'rgealti': rgealti, 'pat': pat}[FINE.get('survey', 'swissalti3d')]
+    step = FINE['spacing_m']
+    if 'box_m' in FINE:
+        # A rectangle (west, north, east, south, local metres), its sides on the
+        # mesh's lines: 100 m apart out to the near grid's reach, 400 beyond.
+        bx0, bz0, bx1, bz1 = FINE['box_m']
+        cx, cz = (bx0 + bx1) / 2, (bz0 + bz1) / 2
+        cols, rows = int((bx1 - bx0) / step) + 1, int((bz1 - bz0) / step) + 1
+    else:
+        cx, cz = local(*FINE['centre'])
+        cx, cz = round(cx / 100) * 100, round(cz / 100) * 100
+        cols = rows = int(FINE['size_m'] / step) + 1
+    x0, z0 = cx - (cols - 1) * step / 2, cz - (rows - 1) * step / 2
+    grid = [latlon(x0 + c * step, z0 + r * step) for r in range(rows) for c in range(cols)]
+    survey = SURVEYS[FINE.get('survey', 'swissalti3d')]
     heights = survey(grid + [(LAT0, LON0)])
     # The landing area is the plain: this survey says best how high it is.
     state['relief']['plain'] = heights.pop()
-    state['fine'] = {'x': cx, 'z': cz, 'size': size, 'spacing': FINE['spacing_m'], 'heights': heights}
-    print(f'  fine relief {size}x{size} at {FINE["spacing_m"]} m about ({cx}, {cz}), plain at {state["relief"]["plain"]:.1f} m', flush=True)
+    state['fine'] = {'x': cx, 'z': cz, 'size': cols, 'rows': rows, 'spacing': step, 'heights': heights}
+    print(f'  fine relief {cols}x{rows} at {step} m about ({cx}, {cz}), plain at {state["relief"]["plain"]:.1f} m', flush=True)
+
+
+def exit_lips():
+    """Where each exit's run ends, local metres: the lip given, or the run's end from where it starts."""
+    if CONF.get('exits'):
+        return [local(*e['lip']) for e in CONF['exits']]
+    if CONF.get('base') and 'bridge' not in CONF['base']:
+        b = CONF['base']
+        sx, sz = local(b['lat'], b['lon'])
+        h = math.radians(b['heading_deg'])
+        return [(sx + math.sin(h) * b['runUp_m'], sz - math.cos(h) * b['runUp_m'])]
+    return []
+
 
 # Finer still about a BASE exit on a cliff (`fineRelief.exit`): the lip, the
 # slab behind it and the rocks round it, which the eye sees from a metre or
-# two. A square centred on the lip, its sides on the lines of the fine grid,
+# two. A square centred on each lip, its sides on the lines of the fine grid,
 # from the same survey.
 EXIT_RELIEF = FINE.get('exit') if FINE else None
-if EXIT_RELIEF and CONF.get('base') and (ONLY is None or 'relief' in ONLY):
-    b = CONF['base']
-    sx, sz = local(b['lat'], b['lon'])
-    h = math.radians(b['heading_deg'])
-    lip_x, lip_z = sx + math.sin(h) * b['runUp_m'], sz - math.cos(h) * b['runUp_m']
+if EXIT_RELIEF and exit_lips() and (ONLY is None or 'relief' in ONLY):
     fine = state['fine']
     step = fine['spacing']
     if EXIT_RELIEF['size_m'] % step:
         raise ValueError(f'fineRelief.exit.size_m must be a multiple of {step}')
     fx0 = fine['x'] - (fine['size'] - 1) * step / 2
-    fz0 = fine['z'] - (fine['size'] - 1) * step / 2
-    ex0 = fx0 + round((lip_x - EXIT_RELIEF['size_m'] / 2 - fx0) / step) * step
-    ez0 = fz0 + round((lip_z - EXIT_RELIEF['size_m'] / 2 - fz0) / step) * step
-    size = int(EXIT_RELIEF['size_m'] / EXIT_RELIEF['spacing_m']) + 1
-    grid = [latlon(ex0 + c * EXIT_RELIEF['spacing_m'], ez0 + r * EXIT_RELIEF['spacing_m']) for r in range(size) for c in range(size)]
-    survey = {'swissalti3d': swissalti3d, 'terrarium': terrarium, 'rgealti': rgealti, 'pat': pat}[FINE.get('survey', 'swissalti3d')]
-    ecx, ecz = ex0 + EXIT_RELIEF['size_m'] / 2, ez0 + EXIT_RELIEF['size_m'] / 2
-    state['exitRelief'] = {'x': ecx, 'z': ecz, 'size': size, 'spacing': EXIT_RELIEF['spacing_m'], 'heights': survey(grid)}
-    print(f'  exit relief {size}x{size} at {EXIT_RELIEF["spacing_m"]} m about ({ecx}, {ecz})', flush=True)
+    fz0 = fine['z'] - (fine.get('rows', fine['size']) - 1) * step / 2
+    squares = []
+    for lip_x, lip_z in exit_lips():
+        ex0 = fx0 + round((lip_x - EXIT_RELIEF['size_m'] / 2 - fx0) / step) * step
+        ez0 = fz0 + round((lip_z - EXIT_RELIEF['size_m'] / 2 - fz0) / step) * step
+        size = int(EXIT_RELIEF['size_m'] / EXIT_RELIEF['spacing_m']) + 1
+        grid = [latlon(ex0 + c * EXIT_RELIEF['spacing_m'], ez0 + r * EXIT_RELIEF['spacing_m']) for r in range(size) for c in range(size)]
+        survey = SURVEYS[FINE.get('survey', 'swissalti3d')]
+        ecx, ecz = ex0 + EXIT_RELIEF['size_m'] / 2, ez0 + EXIT_RELIEF['size_m'] / 2
+        squares.append({'x': ecx, 'z': ecz, 'size': size, 'spacing': EXIT_RELIEF['spacing_m'], 'heights': survey(grid)})
+        print(f'  exit relief {size}x{size} at {EXIT_RELIEF["spacing_m"]} m about ({ecx}, {ecz})', flush=True)
+    state['exitRelief'] = squares[0]
+    state['exitReliefs'] = squares
 PLAIN = state['relief']['plain']
 
 # --- Imagery -------------------------------------------------------------------------
+def spot_centres():
+    """Squares of photo at 1 m about each exit and each landing, where the levels are coarser: centres, local metres."""
+    if 'spots_m' not in IMG:
+        return []
+    out = []
+    for e in CONF.get('exits', []):
+        for c in (local(*e['lip']), local(e['target']['lat'], e['target']['lon'])):
+            out.append((round(c[0]), round(c[1])))
+    return out
+
+
+SPOT_PX = 1024
 if ONLY is None or 'imagery' in ONLY:
     levels = {}
     # The landing area's, the finest, is built last, over the near one.
-    for name, size_m, size_px, source in LEVELS[:-1]:
-        rgb, mask = mosaic(source, level_zoom(source, size_m, size_px), size_m, size_px, name)
-        levels[name] = (rgb, mask, size_px, size_m)
+    for name, size_m, size_px, source, middle in LEVELS[:-1]:
+        rgb, mask = mosaic(source, level_zoom(source, size_m, size_px), size_m, size_px, name, *middle)
+        levels[name] = (rgb, mask, size_px, size_m, middle)
     # Colours of the satellite level matched to the photos over the ground they share.
-    far_rgb, far_mask, far_px, far_m = levels['far']
-    mid_rgb, mid_mask, mid_px, mid_m = levels['mid']
-    gain = match_colours(mid_rgb, mid_mask, mid_px, mid_m, far_rgb, far_px, far_m)
+    far_rgb, far_mask, far_px, far_m, far_c = levels['far']
+    mid_rgb, mid_mask, mid_px, mid_m, mid_c = levels['mid']
+    gain = match_colours(mid_rgb, mid_mask, mid_px, mid_m, far_rgb, far_px, far_m, mid_c, far_c)
     print('  far scale and offset to match the photos', [(round(a, 2), round(b, 1)) for a, b in gain], flush=True)
     apply_gain(far_rgb, gain)
-    mid_rgb = blend(levels['mid'], (far_rgb, far_px, far_m), 'mid', 100)
-    near_rgb = blend(levels['near'], (mid_rgb, mid_px, mid_m), 'near', 100)
+    mid_rgb = blend(levels['mid'], (far_rgb, far_px, far_m, far_c), 'mid', 100)
+    near_rgb = blend(levels['near'], (mid_rgb, mid_px, mid_m, mid_c), 'near', 100)
     erase_bridges(mid_rgb, mid_px, mid_m)
     erase_bridges(near_rgb, levels['near'][2], levels['near'][3])
     for name, rgb, px in (('far', far_rgb, far_px), ('mid', mid_rgb, mid_px), ('near', near_rgb, levels['near'][2])):
         encode(rgb, px, px, os.path.join(img_dir, f'{name}.jpg'), quality={'near': 5, 'mid': 6, 'far': 6}[name])
         print(f'  wrote {name}.jpg', os.path.getsize(os.path.join(img_dir, f"{name}.jpg")) // 1024, 'KB', flush=True)
-    build_close(near_rgb, levels['near'][2], levels['near'][3])
+    build_close(near_rgb, levels['near'][2], levels['near'][3], levels['near'][4])
+    # The squares at 1 m, side by side in one picture, two to a row.
+    spots = spot_centres()
+    if spots:
+        cells = 2 if len(spots) <= 4 else 3
+        side = cells * SPOT_PX
+        atlas = bytearray(side * side * 3)
+        for k, (sx, sz) in enumerate(spots):
+            zoom = min(zoom_for(IMG['spots_m'] / SPOT_PX * 1.25), 18)
+            rgb, _ = mosaic(CONF['imagery'], zoom, IMG['spots_m'], SPOT_PX, f'spot{k}', sx, sz)
+            ox, oy = (k % cells) * SPOT_PX, (k // cells) * SPOT_PX
+            for j in range(SPOT_PX):
+                o = ((oy + j) * side + ox) * 3
+                atlas[o:o + SPOT_PX * 3] = rgb[j * SPOT_PX * 3:(j + 1) * SPOT_PX * 3]
+        encode(atlas, side, side, os.path.join(img_dir, 'spots.jpg'), quality=5)
+        print('  wrote spots.jpg', os.path.getsize(os.path.join(img_dir, 'spots.jpg')) // 1024, 'KB', flush=True)
     # Kept for colouring the roofs.
     raw_near = os.path.join(CACHE, f'{DZ_ID}-near.rgb')
     with open(raw_near, 'wb') as f:
@@ -1155,21 +1226,30 @@ NEAR_IMG = os.path.join(CACHE, f'{DZ_ID}-near.rgb')
 CORE = 3000
 WIDE = 15000
 COAST = 41000
+# Where buildings and trees are fetched: round the origin, or round each of
+# the places the drop zone names (`osmAreas`: a landing far from the origin).
+OSM_AREAS = [(*local(*a['centre']), a['core_m'], a['woods_m']) for a in CONF['osmAreas']] if CONF.get('osmAreas') else [(0, 0, CORE, 4500)]
+
+
+def in_core(x, z):
+    return any(math.hypot(x - ax, z - az) <= core for ax, az, core, _ in OSM_AREAS)
+
+
 if ONLY is None or 'osm' in ONLY:
-    core = overpass(f"""[out:json][timeout:180];
-(
-  way["building"]({bbox_around(CORE)});
-  relation["building"]({bbox_around(CORE)});
-  way["natural"="tree_row"]({bbox_around(CORE)});
-  way["barrier"="hedge"]({bbox_around(CORE)});
-  node["natural"="tree"]({bbox_around(CORE)});
-  way["leisure"="swimming_pool"]({bbox_around(CORE)});
-  way["landuse"~"^(forest|orchard|vineyard)$"]({bbox_around(4500)});
-  way["natural"~"^(wood|scrub|wetland)$"]({bbox_around(4500)});
-  relation["landuse"="forest"]({bbox_around(4500)});
-  relation["natural"~"^(wood|scrub|wetland)$"]({bbox_around(4500)});
-);
-out geom;""", 'core')
+    parts = []
+    for ax, az, core_m, woods_m in OSM_AREAS:
+        c, w = bbox_around(core_m, ax, az), bbox_around(woods_m, ax, az)
+        parts.append(f"""  way["building"]({c});
+  relation["building"]({c});
+  way["natural"="tree_row"]({c});
+  way["barrier"="hedge"]({c});
+  node["natural"="tree"]({c});
+  way["leisure"="swimming_pool"]({c});
+  way["landuse"~"^(forest|orchard|vineyard)$"]({w});
+  way["natural"~"^(wood|scrub|wetland)$"]({w});
+  relation["landuse"="forest"]({w});
+  relation["natural"~"^(wood|scrub|wetland)$"]({w});""")
+    core = overpass('[out:json][timeout:180];\n(\n' + '\n'.join(parts) + '\n);\nout geom;', 'core')
     water = overpass(f"""[out:json][timeout:180];
 (
   way["natural"="water"]({bbox_around(WIDE)});
@@ -1198,7 +1278,7 @@ def way_points(e):
 # Roofs take their colour from the photo.
 with open(NEAR_IMG, 'rb') as f:
     near_rgb = f.read()
-NEAR_M, NEAR_PX = 4096, 4096
+NEAR_M, NEAR_PX, NEAR_C = LEVELS[2][1], LEVELS[2][2], LEVELS[2][4]
 
 
 def photo_colour(points):
@@ -1207,7 +1287,7 @@ def photo_colour(points):
     x1 = max(p[0] for p in points)
     z0 = min(p[1] for p in points)
     z1 = max(p[1] for p in points)
-    if max(abs(x0), abs(x1), abs(z0), abs(z1)) > NEAR_M / 2 - 2:
+    if max(abs(x0 - NEAR_C[0]), abs(x1 - NEAR_C[0]), abs(z0 - NEAR_C[1]), abs(z1 - NEAR_C[1])) > NEAR_M / 2 - 2:
         return None
     acc = [0, 0, 0]
     n = 0
@@ -1217,8 +1297,8 @@ def photo_colour(points):
         x = x0 + step / 2
         while x < x1:
             if inside(x, z, points):
-                i = int((x / NEAR_M + 0.5) * NEAR_PX)
-                j = int((z / NEAR_M + 0.5) * NEAR_PX)
+                i = int(((x - NEAR_C[0]) / NEAR_M + 0.5) * NEAR_PX)
+                j = int(((z - NEAR_C[1]) / NEAR_M + 0.5) * NEAR_PX)
                 k = (j * NEAR_PX + i) * 3
                 for c in range(3):
                     acc[c] += near_rgb[k + c]
@@ -1259,7 +1339,7 @@ for b in CONF.get('buildings', []):
 seen_centres = set()
 for osm_id, t, loc in footprints:
     x, z, length, width, heading = oriented_rect(loc)
-    if length < 2.5 or width < 2 or math.hypot(x, z) > CORE:
+    if length < 2.5 or width < 2 or not in_core(x, z):
         continue
     key = (round(x), round(z))
     if key in seen_centres:
@@ -1447,6 +1527,46 @@ elif CONF.get('base'):
         dz['base']['pad'] = {'length': b['pad']['length_m'], 'width': b['pad']['width_m']}
 
 
+def surveyed(x, z):
+    """Height of the ground at a local point as the fine relief knows it, the finest square first; None outside them."""
+    for g in [*state.get('exitReliefs', []), state.get('fine')]:
+        if not g:
+            continue
+        step, cols, rows = g['spacing'], g['size'], g.get('rows', g['size'])
+        c = (x - g['x']) / step + (cols - 1) / 2
+        r = (z - g['z']) / step + (rows - 1) / 2
+        if 0 <= c < cols - 1 and 0 <= r < rows - 1:
+            c0, r0 = int(c), int(r)
+            fc, fr = c - c0, r - r0
+            hs = g['heights']
+            a, b = hs[r0 * cols + c0], hs[r0 * cols + c0 + 1]
+            d, e = hs[(r0 + 1) * cols + c0], hs[(r0 + 1) * cols + c0 + 1]
+            return (a * (1 - fc) + b * fc) * (1 - fr) + (d * (1 - fc) + e * fc) * fr
+    return None
+
+
+if CONF.get('exits'):
+    # Several exits, each with its own landing: the run starts `runUp_m` back
+    # from the lip; its height is the ground's there above its own target.
+    dz['exits'] = []
+    for e in CONF['exits']:
+        lx, lz = local(*e['lip'])
+        h = math.radians(e['heading_deg'])
+        sx, sz = lx - math.sin(h) * e['runUp_m'], lz + math.cos(h) * e['runUp_m']
+        tx, tz = local(e['target']['lat'], e['target']['lon'])
+        top, foot = surveyed(sx, sz), surveyed(tx, tz)
+        height = e.get('altitudeToLanding_m') or round(top - foot, 1)
+        dz['exits'].append({
+            'name': e['name'],
+            'landing': e['landing'],
+            'base': {'x': round(sx, 2), 'z': round(sz, 2), 'headingDeg': e['heading_deg'], 'runUp': e['runUp_m'],
+                     'width': e['width_m'], 'height': height, 'name': e['name']},
+            'target': {'x': round(tx, 1), 'z': round(tz, 1), 'radius': e['target']['radius_m'], 'shown': e['target'].get('shown', True)},
+        })
+        print(f'  exit {e["name"]}: run from ({sx:.1f}, {sz:.1f}) at {top:.1f} m, {height} m above its target', flush=True)
+    dz['base'] = dz['exits'][0]['base']
+
+
 def rel(h):
     return round((h - PLAIN) * 2) / 2
 
@@ -1458,6 +1578,10 @@ out = {
     'far': {'size': FAR['size'], 'spacing': FAR['spacing'], 'heights': [round(h - PLAIN) for h in relief['far']]},
     'imagery': IMAGERY,
 }
+if spot_centres():
+    cells = 2 if len(spot_centres()) <= 4 else 3
+    out['imagerySpots'] = {'url': f'dz/{DZ_ID}/spots.jpg', 'grid': cells, 'size': IMG['spots_m'],
+                           'centres': [list(c) for c in spot_centres()]}
 if FINE:
     import base64  # noqa: PLC0415
     import struct  # noqa: PLC0415
@@ -1466,11 +1590,18 @@ if FINE:
     dm = [max(-32768, min(32767, round((h - PLAIN) * 10))) for h in fine['heights']]
     out['fine'] = {'x': fine['x'], 'z': fine['z'], 'size': fine['size'], 'spacing': fine['spacing'],
                    'heights': base64.b64encode(struct.pack(f'<{len(dm)}h', *dm)).decode()}
-    if EXIT_RELIEF and 'exitRelief' in state:
-        ex = state['exitRelief']
+    if fine.get('rows', fine['size']) != fine['size']:
+        out['fine']['rows'] = fine['rows']
+
+    def packed(ex):
         dm = [max(-32768, min(32767, round((h - PLAIN) * 10))) for h in ex['heights']]
-        out['exitRelief'] = {'x': ex['x'], 'z': ex['z'], 'size': ex['size'], 'spacing': ex['spacing'],
-                             'heights': base64.b64encode(struct.pack(f'<{len(dm)}h', *dm)).decode()}
+        return {'x': ex['x'], 'z': ex['z'], 'size': ex['size'], 'spacing': ex['spacing'],
+                'heights': base64.b64encode(struct.pack(f'<{len(dm)}h', *dm)).decode()}
+
+    if EXIT_RELIEF and CONF.get('exits') and 'exitReliefs' in state:
+        out['exitReliefs'] = [packed(ex) for ex in state['exitReliefs']]
+    elif EXIT_RELIEF and 'exitRelief' in state:
+        out['exitRelief'] = packed(state['exitRelief'])
 
 with open(data_out, 'w') as f:
     f.write(f'// Generated by tools/dz/build.py from tools/dz/{DZ_ID}.json: do not edit by hand.\n')
@@ -1492,7 +1623,13 @@ with open(data_out, 'w') as f:
     if 'exitRelief' in out:
         f.write('  /** Finer still about the exit, every metre, the same way. */\n')
         f.write(f'  exitRelief: {json.dumps(out["exitRelief"], separators=(",", ":"))},\n')
+    if 'exitReliefs' in out:
+        f.write('  /** Finer still about each exit, every metre, the same way, in the order of dz.exits. */\n')
+        f.write(f'  exitReliefs: {json.dumps(out["exitReliefs"], separators=(",", ":"))},\n')
     f.write(f'  imagery: {json.dumps(out["imagery"])},\n')
+    if 'imagerySpots' in out:
+        f.write('  /** Squares of photo at 1 m about the exits and the landings, side by side in one picture. */\n')
+        f.write(f'  imagerySpots: {json.dumps(out["imagerySpots"])},\n')
     f.write('  /** x, z, length, width, heading of the long side, height, roof colour (-1: none), wall colour (-1), flat roof, hangar door, greenhouse. */\n')
     f.write(f'  buildings: {json.dumps(buildings, separators=(",", ":"))},\n')
     f.write('  /** Woods: kind (w wood, s scrub, o orchard, v vineyard, m mangrove or swamp), ring, holes. */\n')

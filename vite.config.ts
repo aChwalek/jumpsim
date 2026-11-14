@@ -10,12 +10,16 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: false,
-    // The multiplayer's signalling and TURN credentials, served by `npm run dev:signal` (wrangler dev).
+    // The multiplayer's signalling, TURN credentials, the accounts and the leaderboard,
+    // served by `npm run dev:signal` (wrangler dev, with .dev.vars: see .dev.vars.example).
     proxy: {
       '/signal': { target: 'ws://localhost:8787', ws: true },
       '/players': { target: 'http://localhost:8787' },
       // The Worker only answers its own origin.
       '/turn': { target: 'http://localhost:8787', changeOrigin: true, headers: { Origin: 'http://localhost:8787' } },
+      // The page's own Host and Origin go through: the session's cookie is this page's.
+      '/api': { target: 'http://localhost:8787' },
+      '/scores': { target: 'http://localhost:8787' },
     },
   },
   build: { target: 'es2022', sourcemap: true },

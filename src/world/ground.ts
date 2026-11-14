@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { Area, Imagery, Rect } from './dz';
+import type { Area, Imagery, ImagerySpots, Rect } from './dz';
 
 const DEG = Math.PI / 180;
 
@@ -164,11 +164,30 @@ const PHOTO_LEVELS = 4;
  * were taken. `fallback` shows where none covers; `rockTint` is the colour of
  * the rock faces, where it is known.
  */
-export function loadPhotos(imagery: Imagery[], fallback: number, gain = 1, rockTint?: RockTint): Photos {
+export function loadPhotos(
+  imagery: Imagery[],
+  fallback: number,
+  gain = 1,
+  rockTint?: RockTint,
+  spots?: ImagerySpots,
+  grassBelow = 1e9,
+): Photos {
   const loader = new THREE.TextureLoader();
   const ready = new THREE.Vector4(0, 0, 0, 0);
   const sizes = new THREE.Vector4(1, 1, 1, 1);
+  const centres = Array.from({ length: PHOTO_LEVELS }, () => new THREE.Vector2());
+  const spotsReady = { value: 0 };
   const missing = PHOTO_LEVELS - Math.min(PHOTO_LEVELS, imagery.length);
+  const load = (url: string, done: () => void): THREE.Texture => {
+    const texture = loader.load(`${import.meta.env.BASE_URL}${url}`, done);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    // The first row of the image is the north edge, at the smallest z.
+    texture.flipY = false;
+    texture.anisotropy = 16;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+    return texture;
+  };
   const textures = Array.from({ length: PHOTO_LEVELS }, (_, k) => {
     const level = imagery[k - missing];
     if (!level) {
@@ -178,24 +197,31 @@ export function loadPhotos(imagery: Imagery[], fallback: number, gain = 1, rockT
       return empty;
     }
     sizes.setComponent(k, level.size);
-    const texture = loader.load(`${import.meta.env.BASE_URL}${level.url}`, () => ready.setComponent(k, 1));
-    texture.colorSpace = THREE.SRGBColorSpace;
-    // The first row of the image is the north edge, at the smallest z.
-    texture.flipY = false;
-    texture.anisotropy = 16;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
-    return texture;
+    centres[k]!.set(level.x ?? 0, level.z ?? 0);
+    return load(level.url, () => ready.setComponent(k, 1));
+  });
+  // The squares at 1 m: one picture, `grid` to a row; each is read only inside its own cell.
+  const spotTexture = spots ? load(spots.url, () => (spotsReady.value = 1)) : null;
+  if (spotTexture) textures.push(spotTexture);
+  const spotBoxes = Array.from({ length: MAX_SPOTS }, (_, k) => {
+    const c = spots?.centres[k];
+    return c ? new THREE.Vector4(c[0], c[1], spots!.size, k) : new THREE.Vector4(0, 0, 0, -1);
   });
   return {
     textures,
-    ready: () => ready.x + ready.y + ready.z + ready.w >= PHOTO_LEVELS - missing,
+    ready: () => ready.x + ready.y + ready.z + ready.w >= PHOTO_LEVELS - missing && (!spots || spotsReady.value === 1),
     uniforms: {
       photo0: { value: textures[0] },
       photo1: { value: textures[1] },
       photo2: { value: textures[2] },
       photo3: { value: textures[3] },
       photoSize: { value: sizes },
+      photoCentre: { value: centres },
+      photoSpots: { value: spotTexture ?? textures[PHOTO_LEVELS - 1] },
+      photoSpot: { value: spotBoxes },
+      photoSpotGrid: { value: spots?.grid ?? 1 },
+      photoSpotsReady: spotsReady,
+      grassBelow: { value: grassBelow },
       photoReady: { value: ready },
       photoGain: { value: gain },
       photoFallback: { value: new THREE.Color(fallback) },
@@ -208,6 +234,9 @@ export function loadPhotos(imagery: Imagery[], fallback: number, gain = 1, rockT
     },
   };
 }
+
+/** The most squares of finer photo a drop zone may have. */
+const MAX_SPOTS = 4;
 
 /**
  * GLSL reading the photos at a point of the ground: the finest one that
@@ -223,23 +252,42 @@ export const PHOTO_GLSL = /* glsl */ `
   uniform sampler2D photo2;
   uniform sampler2D photo3;
   uniform vec4 photoSize;
+  // The centre of each level, where it is not the origin.
+  uniform vec2 photoCentre[${PHOTO_LEVELS}];
+  // Squares finer still, side by side in one picture: centre x, z, side, cell (< 0: none).
+  uniform sampler2D photoSpots;
+  uniform vec4 photoSpot[${MAX_SPOTS}];
+  uniform float photoSpotGrid;
+  uniform float photoSpotsReady;
   uniform vec4 photoReady;
   uniform float photoGain;
   uniform vec3 photoFallback;
+  // Above this, high mountains: rock and snow, nothing grows.
+  uniform float grassBelow;
   float photoWeight(vec2 uv) {
     vec2 d = min(uv, 1.0 - uv);
     return smoothstep(0.0, 0.05, min(d.x, d.y));
   }
   // blur: a mip bias, each step averaging twice as far round.
   vec3 photoAt(vec2 p, float blur) {
-    vec2 uv3 = p / photoSize.w + 0.5;
-    vec2 uv2 = p / photoSize.z + 0.5;
-    vec2 uv1 = p / photoSize.y + 0.5;
-    vec2 uv0 = p / photoSize.x + 0.5;
+    vec2 uv3 = (p - photoCentre[3]) / photoSize.w + 0.5;
+    vec2 uv2 = (p - photoCentre[2]) / photoSize.z + 0.5;
+    vec2 uv1 = (p - photoCentre[1]) / photoSize.y + 0.5;
+    vec2 uv0 = (p - photoCentre[0]) / photoSize.x + 0.5;
     vec3 c = mix(photoFallback, PHOTO_TEX(photo3, uv3, blur).rgb, photoReady.w * photoWeight(uv3));
     c = mix(c, PHOTO_TEX(photo2, uv2, blur).rgb, photoReady.z * photoWeight(uv2));
     c = mix(c, PHOTO_TEX(photo1, uv1, blur).rgb, photoReady.y * photoWeight(uv1));
     c = mix(c, PHOTO_TEX(photo0, uv0, blur).rgb, photoReady.x * photoWeight(uv0));
+    for (int k = 0; k < ${MAX_SPOTS}; k++) {
+      vec4 s = photoSpot[k];
+      if (s.w < 0.0) break;
+      vec2 uv = (p - s.xy) / s.z + 0.5;
+      if (uv.x <= 0.0 || uv.y <= 0.0 || uv.x >= 1.0 || uv.y >= 1.0) continue;
+      // Kept off the cell's edge, where its neighbour's texels would bleed in.
+      vec2 cell = vec2(mod(s.w, photoSpotGrid), floor(s.w / photoSpotGrid));
+      vec2 inCell = clamp(uv, 0.002, 0.998);
+      c = mix(c, PHOTO_TEX(photoSpots, (cell + inCell) / photoSpotGrid, blur).rgb, photoSpotsReady * photoWeight(uv));
+    }
     return c * photoGain;
   }
   vec3 photoAt(vec2 p) { return photoAt(p, 0.0); }
@@ -388,7 +436,12 @@ export function groundMaterial(
         float bears = smoothstep(0.0, 0.1, (warm - diffuseColor.b) / max(warm, 0.001));
         bears *= 1.0 - smoothstep(0.5, 0.8, dot(diffuseColor.rgb, vec3(0.3, 0.5, 0.2)));
         bears = max(bears, step(1.08 * max(diffuseColor.r, diffuseColor.b), diffuseColor.g));
+        // High up, the warm grey of granite is no dry grass, and snow is even, grit only.
+        float high = smoothstep(grassBelow - 100.0, grassBelow, vGroundWorld.y);
+        bears *= 1.0 - high;
+        float snow = high * smoothstep(0.55, 0.8, dot(diffuseColor.rgb, vec3(0.3, 0.5, 0.2)));
         float d1 = mix(marks.g, marks.r, bears);
+        d1 = mix(d1, 0.5 + 0.3 * (d1 - 0.5), snow);
         float d2 = texture2D(detailMap, vGroundXZ / 11.0).r;
         // A photo pixel is a metre across: patches a stride wide and drier
         // ones a few metres wide fill in what it blurs.
@@ -423,33 +476,42 @@ export function groundMaterial(
 /** Metres between the grid lines of the terrain near the drop zone. */
 export const TERRAIN_SPACING = 100;
 
+/** How far out the terrain's lines are 100 m apart, m, unless a drop zone reaches further. */
+export const TERRAIN_REACH = 6000;
+
 /**
- * Grid lines of the terrain along one axis: every 100 m out to 6 km, every
+ * Grid lines of the terrain along one axis: every 100 m out to `reach`, every
  * 400 m beyond, to 40 km. Depth interpolated across long triangles is too
  * coarse for the surfaces laid on top, which then flicker in and out, and
  * hills need the finer cells near the drop zone.
  */
-function terrainLines(): number[] {
+function terrainLines(reach = TERRAIN_REACH): number[] {
   const lines: number[] = [];
-  for (let x = -40000; x < -6000; x += 400) lines.push(x);
-  for (let x = -6000; x < 6000; x += TERRAIN_SPACING) lines.push(x);
-  for (let x = 6000; x <= 40000; x += 400) lines.push(x);
+  for (let x = -40000; x < -reach; x += 400) lines.push(x);
+  for (let x = -reach; x < reach; x += TERRAIN_SPACING) lines.push(x);
+  for (let x = reach; x <= 40000; x += 400) lines.push(x);
   return lines;
 }
 
-/** A square of terrain drawn finer, centred on (x, z): its sides on the 100 m lines. */
+/**
+ * A square of terrain drawn finer, centred on (x, z): its sides on the 100 m
+ * lines. `size` is its side west to east; `sizeZ`, north to south, where it
+ * is longer one way than the other.
+ */
 export interface TerrainDetail {
   x: number;
   z: number;
   size: number;
+  sizeZ?: number;
   spacing: number;
 }
 
 /** Whether a cell lies inside a square of finer terrain, which draws it instead. */
 function coveredBy(d: TerrainDetail | undefined, x0: number, z0: number, x1: number, z1: number): boolean {
   if (!d) return false;
-  const half = d.size / 2;
-  return x0 >= d.x - half - 1e-6 && x1 <= d.x + half + 1e-6 && z0 >= d.z - half - 1e-6 && z1 <= d.z + half + 1e-6;
+  const halfX = d.size / 2;
+  const halfZ = (d.sizeZ ?? d.size) / 2;
+  return x0 >= d.x - halfX - 1e-6 && x1 <= d.x + halfX + 1e-6 && z0 >= d.z - halfZ - 1e-6 && z1 <= d.z + halfZ + 1e-6;
 }
 
 /**
@@ -465,8 +527,9 @@ export function buildTerrain(
   photos?: Photos,
   details: TerrainDetail[] = [],
   rock?: RockCover,
+  reach = TERRAIN_REACH,
 ): THREE.Mesh {
-  const lines = terrainLines();
+  const lines = terrainLines(reach);
   // Cells of the coarse mesh the fine square covers are left out.
   const covered = (x0: number, z0: number, x1: number, z1: number): boolean => coveredBy(details[0], x0, z0, x1, z1);
   const n = lines.length;
@@ -516,9 +579,10 @@ export function buildTerrain(
 
 /** The grid lines of a square of finer terrain, along x and along z. */
 function detailLines(d: TerrainDetail): { x: number[]; z: number[] } {
-  const n = Math.round(d.size / d.spacing) + 1;
-  const along = (from: number): number[] => Array.from({ length: n }, (_, k) => from + k * d.spacing);
-  return { x: along(d.x - d.size / 2), z: along(d.z - d.size / 2) };
+  const along = (from: number, size: number): number[] =>
+    Array.from({ length: Math.round(size / d.spacing) + 1 }, (_, k) => from + k * d.spacing);
+  const sizeZ = d.sizeZ ?? d.size;
+  return { x: along(d.x - d.size / 2, d.size), z: along(d.z - sizeZ / 2, sizeZ) };
 }
 
 /**
@@ -533,8 +597,9 @@ function fineHeights(
   groundAt: (x: number, z: number) => number,
 ): (i: number, j: number) => number {
   const n = Math.round(d.size / d.spacing) + 1;
+  const rows = Math.round((d.sizeZ ?? d.size) / d.spacing) + 1;
   const x0 = d.x - d.size / 2;
-  const z0 = d.z - d.size / 2;
+  const z0 = d.z - (d.sizeZ ?? d.size) / 2;
   /** Height along a coarse edge: straight between the coarse points either side. */
   const along = (fixed: number, t: number, horizontal: boolean): number => {
     const lines = horizontal ? outer.x : outer.z;
@@ -550,7 +615,7 @@ function fineHeights(
   return (i, j) => {
     const x = x0 + i * d.spacing;
     const z = z0 + j * d.spacing;
-    if (j === 0 || j === n - 1) return along(z, x, true);
+    if (j === 0 || j === rows - 1) return along(z, x, true);
     if (i === 0 || i === n - 1) return along(x, z, false);
     return groundAt(x, z);
   };
@@ -569,14 +634,15 @@ function fineTerrain(
   colored: boolean,
 ): THREE.BufferGeometry {
   const n = Math.round(d.size / d.spacing) + 1;
+  const rows = Math.round((d.sizeZ ?? d.size) / d.spacing) + 1;
   const x0 = d.x - d.size / 2;
-  const z0 = d.z - d.size / 2;
+  const z0 = d.z - (d.sizeZ ?? d.size) / 2;
   const heightOf = fineHeights(d, outer, groundAt);
-  const positions = new Float32Array(n * n * 3);
-  const colors = colored ? new Float32Array(n * n * 3) : null;
+  const positions = new Float32Array(n * rows * 3);
+  const colors = colored ? new Float32Array(n * rows * 3) : null;
   const tint = new THREE.Color();
   let o = 0;
-  for (let j = 0; j < n; j++) {
+  for (let j = 0; j < rows; j++) {
     const z = z0 + j * d.spacing;
     for (let i = 0; i < n; i++) {
       const x = x0 + i * d.spacing;
@@ -592,9 +658,9 @@ function fineTerrain(
       positions[o++] = z;
     }
   }
-  const index = new Uint32Array((n - 1) * (n - 1) * 6);
+  const index = new Uint32Array((n - 1) * (rows - 1) * 6);
   let k = 0;
-  for (let j = 0; j < n - 1; j++) {
+  for (let j = 0; j < rows - 1; j++) {
     for (let i = 0; i < n - 1; i++) {
       const cx = x0 + i * d.spacing;
       const cz = z0 + j * d.spacing;
@@ -720,14 +786,15 @@ function cellOf(lines: number[], v: number): number {
  * are left out: water does not lie on a hillside, and where the relief, too
  * coarse, puts a river on one, the photo shows it.
  */
-function drapedPolygons(list: Area[], groundAt: (x: number, z: number) => number, details: TerrainDetail[], maxSlope: number): THREE.BufferGeometry {
+function drapedPolygons(list: Area[], relief: DrawnRelief, maxSlope: number): THREE.BufferGeometry {
   interface Grid {
     x: number[];
     z: number[];
     height(i: number, j: number): number;
     inner?: TerrainDetail;
   }
-  const coarse = terrainLines();
+  const { groundAt, details } = relief;
+  const coarse = terrainLines(relief.reach);
   const grids: Grid[] = [{ x: coarse, z: coarse, height: (i, j) => groundAt(coarse[i]!, coarse[j]!), inner: details[0] }];
   let outer = { x: coarse, z: coarse };
   details.forEach((d, k) => {
@@ -854,10 +921,11 @@ export interface Water {
 /** The steepest terrain water is drawn on, rise over run: see `drapedPolygons`. */
 const WATER_SLOPE = 0.12;
 
-/** The relief as the terrain draws it, for what is laid on it. */
+/** The relief as the terrain draws it, for what is laid on it: see `buildTerrain`. */
 export interface DrawnRelief {
   groundAt: (x: number, z: number) => number;
   details: TerrainDetail[];
+  reach?: number;
 }
 
 /**
@@ -875,7 +943,7 @@ export function buildWater(rects: Rect[], sky: THREE.Color, areas: Area[] = [], 
     const flat = relief ? list.areas.filter((a) => !a.draped) : list.areas;
     const parts: THREE.BufferGeometry[] = [];
     if (list.rects.length || flat.length) parts.push(layerGeometry(list.rects, flat));
-    if (draped.length) parts.push(drapedPolygons(draped, relief!.groundAt, relief!.details, WATER_SLOPE));
+    if (draped.length) parts.push(drapedPolygons(draped, relief!, WATER_SLOPE));
     const geometry = parts.length === 1 ? parts[0]! : mergeGeometries(parts);
     const material = new THREE.ShaderMaterial({
       uniforms: { time, sky: { value: sky }, detailMap: { value: noise }, ...(photos ? photos.uniforms : {}) },

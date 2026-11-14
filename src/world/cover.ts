@@ -53,11 +53,12 @@ export function surfaceColorAt(base: (x: number, z: number) => number, rects: Re
   };
 }
 
-/** A square of terrain drawn finer, centred on (x, z). */
+/** A square of terrain drawn finer, centred on (x, z): `size` west to east, `sizeZ` north to south if it differs. */
 interface Finer {
   x: number;
   z: number;
   size: number;
+  sizeZ?: number;
   spacing: number;
 }
 
@@ -73,10 +74,11 @@ export function facetedHeight(groundAt: (x: number, z: number) => number, spacin
     let ox = 0;
     let oz = 0;
     for (const f of finer) {
-      if (Math.max(Math.abs(x - f.x), Math.abs(z - f.z)) >= f.size / 2 - f.spacing) break;
+      const sizeZ = f.sizeZ ?? f.size;
+      if (Math.abs(x - f.x) >= f.size / 2 - f.spacing || Math.abs(z - f.z) >= sizeZ / 2 - f.spacing) break;
       step = f.spacing;
       ox = f.x - f.size / 2;
-      oz = f.z - f.size / 2;
+      oz = f.z - sizeZ / 2;
     }
     const x0 = ox + Math.floor((x - ox) / step) * step;
     const z0 = oz + Math.floor((z - oz) / step) * step;

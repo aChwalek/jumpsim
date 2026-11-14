@@ -5,30 +5,68 @@
   // The Worker keeps the project's first name: renaming it would make a new
   // Worker (another workers.dev URL, empty rooms, Workers Builds unlinked).
   "name": "jumpsim",
-  // Served at lowpull.app (zone in the same account). workers_dev is kept on
-  // by hand: wrangler turns it off as soon as there are routes, which would
-  // break the links already shared and the branches' Preview URLs.
-  "routes": [{ "pattern": "lowpull.app", "custom_domain": true }],
+  // Served at jump.lowpull.app (zone in the same account); lowpull.app itself
+  // is kept for other parachute apps later. Branch previews also get
+  // <branch>.jump.lowpull.app (previews_enabled). Every custom domain must be
+  // listed here: a deploy replaces the Worker's domains with this list, so one
+  // added only in the dashboard disappears at the next deploy.
+  // workers_dev is kept on by hand: wrangler turns it off as soon as there are
+  // routes, which would break the links already shared and the branches'
+  // Preview URLs.
+  "routes": [{ "pattern": "jump.lowpull.app", "custom_domain": true, "previews_enabled": true }],
   "workers_dev": true,
   "compatibility_date": "2026-11-01",
+  // Better Auth (worker/auth.ts) needs AsyncLocalStorage.
+  "compatibility_flags": ["nodejs_compat"],
   "main": "./worker/index.ts",
   "assets": {
     "directory": "./dist"
   },
-  // One Durable Object per room. SQLite-backed: the only kind on the Free plan.
+  // One Durable Object per room, and one for the accuracy leaderboard (/scores).
+  // SQLite-backed: the only kind on the Free plan.
   "durable_objects": {
-    "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+    "bindings": [
+      { "name": "ROOMS", "class_name": "Room" },
+      { "name": "LEADERBOARD", "class_name": "Leaderboard" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Room"] },
+    { "tag": "v2", "new_sqlite_classes": ["Leaderboard"] }
+  ],
+  // The accounts (Better Auth, /api/auth): a database of their own, apart from
+  // the game's, to be shared by whatever else comes under lowpull.app. Its
+  // tables: worker/migrations, applied with `wrangler d1 migrations apply ACCOUNTS`.
+  "d1_databases": [
+    {
+      "binding": "ACCOUNTS",
+      "database_name": "lowpull-accounts",
+      "database_id": "61decdaf-6f51-4e40-81cb-fb39b18ffb55",
+      "migrations_dir": "worker/migrations"
+    }
+  ],
   // How the picture runs in the browsers (POST /perf): frame rate, phase, device.
   // Queried with the SQL API, dataset jumpsim_perf (see src/net/perfSchema.ts).
   "analytics_engine_datasets": [{ "binding": "PERF", "dataset": "jumpsim_perf" }],
   // Branches other than main get their own Preview URL (`wrangler preview`).
-  // Bindings are not inherited: each Preview gets its own rooms.
+  // Bindings are not inherited: each Preview gets its own rooms, and its own
+  // leaderboard, so that trying a branch out leaves the live site's alone.
+  // The Previews share one accounts database, apart from the live one.
   "previews": {
     "durable_objects": {
-      "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+      "bindings": [
+        { "name": "ROOMS", "class_name": "Room" },
+        { "name": "LEADERBOARD", "class_name": "Leaderboard" }
+      ]
     },
+    "d1_databases": [
+      {
+        "binding": "ACCOUNTS",
+        "database_name": "lowpull-accounts-preview",
+        "database_id": "7ee1ae53-2e4d-469e-ada2-4055d85de05f",
+        "migrations_dir": "worker/migrations"
+      }
+    ],
     // Previews report to their own dataset, not mixed with the live site's.
     "analytics_engine_datasets": [{ "binding": "PERF", "dataset": "jumpsim_perf_preview" }]
   }

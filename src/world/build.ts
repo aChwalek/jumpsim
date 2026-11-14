@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Lighting } from '../render/scene';
 import { buildBridges } from './bridge';
+import { buildAccuracyTarget } from './accuracyTarget';
 import { buildCliffTop, rockTexture, type RockMask } from './cliffTop';
 import { facetedHeight, surfaceColorAt } from './cover';
 import { isWet, type DzPack } from './dz';
@@ -14,6 +15,8 @@ export interface World {
   setWind(fromDeg: number, speed: number): void;
   /** Lays the shadows for the current light. */
   setDaylight(light: Lighting): void;
+  /** Shows or hides what the challenges lay on the ground: the accuracy target. */
+  showChallenges(on: boolean): void;
   /** Call every frame with the eye position and the time in seconds. */
   update(eye: THREE.Vector3, seconds: number): void;
   /** Whether the aerial photos, if any, have all come in. */
@@ -37,7 +40,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
   // The grass round the eye takes the light where the eye is: sun or cloud shadow.
   const grassLight = new THREE.Color().copy(light.ground);
   // Aerial photos, where the drop zone has some: they show as they come in.
-  const photos = dz.imagery ? loadPhotos(dz.imagery, dz.grass.area.color, dz.imageryGain, dz.rockTint) : undefined;
+  const photos = dz.imagery ? loadPhotos(dz.imagery, dz.grass.area.color, dz.imageryGain, dz.rockTint, dz.imagerySpots, dz.grassBelow) : undefined;
   const grass = buildGrass(
     {
       ...dz.grass,
@@ -45,13 +48,15 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
       // The blades stand on the terrain as it is drawn, in the colour of what lies there.
       groundAt: facetedHeight(groundAt, TERRAIN_SPACING, dz.terrainDetail),
       photos,
-      // Nor does it grow in water, or on the bare rock of a cliff top, which has its own tussocks.
-      wet: (x, z) => isWet(dz, x, z) || (!!dz.cliffTop && bareRock(dz.cliffTop.rock, x, z)),
+      // Nor does it grow in water, on the bare rock of a cliff top, which has its own tussocks,
+      // nor up among the rock and snow of high mountains.
+      wet: (x, z) =>
+        isWet(dz, x, z) || (!!dz.cliffTop && bareRock(dz.cliffTop.rock, x, z)) || (dz.grassBelow !== undefined && groundAt(x, z) > dz.grassBelow),
       colorAt: surfaceColorAt(dz.landColor ?? (() => dz.grass.area.color), dz.surfaces, dz.areas ?? []),
     },
     grassLight,
   );
-  const water = buildWater(dz.water, light.horizon, dz.waterAreas, photos, { groundAt, details: dz.terrainDetail ?? [] });
+  const water = buildWater(dz.water, light.horizon, dz.waterAreas, photos, { groundAt, details: dz.terrainDetail ?? [], reach: dz.terrainReach });
   const flags = buildFlags(dz.flags, light.fabric, groundAt);
   const trees = buildTrees(dz.trees, groundAt);
   // Bare rock about a BASE exit on a cliff, which the photos taken from above miss.
@@ -60,7 +65,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
   // Named for the bench (?bench), which hides each in turn.
   const named = <T extends THREE.Object3D>(name: string, o: T): T => Object.assign(o, { name });
   object.add(
-    named('terrain', buildTerrain(dz.grass.area.color, groundAt, dz.landColor, photos, dz.terrainDetail, rock)),
+    named('terrain', buildTerrain(dz.grass.area.color, groundAt, dz.landColor, photos, dz.terrainDetail, rock, dz.terrainReach)),
     named('surfaces', buildSurfaces(dz.surfaces, dz.areas)),
     named('buildings', buildBuildings(dz.buildings, groundAt)),
     named('trees', trees.object),
@@ -81,6 +86,13 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     object.add(buildDisc(dz.target.x, dz.target.z, dz.target.radius, dz.targetColor ?? 0xcdbf9a, dz.targetLayer ?? 4));
     if (dz.targetCentre !== false) object.add(buildDisc(dz.target.x, dz.target.z, 0.6, 0xe0452a, (dz.targetLayer ?? 4) + 1));
   }
+  // The accuracy challenge's rings, over the target and what lies about it; shown when the challenges are on.
+  const challenge = named(
+    'challenge',
+    buildAccuracyTarget(dz.target.x, dz.target.z, facetedHeight(groundAt, TERRAIN_SPACING, dz.terrainDetail), (dz.targetLayer ?? 4) + 2),
+  );
+  challenge.visible = false;
+  object.add(challenge);
   // Whatever the sun lights loses it under a cloud, and cast shadows fade there.
   const shaded = new Set<THREE.Material>();
   object.traverse((node) => {
@@ -101,9 +113,13 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     setDaylight(l) {
       trees.setSun(l.sun, l.shadow);
     },
+    showChallenges(on) {
+      challenge.visible = on;
+    },
     update(eye, seconds) {
       grassLight.lerpColors(light.groundShade, light.ground, light.clouds.sunThrough(eye.x, groundAt(eye.x, eye.z), eye.z));
       grass.update(eye, seconds);
+      trees.update(eye);
       water.update(seconds);
       flags.update(seconds);
       cliffTop?.update(seconds);
@@ -118,6 +134,8 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
       object.traverse((node) => {
         const { geometry, material } = node as THREE.Mesh;
         geometry?.dispose();
+        // Where each copy stands, held apart from the geometry.
+        if (node instanceof THREE.InstancedMesh) node.dispose();
         for (const m of Array.isArray(material) ? material : material ? [material] : []) m.dispose();
       });
     },

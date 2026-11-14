@@ -21,7 +21,8 @@ import { SMOKE_BURN, SmokeTrail } from './render/smoke';
 import { blendPose, copyPose, makePose, type Pose } from './render/body';
 import { TopView } from './render/topView';
 import { FIELD_OF_VIEW, GEAR_LAYER, OUTSIDE_LAYER, Resolution, createCamera, createGearCamera, createRenderer, createScene } from './render/scene';
-import { logJump, type LogEntry, type Outcome } from './logbook';
+import { bestScore, scoreAccuracy, type AccuracyScore } from './challenge';
+import { loadLogbook, logJump, type LogEntry, type Outcome } from './logbook';
 import { QUALITY_LEVELS, loadSettings, saveSettings } from './settings';
 import {
   MALFUNCTION_ODDS,
@@ -52,7 +53,7 @@ import { TrackView } from './render/trackView';
 import { FreeCamera } from './render/freeCamera';
 import { airDensityAt } from './sim/atmosphere';
 import { FlightModel, neutralControls, type Environment } from './sim/flightModel';
-import { noBodyInputs, stepPosition, type BodyPosition } from './sim/freefall';
+import { noBodyInputs, stepPosition, type BodyInputs, type BodyPosition } from './sim/freefall';
 import { Jump, type JumpOptions } from './sim/jump';
 import { MAIN_MALFUNCTIONS } from './sim/opening';
 import { detectTouchdown, feetHeight, worst, type Touchdown } from './sim/landing';
@@ -76,6 +77,8 @@ import { Bots, type BotsSpec, type Others } from './bots';
 import type { Lead } from './sim/bot';
 import { Multiplayer, newRoomName, playersIn, roomFromUrl, roomLink, setRoomInUrl } from './net/multiplayer';
 import { cleanName, publicDz, publicRoom, sameShared, sharedPart } from './net/room';
+import { madeUpName, sendScore } from './net/leaderboard';
+import { ensureAccount, googleOffered, loadAccount, renameAccount, signInWithGoogle, signOut, type Account } from './net/account';
 import { buildWorld, type World } from './world/build';
 import { isWet, landingHeading, solidOf, spawnsFor, type DzPack } from './world/dz';
 import { dzInfo } from './world/dzs';
@@ -103,6 +106,7 @@ let dz: DzPack = await dzInfo(setup.dz).load();
 /** What the feet can stand on or hit: the ground, and roofs and walls where there are some. */
 let solid = solidOf(dz);
 let world: World = buildWorld(dz, light);
+world.showChallenges(setup.jump.challenges);
 scene.add(world.object);
 
 let rig = rigFor(setup.gear);
@@ -332,6 +336,7 @@ function apply(next: Setup, withGear: boolean): boolean {
   // Another drop zone: the bots of the last jump are not on this one.
   if (setup.dz !== before.dz) dropBots();
   applyDz();
+  world.showChallenges(setup.jump.challenges);
   applyWeather();
   if (withGear) applyGear(before.gear);
   fitSmoke();
@@ -479,14 +484,51 @@ menu.onSetupChange = (chosen) => {
     void countPublic();
   }
 };
+/** The account signed in, once known; null for none (yet), or when the server cannot be reached. */
+let account: Account | null = null;
+/** What anonymous accounts are called until the browser names them (worker/auth.ts). */
+const UNNAMED = 'Skydiver';
+
+/** The account as it now stands: its name is the player's, chosen here or on another device. */
+function showAccount(next: Account | null): void {
+  account = next;
+  if (next && next.name === UNNAMED) {
+    // Named right after being made, and that did not go through: again.
+    void renameAccount(playerName());
+    next.name = playerName();
+  } else if (next && next.name !== settings.playerName) {
+    settings.playerName = next.name;
+    saveSettings(settings);
+    net?.setName(next.name);
+  }
+  menu.setAccount(next ? { ...next } : null);
+}
+void loadAccount().then(showAccount);
+void googleOffered().then((offered) => menu.setGoogle(offered));
+
+/** The player's new name: in the room, and on the account (and so the boards) if there is one. */
+async function rename(name: string): Promise<void> {
+  const clean = cleanName(name);
+  if (!clean || clean === settings.playerName) return;
+  settings.playerName = clean;
+  saveSettings(settings);
+  net?.setName(clean);
+  if (account) {
+    account.name = clean;
+    await renameAccount(clean);
+  }
+}
 menu.onRename = () => {
   const name = prompt(T.menu.room.renamePrompt, playerName());
-  if (name === null || !cleanName(name)) return;
-  settings.playerName = cleanName(name);
-  saveSettings(settings);
-  net?.setName(settings.playerName);
+  if (name !== null) void rename(name).then(() => menu.refreshNames());
 };
+menu.onNameChange = rename;
+menu.onSignIn = () => void signInWithGoogle(playerName());
+menu.onSignOut = () => void signOut().then(() => showAccount(null));
 applySettings();
+// A name from the start, in the language now set: the home's pilot line shows it.
+playerName();
+menu.refresh();
 
 const ramped = neutralControls();
 const applied = neutralControls();
@@ -511,6 +553,21 @@ let impact = false;
 const posture = new Posture();
 fitSuit();
 const still = noBodyInputs();
+/**
+ * On the ground, the walking keys held since the landing: S is the flare as
+ * well as a step back, Q and D a turn as well as a step aside. Kept down
+ * through the touchdown, they do not walk the pilot off (and the card out of
+ * the way) until let go once.
+ */
+const heldSinceLanding = { forward: true, turn: true, slide: true };
+const walkInputs = noBodyInputs();
+function letGoFeet(feet: BodyInputs): BodyInputs {
+  for (const k of ['forward', 'turn', 'slide'] as const) {
+    if (feet[k] === 0) heldSinceLanding[k] = false;
+    walkInputs[k] = heldSinceLanding[k] ? 0 : feet[k];
+  }
+  return walkInputs;
+}
 /** Where the hands have the toggles: stowed brakes keep the canopy's short of them. */
 const hands = neutralControls();
 /** Seconds flown under canopy on this jump, for the logbook. */
@@ -592,7 +649,7 @@ const watchWind = new THREE.Vector3();
 const watchEnv: Environment = { wind: vec3(), airDensity: AIR_DENSITY_SEA_LEVEL };
 
 /** Writes the jump that just ended in the logbook. */
-function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distance?: number, wet?: boolean): void {
+function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distance?: number, wet?: boolean, accuracy?: number): void {
   const { gear, weather } = setup;
   const log = jump?.log;
   const logged = logJump({
@@ -624,8 +681,45 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
     groundSpeed,
     distance,
     wet,
+    accuracy,
   });
   trackRecorder.logged(logged.n, logged.time);
+}
+
+/** Each landing sent to the leaderboard gets the next number: the answer for an older one is not shown. */
+let boardSends = 0;
+
+/** Sends a scored landing to the leaderboard, and shows on the card where it leaves the player. */
+function postScore(score: AccuracyScore | null): void {
+  const send = ++boardSends;
+  if (!score || score.points <= 0) return hud.setBoard(null);
+  hud.setBoard({ kind: 'sending' });
+  const name = playerName();
+  const dzName = dz.name;
+  const { gear, weather } = setup;
+  const submission = {
+    dz: setup.dz,
+    distance: score.distance,
+    start: scenario,
+    canopy: { kind: gear.kind, areaFt2: gear.canopyAreaFt2 },
+    windKmh: weather.windKmh,
+  };
+  // The first score makes the account, anonymous, under the name in use.
+  void (async () => {
+    const sender = account ?? (await ensureAccount(name));
+    if (sender && !account) showAccount(sender);
+    let standing = sender ? await sendScore(submission) : null;
+    if (!standing && sender) {
+      // Signed out meanwhile (another tab): the account as it is now, and once more.
+      const now = await ensureAccount(name);
+      if (now && now.id !== sender.id) {
+        showAccount(now);
+        standing = await sendScore(submission);
+      }
+    }
+    if (send !== boardSends) return;
+    hud.setBoard(standing ? { kind: 'standing', standing, dzName, asName: madeUpName(name) ? name : null } : { kind: 'offline' });
+  })();
 }
 
 /** A landing heard, and kept for the replay. */
@@ -1169,17 +1263,23 @@ function simulate(seconds: number): void {
       const vines = !!dz.onVines?.(feet.x, feet.z);
       if (vines) landed.rating = worst(landed.rating, 'hard');
       const distance = Math.hypot(feet.x - dz.target.x, feet.z - dz.target.z);
+      // The accuracy challenge, and the best done here before this one.
+      const scored: { score: AccuracyScore; record: number | null } | null = setup.jump.challenges
+        ? { score: scoreAccuracy(distance, landed.rating, wet, vines), record: bestScore(loadLogbook(), setup.dz) }
+        : null;
       const log = jump?.log ?? null;
       // On the ground the canopy is blown by the wind at its own height.
       windAt(env.wind, setup.weather, canopyAboveFeet(), airTime);
       arrival = new Arrival(model, landed, { groundAt: solid, wet, wind: vec3(env.wind.x, env.wind.y, env.wind.z) });
+      heldSinceLanding.forward = heldSinceLanding.turn = heldSinceLanding.slide = true;
       verdict = () => {
-        hud.showResult(landed, distance, wet, log, vines);
+        hud.showResult(landed, distance, wet, log, vines, scored);
         // The mouse, for the card's buttons.
         devices.release();
       };
       recorder.crash();
-      logThisJump(landed.rating, landed.sink, landed.groundSpeed, distance, wet);
+      logThisJump(landed.rating, landed.sink, landed.groundSpeed, distance, wet, scored?.score.points);
+      postScore(scored?.score ?? null);
       land({ sink: landed.sink, groundSpeed: landed.groundSpeed, wet });
       // What is left of the frame is spent on the ground.
       arrival.update(left);
@@ -2278,13 +2378,13 @@ let mapDrawnAt = -1e9;
 
 /**
  * Draws the map's picture again when the scenery behind it has changed: the
- * drop zone, its photos coming in, the hour, the sky. Not more than five
+ * drop zone, its photos coming in, the hour, the sky, the challenges' target. Not more than five
  * times a second while a slider moves. Before the frame's own render.
  */
 function drawMap(now: number): void {
   const size = menu.map.wantedSize();
   if (!menu.isOpen || !size || dz !== dzInfo(setup.dz).loaded()) return;
-  const key = `${setup.dz}|${world.ready()}|${setup.hour}|${setup.weather.sky}|${size}`;
+  const key = `${setup.dz}|${world.ready()}|${setup.hour}|${setup.weather.sky}|${setup.jump.challenges}|${size}`;
   if (key === mapDrawn || now - mapDrawnAt < 200) return;
   const groundY = dz.groundAt(dz.target.x, dz.target.z);
   // The pilot, the canopy and its shadows all hang from the rig's object; a cut-away canopy is on its own.
@@ -2415,7 +2515,7 @@ function frame(now: number): void {
       airTime += seconds;
       // On the feet again: walking, but not while gathering the canopy up.
       const gathering = gather !== null && gather < 1;
-      arrival.update(seconds, ragdoll || gathering ? null : devices.feet);
+      arrival.update(seconds, ragdoll || gathering ? null : letGoFeet(devices.feet));
       if (gather !== null) gather = Math.min(1, gather + seconds / GATHER_TIME);
     } else {
       simulate(seconds);
