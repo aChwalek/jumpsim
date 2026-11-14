@@ -5,6 +5,7 @@
 ```
 python3 tools/dz/build.py <id>            # everything
 python3 tools/dz/build.py <id> --only osm # one step: relief, imagery, osm (or none: rewrite the module only)
+python3 tools/dz/build.py <id> --only close # the landing area's photo alone, from near.jpg
 ```
 
 It needs Python 3 and ffmpeg, nothing else, except for a fine relief from
@@ -81,6 +82,11 @@ heights, where people stand, the usual wind, the pattern and the jump run.
 
 ## Outputs
 
+- `public/dz/<id>/close.jpg`: 512 m square at 25 cm a pixel about the landing
+  area, orthophotos (zoom 19), where the eye comes down to the ground. `--only
+  close` makes it alone, for a drop zone built before it existed: from the
+  orthophotos and the `near.jpg` already there, and it updates the module's list
+  of photos; it needs neither the cache's state nor Overpass.
 - `public/dz/<id>/near.jpg`: 4.1 km square at 1 m a pixel, orthophotos.
 - `public/dz/<id>/mid.jpg`: 16.4 km square at 4 m a pixel, orthophotos.
 - `public/dz/<id>/far.jpg`: 82 km square at 40 m a pixel, Sentinel-2.

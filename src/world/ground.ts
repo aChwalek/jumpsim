@@ -145,14 +145,24 @@ export interface Photos {
   textures: THREE.Texture[];
   /** What the shaders read: the textures, their sizes, which have come in, brightness. */
   uniforms: Record<string, THREE.IUniform>;
+  /** Whether every photo has come in. */
+  ready(): boolean;
   dispose(): void;
 }
 
 /**
+ * How many squares of photo the shaders read, finest first: the landing area,
+ * the near ground, the valley, the horizon.
+ */
+const PHOTO_LEVELS = 4;
+
+/**
  * Starts loading the photos; each shows once it has come in, the coarser
- * ones until then. `gain` is the brightness they are drawn at: they already
- * hold the light of the day they were taken. `fallback` shows where none covers;
- * `rockTint` is the colour of the rock faces, where it is known.
+ * ones until then. `imagery` lists them finest first; a drop zone with fewer
+ * than `PHOTO_LEVELS` leaves the finest squares empty. `gain` is the
+ * brightness they are drawn at: they already hold the light of the day they
+ * were taken. `fallback` shows where none covers; `rockTint` is the colour of
+ * the rock faces, where it is known.
  */
 export function loadPhotos(
   imagery: Imagery[],
@@ -163,9 +173,11 @@ export function loadPhotos(
   grassBelow = 1e9,
 ): Photos {
   const loader = new THREE.TextureLoader();
-  const ready = new THREE.Vector3(0, 0, 0);
+  const ready = new THREE.Vector4(0, 0, 0, 0);
+  const sizes = new THREE.Vector4(1, 1, 1, 1);
+  const centres = Array.from({ length: PHOTO_LEVELS }, () => new THREE.Vector2());
   const spotsReady = { value: 0 };
-  const levels = [0, 1, 2].map((k) => imagery[Math.min(k, imagery.length - 1)]!);
+  const missing = PHOTO_LEVELS - Math.min(PHOTO_LEVELS, imagery.length);
   const load = (url: string, done: () => void): THREE.Texture => {
     const texture = loader.load(`${import.meta.env.BASE_URL}${url}`, done);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -176,7 +188,18 @@ export function loadPhotos(
     texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
     return texture;
   };
-  const textures = levels.map((level, k) => load(level.url, () => ready.setComponent(k, 1)));
+  const textures = Array.from({ length: PHOTO_LEVELS }, (_, k) => {
+    const level = imagery[k - missing];
+    if (!level) {
+      // Never shown: its weight stays 0.
+      const empty = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+      empty.needsUpdate = true;
+      return empty;
+    }
+    sizes.setComponent(k, level.size);
+    centres[k]!.set(level.x ?? 0, level.z ?? 0);
+    return load(level.url, () => ready.setComponent(k, 1));
+  });
   // The squares at 1 m: one picture, `grid` to a row; each is read only inside its own cell.
   const spotTexture = spots ? load(spots.url, () => (spotsReady.value = 1)) : null;
   if (spotTexture) textures.push(spotTexture);
@@ -186,13 +209,15 @@ export function loadPhotos(
   });
   return {
     textures,
+    ready: () => ready.x + ready.y + ready.z + ready.w >= PHOTO_LEVELS - missing && (!spots || spotsReady.value === 1),
     uniforms: {
       photo0: { value: textures[0] },
       photo1: { value: textures[1] },
       photo2: { value: textures[2] },
-      photoSize: { value: new THREE.Vector3(levels[0]!.size, levels[1]!.size, levels[2]!.size) },
-      photoCentre: { value: levels.map((l) => new THREE.Vector2(l.x ?? 0, l.z ?? 0)) },
-      photoSpots: { value: spotTexture ?? textures[0] },
+      photo3: { value: textures[3] },
+      photoSize: { value: sizes },
+      photoCentre: { value: centres },
+      photoSpots: { value: spotTexture ?? textures[PHOTO_LEVELS - 1] },
       photoSpot: { value: spotBoxes },
       photoSpotGrid: { value: spots?.grid ?? 1 },
       photoSpotsReady: spotsReady,
@@ -225,15 +250,16 @@ export const PHOTO_GLSL = /* glsl */ `
   uniform sampler2D photo0;
   uniform sampler2D photo1;
   uniform sampler2D photo2;
-  uniform vec3 photoSize;
+  uniform sampler2D photo3;
+  uniform vec4 photoSize;
   // The centre of each level, where it is not the origin.
-  uniform vec2 photoCentre[3];
+  uniform vec2 photoCentre[${PHOTO_LEVELS}];
   // Squares finer still, side by side in one picture: centre x, z, side, cell (< 0: none).
   uniform sampler2D photoSpots;
   uniform vec4 photoSpot[${MAX_SPOTS}];
   uniform float photoSpotGrid;
   uniform float photoSpotsReady;
-  uniform vec3 photoReady;
+  uniform vec4 photoReady;
   uniform float photoGain;
   uniform vec3 photoFallback;
   // Above this, high mountains: rock and snow, nothing grows.
@@ -244,12 +270,13 @@ export const PHOTO_GLSL = /* glsl */ `
   }
   // blur: a mip bias, each step averaging twice as far round.
   vec3 photoAt(vec2 p, float blur) {
+    vec2 uv3 = (p - photoCentre[3]) / photoSize.w + 0.5;
     vec2 uv2 = (p - photoCentre[2]) / photoSize.z + 0.5;
     vec2 uv1 = (p - photoCentre[1]) / photoSize.y + 0.5;
     vec2 uv0 = (p - photoCentre[0]) / photoSize.x + 0.5;
-    vec3 c = mix(photoFallback, PHOTO_TEX(photo2, uv2, blur).rgb, photoReady.z * photoWeight(uv2));
+    vec3 c = mix(photoFallback, PHOTO_TEX(photo3, uv3, blur).rgb, photoReady.w * photoWeight(uv3));
+    c = mix(c, PHOTO_TEX(photo2, uv2, blur).rgb, photoReady.z * photoWeight(uv2));
     c = mix(c, PHOTO_TEX(photo1, uv1, blur).rgb, photoReady.y * photoWeight(uv1));
-    c = mix(c, PHOTO_TEX(photo0, uv0, blur).rgb, photoReady.x * photoWeight(uv0));
     for (int k = 0; k < ${MAX_SPOTS}; k++) {
       vec4 s = photoSpot[k];
       if (s.w < 0.0) break;
@@ -260,6 +287,8 @@ export const PHOTO_GLSL = /* glsl */ `
       vec2 inCell = clamp(uv, 0.002, 0.998);
       c = mix(c, PHOTO_TEX(photoSpots, (cell + inCell) / photoSpotGrid, blur).rgb, photoSpotsReady * photoWeight(uv));
     }
+    // The landing area's, the finest, over the squares at 1 m too.
+    c = mix(c, PHOTO_TEX(photo0, uv0, blur).rgb, photoReady.x * photoWeight(uv0));
     return c * photoGain;
   }
   vec3 photoAt(vec2 p) { return photoAt(p, 0.0); }
@@ -558,19 +587,16 @@ function detailLines(d: TerrainDetail): { x: number[]; z: number[] } {
 }
 
 /**
- * A finer square of terrain. Along its sides the points follow the straight
- * edges of the coarser cells next to it (`outer`, the lines of the mesh it is
- * laid in), so that no crack opens between them. Cells inside `inner`, finer
- * still, are left to it.
+ * The height of the point (i, j) of a finer square of terrain. Along its sides
+ * the points follow the straight edges of the coarser cells next to it
+ * (`outer`, the lines of the mesh it is laid in), so that no crack opens
+ * between them; inside, the relief.
  */
-function fineTerrain(
+function fineHeights(
   d: TerrainDetail,
   outer: { x: number[]; z: number[] },
-  inner: TerrainDetail | undefined,
   groundAt: (x: number, z: number) => number,
-  colorAt: ((x: number, z: number) => number) | undefined,
-  colored: boolean,
-): THREE.BufferGeometry {
+): (i: number, j: number) => number {
   const n = Math.round(d.size / d.spacing) + 1;
   const rows = Math.round((d.sizeZ ?? d.size) / d.spacing) + 1;
   const x0 = d.x - d.size / 2;
@@ -587,6 +613,32 @@ function fineTerrain(
     const hb = horizontal ? groundAt(b, fixed) : groundAt(fixed, b);
     return ha + (hb - ha) * f;
   };
+  return (i, j) => {
+    const x = x0 + i * d.spacing;
+    const z = z0 + j * d.spacing;
+    if (j === 0 || j === rows - 1) return along(z, x, true);
+    if (i === 0 || i === n - 1) return along(x, z, false);
+    return groundAt(x, z);
+  };
+}
+
+/**
+ * A finer square of terrain, its sides following the coarser cells next to it
+ * (see `fineHeights`). Cells inside `inner`, finer still, are left to it.
+ */
+function fineTerrain(
+  d: TerrainDetail,
+  outer: { x: number[]; z: number[] },
+  inner: TerrainDetail | undefined,
+  groundAt: (x: number, z: number) => number,
+  colorAt: ((x: number, z: number) => number) | undefined,
+  colored: boolean,
+): THREE.BufferGeometry {
+  const n = Math.round(d.size / d.spacing) + 1;
+  const rows = Math.round((d.sizeZ ?? d.size) / d.spacing) + 1;
+  const x0 = d.x - d.size / 2;
+  const z0 = d.z - (d.sizeZ ?? d.size) / 2;
+  const heightOf = fineHeights(d, outer, groundAt);
   const positions = new Float32Array(n * rows * 3);
   const colors = colored ? new Float32Array(n * rows * 3) : null;
   const tint = new THREE.Color();
@@ -595,10 +647,7 @@ function fineTerrain(
     const z = z0 + j * d.spacing;
     for (let i = 0; i < n; i++) {
       const x = x0 + i * d.spacing;
-      let y: number;
-      if (j === 0 || j === rows - 1) y = along(z, x, true);
-      else if (i === 0 || i === n - 1) y = along(x, z, false);
-      else y = groundAt(x, z);
+      const y = heightOf(i, j);
       if (colors) {
         tint.setHex(colorAt!(x, z));
         colors[o] = tint.r;
@@ -701,6 +750,137 @@ function polygons(list: Area[]): THREE.BufferGeometry {
   return geometry;
 }
 
+/** The part of a convex polygon where a·x + b·z ≤ c (Sutherland–Hodgman). */
+function clipHalf(poly: number[][], a: number, b: number, c: number): number[][] {
+  const out: number[][] = [];
+  for (let k = 0; k < poly.length; k++) {
+    const p = poly[k]!;
+    const q = poly[(k + 1) % poly.length]!;
+    const dp = a * p[0]! + b * p[1]! - c;
+    const dq = a * q[0]! + b * q[1]! - c;
+    if (dp <= 0) out.push(p);
+    if ((dp < 0 && dq > 0) || (dp > 0 && dq < 0)) {
+      const t = dp / (dp - dq);
+      out.push([p[0]! + (q[0]! - p[0]!) * t, p[1]! + (q[1]! - p[1]!) * t]);
+    }
+  }
+  return out;
+}
+
+/** The index of the cell between `lines[k]` and `lines[k + 1]` holding `v`. */
+function cellOf(lines: number[], v: number): number {
+  let lo = 0;
+  let hi = lines.length - 2;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (lines[mid]! <= v) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+/**
+ * Polygons laid on the terrain as `buildTerrain` draws it. Each is cut along
+ * the edges of the terrain's triangles, and each piece takes the plane of the
+ * triangle it lies in: it neither sinks into the ground nor floats above it,
+ * down a valley or up in the hills. Pieces on a slope steeper than `maxSlope`
+ * are left out: water does not lie on a hillside, and where the relief, too
+ * coarse, puts a river on one, the photo shows it.
+ */
+function drapedPolygons(list: Area[], relief: DrawnRelief, maxSlope: number): THREE.BufferGeometry {
+  interface Grid {
+    x: number[];
+    z: number[];
+    height(i: number, j: number): number;
+    inner?: TerrainDetail;
+  }
+  const { groundAt, details } = relief;
+  const coarse = terrainLines(relief.reach);
+  const grids: Grid[] = [{ x: coarse, z: coarse, height: (i, j) => groundAt(coarse[i]!, coarse[j]!), inner: details[0] }];
+  let outer = { x: coarse, z: coarse };
+  details.forEach((d, k) => {
+    const lines = detailLines(d);
+    grids.push({ ...lines, height: fineHeights(d, outer, groundAt), inner: details[k + 1] });
+    outer = lines;
+  });
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const color = new THREE.Color();
+  const cut = (piece: number[][], level: number): void => {
+    const g = grids[level]!;
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let z0 = Infinity;
+    let z1 = -Infinity;
+    for (const [x, z] of piece) {
+      x0 = Math.min(x0, x!);
+      x1 = Math.max(x1, x!);
+      z0 = Math.min(z0, z!);
+      z1 = Math.max(z1, z!);
+    }
+    const [i0, i1, j0, j1] = [cellOf(g.x, x0), cellOf(g.x, x1), cellOf(g.z, z0), cellOf(g.z, z1)];
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const [ax, bx, az, bz] = [g.x[i]!, g.x[i + 1]!, g.z[j]!, g.z[j + 1]!];
+        const cell = clipHalf(clipHalf(clipHalf(clipHalf(piece, -1, 0, -ax), 1, 0, bx), 0, -1, -az), 0, 1, bz);
+        if (cell.length < 3) continue;
+        if (g.inner && coveredBy(g.inner, ax, az, bx, bz)) {
+          cut(cell, level + 1);
+          continue;
+        }
+        const w = bx - ax;
+        const h = bz - az;
+        const h00 = g.height(i, j);
+        const h10 = g.height(i + 1, j);
+        const h01 = g.height(i, j + 1);
+        const h11 = g.height(i + 1, j + 1);
+        // Each cell is split along the diagonal from its north-east corner to its south-west one.
+        const diagonal = 1 + ax / w + az / h;
+        for (const north of [true, false]) {
+          const half = north ? clipHalf(cell, 1 / w, 1 / h, diagonal) : clipHalf(cell, -1 / w, -1 / h, -diagonal);
+          if (half.length < 3) continue;
+          const gx = north ? (h10 - h00) / w : (h11 - h01) / w;
+          const gz = north ? (h01 - h00) / h : (h11 - h10) / h;
+          if (Math.hypot(gx, gz) > maxSlope) continue;
+          const y = (p: number[]): number => {
+            const fx = (p[0]! - ax) / w;
+            const fz = (p[1]! - az) / h;
+            return north ? h00 + (h10 - h00) * fx + (h01 - h00) * fz : h11 + (h01 - h11) * (1 - fx) + (h10 - h11) * (1 - fz);
+          };
+          for (let k = 1; k + 1 < half.length; k++) {
+            for (const p of [half[0]!, half[k]!, half[k + 1]!]) {
+              positions.push(p[0]!, y(p), p[1]!);
+              colors.push(color.r, color.g, color.b);
+            }
+          }
+        }
+      }
+    }
+  };
+  for (const a of list) {
+    const ring = (flat: number[]): THREE.Vector2[] => {
+      const out: THREE.Vector2[] = [];
+      for (let i = 0; i < flat.length; i += 2) out.push(new THREE.Vector2(flat[i], flat[i + 1]));
+      return out;
+    };
+    const contour = ring(a.points);
+    const holes = (a.holes ?? []).map(ring);
+    const all = contour.concat(...holes);
+    color.setHex(a.color);
+    for (const triangle of THREE.ShapeUtils.triangulateShape(contour, holes)) {
+      cut(
+        triangle.map((k) => [all[k]!.x, all[k]!.y]),
+        0,
+      );
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(positions.map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  return geometry;
+}
+
 /** Rectangles and polygons sorted by layer. */
 function byLayer(rects: Rect[], areas: Area[]): Map<number, { rects: Rect[]; areas: Area[] }> {
   const layers = new Map<number, { rects: Rect[]; areas: Area[] }>();
@@ -739,16 +919,33 @@ export interface Water {
   update(seconds: number): void;
 }
 
+/** The steepest terrain water is drawn on, rise over run: see `drapedPolygons`. */
+const WATER_SLOPE = 0.12;
+
+/** The relief as the terrain draws it, for what is laid on it: see `buildTerrain`. */
+export interface DrawnRelief {
+  groundAt: (x: number, z: number) => number;
+  details: TerrainDetail[];
+  reach?: number;
+}
+
 /**
- * Ponds. Seen from above the water shows its own colour, at a low angle it
- * mirrors the sky. Wavelets a hand's width across drift over it: smooth
- * water gives nothing to judge height by.
+ * Ponds, lakes and rivers. Seen from above the water shows its own colour, at
+ * a low angle it mirrors the sky. Wavelets a hand's width across drift over
+ * it: smooth water gives nothing to judge height by. Areas marked `draped`
+ * lie on `relief`, the others flat at the plain's level.
  */
-export function buildWater(rects: Rect[], sky: THREE.Color, areas: Area[] = [], photos?: Photos): Water {
+export function buildWater(rects: Rect[], sky: THREE.Color, areas: Area[] = [], photos?: Photos, relief?: DrawnRelief): Water {
   noise ??= makeNoiseTexture();
   const time = { value: 0 };
   const group = new THREE.Group();
   for (const [layer, list] of byLayer(rects, areas)) {
+    const draped = relief ? list.areas.filter((a) => a.draped) : [];
+    const flat = relief ? list.areas.filter((a) => !a.draped) : list.areas;
+    const parts: THREE.BufferGeometry[] = [];
+    if (list.rects.length || flat.length) parts.push(layerGeometry(list.rects, flat));
+    if (draped.length) parts.push(drapedPolygons(draped, relief!, WATER_SLOPE));
+    const geometry = parts.length === 1 ? parts[0]! : mergeGeometries(parts);
     const material = new THREE.ShaderMaterial({
       uniforms: { time, sky: { value: sky }, detailMap: { value: noise }, ...(photos ? photos.uniforms : {}) },
       defines: photos ? { USE_PHOTO: '' } : {},
@@ -795,7 +992,7 @@ export function buildWater(rects: Rect[], sky: THREE.Color, areas: Area[] = [], 
           #include <colorspace_fragment>
         }`,
     });
-    const mesh = new THREE.Mesh(layerGeometry(list.rects, list.areas), material);
+    const mesh = new THREE.Mesh(geometry, material);
     mesh.renderOrder = layer;
     group.add(mesh);
   }

@@ -361,7 +361,7 @@ export const fr = {
   },
 
   menu: {
-    tagline: 'simulateur de pilotage sous voile',
+    tagline: 'The ground is the limit.',
     categories: { dz: 'DZ', gear: 'GEAR', jump: 'JUMP', team: 'TEAM', weather: 'MÉTÉO' },
     /** On the lines of the home screen. */
     lines: { dz: 'DROPZONE', gear: 'GEAR', jump: 'JUMP', team: 'TEAM', weather: 'MÉTÉO' },
