@@ -277,7 +277,6 @@ export const PHOTO_GLSL = /* glsl */ `
     vec3 c = mix(photoFallback, PHOTO_TEX(photo3, uv3, blur).rgb, photoReady.w * photoWeight(uv3));
     c = mix(c, PHOTO_TEX(photo2, uv2, blur).rgb, photoReady.z * photoWeight(uv2));
     c = mix(c, PHOTO_TEX(photo1, uv1, blur).rgb, photoReady.y * photoWeight(uv1));
-    c = mix(c, PHOTO_TEX(photo0, uv0, blur).rgb, photoReady.x * photoWeight(uv0));
     for (int k = 0; k < ${MAX_SPOTS}; k++) {
       vec4 s = photoSpot[k];
       if (s.w < 0.0) break;
@@ -288,6 +287,8 @@ export const PHOTO_GLSL = /* glsl */ `
       vec2 inCell = clamp(uv, 0.002, 0.998);
       c = mix(c, PHOTO_TEX(photoSpots, (cell + inCell) / photoSpotGrid, blur).rgb, photoSpotsReady * photoWeight(uv));
     }
+    // The landing area's, the finest, over the squares at 1 m too.
+    c = mix(c, PHOTO_TEX(photo0, uv0, blur).rgb, photoReady.x * photoWeight(uv0));
     return c * photoGain;
   }
   vec3 photoAt(vec2 p) { return photoAt(p, 0.0); }
