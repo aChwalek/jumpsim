@@ -178,7 +178,6 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     fine,
     finer,
   });
-  const onPlain = (x: number, z: number): boolean => groundAt(x, z) < 0.5;
 
   // --- The field ------------------------------------------------------------------
   // Grass blades grow round the landing area, mown short on it.
@@ -193,15 +192,15 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
   const target = look.target ?? (data.dz.target ? { x: data.dz.target.x, z: data.dz.target.z, radius: data.dz.target.radius } : { x: 0, z: 0, radius: 2.5 });
 
   // --- Water ------------------------------------------------------------------------
-  // Laid flat at the level of the plain: lakes up in the hills are left to the photo.
-  const waterAreas: Area[] = [];
-  for (const w of data.water) {
-    const [x0, z0, x1, z1] = bounds(w.ring);
-    const cx = (x0 + x1) / 2;
-    const cz = (z0 + z1) / 2;
-    if (w.kind !== 'sea' && !(onPlain(cx, cz) && onPlain(w.ring[0]!, w.ring[1]!))) continue;
-    waterAreas.push({ points: w.ring, holes: w.holes, color: w.kind === 'pool' ? 0x3fa0c0 : 0x2f5560, layer: w.kind === 'sea' ? 1 : 2 });
-  }
+  // The sea lies flat at the level of the plain; lakes and rivers lie on the
+  // relief, down a gorge or up in the hills, wherever it is level enough.
+  const waterAreas: Area[] = data.water.map((w) => ({
+    points: w.ring,
+    holes: w.holes,
+    color: w.kind === 'pool' ? 0x3fa0c0 : 0x2f5560,
+    layer: w.kind === 'sea' ? 1 : 2,
+    draped: w.kind !== 'sea',
+  }));
 
   // --- Buildings ----------------------------------------------------------------------
   const bridges: Bridge[] = (data.dz.bridges ?? []).map(({ name: _, ...bridge }) => bridge);

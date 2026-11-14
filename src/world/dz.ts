@@ -146,6 +146,8 @@ export interface Area {
   color: number;
   /** Draw order for overlapping flat surfaces: higher is on top. */
   layer: number;
+  /** Laid on the relief as the terrain draws it, rather than flat at the plain's level (water). */
+  draped?: boolean;
 }
 
 export interface Placed {

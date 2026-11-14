@@ -51,7 +51,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     },
     grassLight,
   );
-  const water = buildWater(dz.water, light.horizon, dz.waterAreas, photos);
+  const water = buildWater(dz.water, light.horizon, dz.waterAreas, photos, { groundAt, details: dz.terrainDetail ?? [] });
   const flags = buildFlags(dz.flags, light.fabric, groundAt);
   const trees = buildTrees(dz.trees, groundAt);
   // Bare rock about a BASE exit on a cliff, which the photos taken from above miss.
@@ -110,8 +110,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
       vines?.update(eye);
     },
     ready() {
-      const done = photos?.uniforms.photoReady?.value as THREE.Vector3 | undefined;
-      return !done || done.x + done.y + done.z >= 3;
+      return !photos || photos.ready();
     },
     dispose() {
       photos?.dispose();
