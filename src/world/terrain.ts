@@ -5,8 +5,10 @@
 export interface HeightGrid {
   /** Metres between grid points. */
   spacing: number;
-  /** Points per side; the grid is centred on the landing target. */
+  /** Points per side (per row, if `rows` is given); the grid is centred on the landing target. */
   size: number;
+  /** Rows, north to south, where the grid is longer one way than the other. */
+  rows?: number;
   /** Elevations above sea level, m: rows north to south, columns west to east. */
   heights: number[][];
 }
@@ -18,6 +20,11 @@ export interface ReliefOptions {
   flatBelow: number;
   /** Over how many metres of rise the hills grow out of the flat, m. */
   blend: number;
+  /**
+   * Keeps the ground lower than the plain as it is, rather than laying it
+   * flat at the plain's level: a landing up a valley, the valley going on down.
+   */
+  below?: boolean;
   /**
    * A coarser grid reaching further, centred on the same point, for the
    * mountains on the horizon. Its heights are above the plain, like the main
@@ -59,7 +66,7 @@ export function reliefFrom(grid: HeightGrid, o: ReliefOptions): (x: number, z: n
   const nearHalf = ((grid.size - 1) * grid.spacing) / 2;
   /** Over how much of its edge the main grid gives way to the far one, m. */
   const handover = 1000;
-  const shape = (rise: number): number => rise * smoothstep(o.flatBelow, o.flatBelow + o.blend, rise);
+  const shape = (rise: number): number => (o.below && rise < 0 ? rise : rise * smoothstep(o.flatBelow, o.flatBelow + o.blend, rise));
   const coarse = (x: number, z: number): number => {
     const a = near(x, z);
     if (!far) return shape(a.height - o.plain) * (1 - smoothstep(0, 6000, a.beyond));
@@ -83,9 +90,10 @@ function laidOver(
   shape: (rise: number) => number,
 ): (x: number, z: number) => number {
   const own = sampler(f);
-  const half = ((f.size - 1) * f.spacing) / 2;
+  const halfX = ((f.size - 1) * f.spacing) / 2;
+  const halfZ = (((f.rows ?? f.size) - 1) * f.spacing) / 2;
   return (x, z) => {
-    const inside = half - Math.max(Math.abs(x - f.x), Math.abs(z - f.z));
+    const inside = Math.min(halfX - Math.abs(x - f.x), halfZ - Math.abs(z - f.z));
     if (inside <= 0) return under(x, z);
     const h = shape(own(x - f.x, z - f.z).height);
     if (inside >= blend) return h;
@@ -97,15 +105,16 @@ function laidOver(
 /** Bilinear height in a grid, clamped at its edge, and how far past the edge the point is. */
 function sampler(grid: HeightGrid): (x: number, z: number) => { height: number; beyond: number } {
   const { spacing, size, heights } = grid;
-  const half = ((size - 1) * spacing) / 2;
-  const last = size - 1;
+  const rows = grid.rows ?? size;
+  const halfX = ((size - 1) * spacing) / 2;
+  const halfZ = ((rows - 1) * spacing) / 2;
   const at = (row: number, col: number): number => heights[row]![col]!;
   const result = { height: 0, beyond: 0 };
   return (x, z) => {
-    const cx = (x + half) / spacing;
-    const cz = (z + half) / spacing;
-    const c = Math.min(last - 1e-9, Math.max(0, cx));
-    const r = Math.min(last - 1e-9, Math.max(0, cz));
+    const cx = (x + halfX) / spacing;
+    const cz = (z + halfZ) / spacing;
+    const c = Math.min(size - 1 - 1e-9, Math.max(0, cx));
+    const r = Math.min(rows - 1 - 1e-9, Math.max(0, cz));
     const c0 = Math.floor(c);
     const r0 = Math.floor(r);
     const fc = c - c0;
@@ -117,9 +126,9 @@ function sampler(grid: HeightGrid): (x: number, z: number) => { height: number; 
   };
 }
 
-/** A grid of heights from a flat list, rows north to south. */
-export function gridOf(size: number, spacing: number, flatHeights: number[]): HeightGrid {
+/** A grid of heights from a flat list, rows north to south: `size` points a row, `rows` rows (`size` if not given). */
+export function gridOf(size: number, spacing: number, flatHeights: number[], rows = size): HeightGrid {
   const heights: number[][] = [];
-  for (let r = 0; r < size; r++) heights.push(flatHeights.slice(r * size, (r + 1) * size));
-  return { size, spacing, heights };
+  for (let r = 0; r < rows; r++) heights.push(flatHeights.slice(r * size, (r + 1) * size));
+  return rows === size ? { size, spacing, heights } : { size, rows, spacing, heights };
 }

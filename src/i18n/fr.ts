@@ -44,6 +44,8 @@ export const fr = {
       limska: 'Le viaduc de l\'A9 au-dessus de la Limska draga, en Istrie',
       millau: 'Le viaduc de Millau au-dessus du Tarn, à 270 m (interdit en vrai)',
       brento: "Le Becco dell'Aquila, au-dessus de la vallée de la Sarca",
+      chamonix: "L'Aiguille des Deux Aigles, au-dessus du glacier des Pèlerins, posé aux Planards",
+      'chamonix-durier': 'La Pointe Durier à 4000 m, au-dessus du glacier des Bossons, posé à Taconnaz',
     },
     made: 'DZ imaginaire',
     credits: {
@@ -54,6 +56,7 @@ export const fr = {
       croatia: 'Photos DOF5 2019/20 © DGU (Otvorena dozvola), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       usa: 'Photos USDA NAIP (USGS), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
       trentino: 'Photos et LiDAR © Provincia autonoma di Trento (CC BY 4.0), Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
+      franceLidar: 'Photos et relief LiDAR HD IGN, Sentinel-2 cloudless (EOX, Copernicus) · © OpenStreetMap · relief Mapzen',
     },
   },
 

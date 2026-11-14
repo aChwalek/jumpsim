@@ -172,11 +172,24 @@ export interface Spawn {
   headingDeg: number;
 }
 
-/** An aerial photo draped on the ground: a square centred on the origin. */
+/** An aerial photo draped on the ground: a square centred on the origin, or on (x, z). */
 export interface Imagery {
   url: string;
   /** Metres a side. */
   size: number;
+  x?: number;
+  z?: number;
+}
+
+/** Squares of finer photo about the places seen from close (exits, landings), side by side in one picture. */
+export interface ImagerySpots {
+  url: string;
+  /** Squares to a row of the picture. */
+  grid: number;
+  /** Metres a side, each. */
+  size: number;
+  /** Their centres, in the order they lie in the picture, row by row. */
+  centres: [number, number][];
 }
 
 export interface DzPack {
@@ -188,6 +201,8 @@ export interface DzPack {
   utcOffsetH?: number;
   /** Photos of the ground, finest first, each covering more than the one before. */
   imagery?: Imagery[];
+  /** Finer squares of photo laid over them. */
+  imagerySpots?: ImagerySpots;
   /** Brightness the photos are drawn at, 1 as they are. */
   imageryGain?: number;
   /** The colour of the rock faces, which the photos barely see, and how much of the photo's to keep. */
@@ -210,9 +225,13 @@ export interface DzPack {
    * cliff, coarsest first, each inside the one before: the first's sides on
    * the 100 m lines of the terrain mesh, the next's on the lines of the first.
    */
-  terrainDetail?: { x: number; z: number; size: number; spacing: number }[];
+  terrainDetail?: { x: number; z: number; size: number; sizeZ?: number; spacing: number }[];
+  /** How far out the terrain is drawn every 100 m, m: 6 km unless the mountains seen are further. */
+  terrainReach?: number;
   /** The rock, grass and stones on top of a cliff about a BASE exit. */
   cliffTop?: CliffTop;
+  /** No grass grows higher than this above the landing area, m: high mountains, rock and snow. */
+  grassBelow?: number;
   target: { x: number; z: number; radius: number };
   surfaces: Rect[];
   /** Flat surfaces of any shape. */

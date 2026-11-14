@@ -78,7 +78,7 @@ import {
 } from '../sim/weather';
 import { freefallSeconds } from '../sim/freefall';
 import { hoverUpwind, landingHeading } from '../world/dz';
-import { DZS, dzInfo, type DzId } from '../world/dzs';
+import { DZS, dzInfo, type DzId, type DzInfo } from '../world/dzs';
 import { keyLabel } from '../input/keyLabels';
 import { DzMap } from './dzMap';
 import {
@@ -1255,7 +1255,13 @@ export class Menu {
   private buildDz(): HTMLElement {
     const { screen, body } = this.screenShell('dz', null);
     const list = h('div', 'dzs');
+    const places = new Set<string>();
     for (const d of DZS) {
+      // A place with several exits has one card, and a strip to pick the exit under it.
+      if (d.place && places.has(d.place.id)) continue;
+      if (d.place) places.add(d.place.id);
+      const exits = d.place ? DZS.filter((o) => o.place?.id === d.place!.id) : [d];
+      const chosen = (): DzInfo => exits.find((o) => o.id === this.setup.dz) ?? d;
       const check = h('i', 'check');
       const thumb = h('img', 'thumb');
       thumb.src = thumbUrl(d.id);
@@ -1263,22 +1269,40 @@ export class Menu {
       thumb.loading = 'lazy';
       thumb.addEventListener('error', () => thumb.classList.add('missing'));
       const text = html(
-        `<span class="dz-text"><b>${d.name}${d.icao ? `<small class="chip">${d.icao}</small>` : ''}</b><span class="club">${
+        `<span class="dz-text"><b>${d.place?.name ?? d.name}${d.icao ? `<small class="chip">${d.icao}</small>` : ''}</b><span class="club">${
           d.club ?? T.dz.made
         }</span><span class="note">${d.note}</span></span>`,
       );
       const card = button('dz', h('span', 'thumb-box', thumb), text, check);
       card.dataset.key = `dz-${d.id}`;
-      card.addEventListener('click', () => this.setDz(d.id));
+      card.addEventListener('click', () => this.setDz(chosen().id));
       list.append(this.nav.add(card));
       this.updaters.push(() => {
-        const on = this.setup.dz === d.id;
+        const on = exits.some((o) => o.id === this.setup.dz);
+        const shown = chosen();
         // The real ones come with megabytes of photos: loaded when first chosen.
-        const loading = on && !d.loaded();
+        const loading = on && !shown.loaded();
         card.classList.toggle('on', on);
         card.classList.toggle('loading', loading);
         check.innerHTML = loading ? `<i class="spinner"></i>` : on ? '✓' : '';
+        if (d.place) {
+          text.querySelector('.club')!.textContent = shown.club ?? T.dz.made;
+          text.querySelector('.note')!.textContent = shown.note;
+          const picture = thumbUrl(shown.id);
+          if (thumb.getAttribute('src') !== picture) thumb.src = picture;
+        }
       });
+      if (exits.length > 1) {
+        const strip = h('div', 'choices dz-exits');
+        for (const o of exits) {
+          const pick = button('', o.place!.exit);
+          pick.dataset.key = `dz-${o.id}-exit`;
+          pick.addEventListener('click', () => this.setDz(o.id));
+          strip.append(this.nav.add(pick));
+          this.updaters.push(() => pick.classList.toggle('on', this.setup.dz === o.id));
+        }
+        list.append(strip);
+      }
     }
     const note = h('p', 'note');
     this.updaters.push(() => {

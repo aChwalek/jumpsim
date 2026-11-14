@@ -283,4 +283,57 @@ export const LOOKS = {
     // Nobody jumps here from a plane: a start from the air, over the valley, only so that one exists.
     jumpRun: { downwind: 500, offset: 60, height: 2000, indicatedAirspeed: 39 },
   },
+  // Chamonix-Mont-Blanc: no drop zone, the wingsuit exits of the massif the
+  // town's arrêté of 2021 allows, each with its own landing. The Aiguille des
+  // Deux Aigles, among the Aiguilles de Chamonix, off its face over the
+  // Pèlerins glacier and round north to the Planards, east of the town.
+  chamonix: chamonixLook('Chamonix · Aiguilles', 0, {
+    // Along the open ground of the beginner slope, the pattern over the
+    // meadows to the north-west, away from the forest and the torrent.
+    landingAxisDeg: 50,
+    patternSideDeg: 320,
+  }),
+  // The Pointe Durier, on Mont Maudit's north-west shoulder at 4000 m, over
+  // the Bossons glacier down to the basin of the Taconnaz avalanche defences.
+  'chamonix-durier': chamonixLook('Chamonix · Mont Maudit', 1, {
+    // Along the basin, the pattern to the north-west over the meadows of Taconnaz.
+    landingAxisDeg: 60,
+    patternSideDeg: 330,
+  }),
 } satisfies Record<string, Look>;
+
+/** Chamonix, the same valley and massif whichever exit: what differs is the landing. */
+function chamonixLook(name: string, exit: number, landing: { landingAxisDeg: number; patternSideDeg: number }): Look {
+  return {
+    name,
+    lat: 45.9249,
+    lon: 6.8815,
+    utcOffsetH: 2,
+    exit,
+    // The valley wind, up the valley from the south-west by day, strongest about 1 pm.
+    wind: { fromDeg: 230, speed: kmh(12) },
+    grass: { rough: 0x5f7f34, mown: 0x6a8c3a },
+    // Chalets of larch and stone, white render in the town; slate and grey steel roofs.
+    walls: [0x7a4e2e, 0x8a5a36, 0x6b4428, 0xe9e4d8, 0xd9d2c2, 0xc9bfa9],
+    roofs: [0x55504c, 0x6a625c, 0x4a4643, 0x5e5a56],
+    woods: {
+      // Spruce and larch up the slopes, alder and willow scrub in the avalanche paths.
+      w: { height: [18, 32], perHectare: 30, slim: true },
+      s: { height: [2, 5], perHectare: 12 },
+    },
+    rowHeight: [10, 20],
+    // Grey protogine granite, rusty where it weathers: the photos, from above,
+    // lend the faces the white of the snow on their ledges.
+    rockTint: { color: 0x8d8780, photo: 0.35 },
+    // The valley goes on down past each landing, both on slopes: nothing laid flat.
+    relief: { flatBelow: 0.5, blend: 2, below: true },
+    // Granite and snow about the exits, no grass: the last meadows end about 2400 m up.
+    bareExit: true,
+    grassBelow: 1300,
+    ...landing,
+    pattern: { upwind: 110, side: 100, height: 150 },
+    final: { downwind: 140, height: 50 },
+    // Nobody jumps here from a plane: a start from the air, over the valley, only so that one exists.
+    jumpRun: { downwind: 500, offset: 60, height: 3500, indicatedAirspeed: 39 },
+  };
+}

@@ -358,6 +358,9 @@
 #menu .dz-text .note { font-size: 12.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #menu .dz .check { font-style: normal; font-size: 20px; color: var(--accent); justify-self: center; }
 #menu .dz.on { border-color: var(--accent-line); background: var(--accent-soft); }
+/* The exits of a place with several, under its card. */
+#menu .dz-exits { margin: -4px 0 4px 92px; }
+#menu .dz-exits button { font-size: 13px; }
 #menu .screen-dz .body > .note { margin: 12px 4px 0; font-size: 12.5px; color: var(--dim); }
 
 #menu .spinner {
