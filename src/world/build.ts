@@ -104,6 +104,7 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
     update(eye, seconds) {
       grassLight.lerpColors(light.groundShade, light.ground, light.clouds.sunThrough(eye.x, groundAt(eye.x, eye.z), eye.z));
       grass.update(eye, seconds);
+      trees.update(eye);
       water.update(seconds);
       flags.update(seconds);
       cliffTop?.update(seconds);
@@ -119,6 +120,8 @@ export function buildWorld(dz: DzPack, light: Lighting): World {
       object.traverse((node) => {
         const { geometry, material } = node as THREE.Mesh;
         geometry?.dispose();
+        // Where each copy stands, held apart from the geometry.
+        if (node instanceof THREE.InstancedMesh) node.dispose();
         for (const m of Array.isArray(material) ? material : material ? [material] : []) m.dispose();
       });
     },

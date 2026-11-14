@@ -3,7 +3,7 @@
 // read height and distance.
 
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { BaseExit, Building, Flag, Placed, Tree } from './dz';
 import { noiseTexture } from './ground';
 
@@ -124,34 +124,103 @@ export interface Trees {
   object: THREE.Group;
   /** Lays the shadows away from the sun; `strength` 0..1 is how dark they are. */
   setSun(sun: THREE.Vector3, strength: number): void;
+  /** Call every frame with the eye position: leaves out the squares of trees there is no need to draw. */
+  update(eye: THREE.Vector3): void;
+}
+
+/**
+ * Nearer than this, m, a tree is drawn whole; farther, plainly: a crown of 20
+ * faces instead of 80, no trunk, a shadow of 8 sides instead of 16. Out there
+ * a tree is a few pixels across, and looks the same either way.
+ */
+const TREE_DETAIL = 1500;
+/** Trees are drawn by squares this wide, m, so that a square out of the picture is not drawn at all. */
+const NEAR_SQUARE = 1000;
+/** Far, plain trees are cheap: bigger squares, fewer draw calls. */
+const FAR_SQUARE = 2000;
+
+/**
+ * The same shape with each corner kept once and shared by the faces that meet
+ * there, so that it is worked out once instead of once per face. Flat-shaded,
+ * the facets come from the screen, not from the normals: it looks the same.
+ */
+function sharedCorners(shape: THREE.BufferGeometry): THREE.BufferGeometry {
+  shape.deleteAttribute('uv');
+  shape.deleteAttribute('normal');
+  const merged = mergeVertices(shape);
+  merged.computeVertexNormals();
+  return merged;
+}
+
+/**
+ * Draws only the trees nearer than TREE_DETAIL (`near`), or only the others,
+ * the rest sent out of the picture: each tree is drawn whole or plainly, never
+ * both, from whichever camera. Every mesh of trees carries their places
+ * (`treeAt`), so a tree and its shadow change together.
+ */
+function byDistance<M extends THREE.Material>(material: M, near: boolean): M {
+  const before = material.onBeforeCompile;
+  const key = material.customProgramCacheKey();
+  material.onBeforeCompile = (shader, renderer) => {
+    before.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 treeAt;').replace(
+      '#include <project_vertex>',
+      `#include <project_vertex>
+      if (distance(cameraPosition, (modelMatrix * vec4(treeAt, 1.0)).xyz) ${near ? '>=' : '<'} ${TREE_DETAIL.toFixed(1)}) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);`,
+    );
+  };
+  material.customProgramCacheKey = () => `${key}|trees-${near ? 'near' : 'far'}`;
+  return material;
+}
+
+/** How far the farthest corner of a box is from a point. */
+function farthest(box: THREE.Box3, p: THREE.Vector3): number {
+  return Math.hypot(
+    Math.max(p.x - box.min.x, box.max.x - p.x),
+    Math.max(p.y - box.min.y, box.max.y - p.y),
+    Math.max(p.z - box.min.z, box.max.z - p.z),
+  );
+}
+
+/** A square of trees: which they are, the box round them, its meshes, and whether it is drawn. */
+interface Square {
+  ids: number[];
+  box: THREE.Box3;
+  bodies: THREE.InstancedMesh[];
+  shadow: THREE.InstancedMesh;
+  on: boolean;
 }
 
 export function buildTrees(trees: Tree[], groundAt = flat): Trees {
   const group = new THREE.Group();
-  const trunk = new THREE.InstancedMesh(
-    new THREE.CylinderGeometry(0.5, 0.65, 1, 6).translate(0, 0.5, 0),
-    new THREE.MeshLambertMaterial({ color: 0x5a4632 }),
-    trees.length,
-  );
-  const crown = new THREE.InstancedMesh(
-    new THREE.IcosahedronGeometry(1, 1),
-    new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }),
-    trees.length,
-  );
-  const shadowGeometry = new THREE.CircleGeometry(1, 16).rotateX(-Math.PI / 2);
-  const shadowMaterial = new THREE.MeshBasicMaterial({
-    color: 0x0c1a08,
-    transparent: true,
-    opacity: 0.38,
-    depthWrite: false,
-    polygonOffset: true,
-    // Over every layer of flat ground.
-    polygonOffsetFactor: -20,
-    polygonOffsetUnits: -20,
-  });
-  shadowMaterial.userData.castShadow = true;
-  const shadow = new THREE.InstancedMesh(shadowGeometry, shadowMaterial, trees.length);
-  shadow.renderOrder = 6;
+  const trunkShape = new THREE.CylinderGeometry(0.5, 0.65, 1, 6).translate(0, 0.5, 0);
+  const crownShape = sharedCorners(new THREE.IcosahedronGeometry(1, 1));
+  const plainCrownShape = sharedCorners(new THREE.IcosahedronGeometry(1, 0));
+  const shadowShape = new THREE.CircleGeometry(1, 16).rotateX(-Math.PI / 2);
+  const plainShadowShape = new THREE.CircleGeometry(1, 8).rotateX(-Math.PI / 2);
+  const shadowMaterial = (near: boolean): THREE.MeshBasicMaterial => {
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x0c1a08,
+      transparent: true,
+      opacity: 0.38,
+      depthWrite: false,
+      polygonOffset: true,
+      // Over every layer of flat ground.
+      polygonOffsetFactor: -20,
+      polygonOffsetUnits: -20,
+    });
+    material.userData.castShadow = true;
+    return byDistance(material, near);
+  };
+  const crownMaterial = (near: boolean): THREE.MeshLambertMaterial =>
+    byDistance(new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), near);
+  const materials = {
+    trunk: byDistance(new THREE.MeshLambertMaterial({ color: 0x5a4632 }), true),
+    crown: crownMaterial(true),
+    plainCrown: crownMaterial(false),
+    shadow: shadowMaterial(true),
+    plainShadow: shadowMaterial(false),
+  };
 
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
@@ -163,6 +232,11 @@ export function buildTrees(trees: Tree[], groundAt = flat): Trees {
   const bases = trees.map((t) => groundAt(t.x, t.z));
   /** Crown radius: broad for most trees, a narrow spindle for cypresses. */
   const crownRadius = (t: Tree, seed: number): number => t.height * (t.slim ? 0.12 + 0.03 * seed : 0.26 + 0.1 * seed);
+  const trunks = new Float32Array(trees.length * 16);
+  const crowns = new Float32Array(trees.length * 16);
+  const colors = new Float32Array(trees.length * 3);
+  /** Where each tree is, halfway up: how far it is decides how it is drawn. */
+  const places = new Float32Array(trees.length * 3);
   trees.forEach((t, i) => {
     const seed = seeds[i]!;
     const base = bases[i]!;
@@ -170,14 +244,78 @@ export function buildTrees(trees: Tree[], groundAt = flat): Trees {
     const trunkHeight = t.height * (t.slim ? 0.08 : 0.35);
     q.setFromAxisAngle(up, seed * 6.28);
     m.compose(position.set(t.x, base, t.z), q, scale.set(t.height * 0.035, trunkHeight, t.height * 0.035));
-    trunk.setMatrixAt(i, m);
+    m.toArray(trunks, i * 16);
     const crownHeight = (t.height - trunkHeight * 0.7) / 2;
     m.compose(position.set(t.x, base + t.height - crownHeight, t.z), q, scale.set(radius, crownHeight, radius));
-    crown.setMatrixAt(i, m);
-    if (t.slim) crown.setColorAt(i, color.setHSL(0.3 + 0.03 * seed, 0.38, 0.13 + 0.04 * seed));
-    else crown.setColorAt(i, color.setHSL(0.26 + 0.06 * seed, 0.42, 0.2 + 0.1 * seed));
+    m.toArray(crowns, i * 16);
+    if (t.slim) color.setHSL(0.3 + 0.03 * seed, 0.38, 0.13 + 0.04 * seed);
+    else color.setHSL(0.26 + 0.06 * seed, 0.42, 0.2 + 0.1 * seed);
+    color.toArray(colors, i * 3);
+    position.set(t.x, base + t.height / 2, t.z).toArray(places, i * 3);
   });
-  group.add(trunk, crown, shadow);
+
+  /** One mesh of a square's trees, each in its own place: `matrices` and `tints` per tree, in the trees' order. */
+  const instanced = (
+    shape: THREE.BufferGeometry,
+    material: THREE.Material,
+    ids: number[],
+    at: THREE.InstancedBufferAttribute,
+    matrices?: Float32Array,
+    tints?: Float32Array,
+  ): THREE.InstancedMesh => {
+    // The shape's own buffers, shared by every square; the places are the square's.
+    const geometry = new THREE.BufferGeometry();
+    geometry.setIndex(shape.index);
+    for (const [name, attribute] of Object.entries(shape.attributes)) geometry.setAttribute(name, attribute);
+    geometry.setAttribute('treeAt', at);
+    const mesh = new THREE.InstancedMesh(geometry, material, ids.length);
+    if (matrices) {
+      ids.forEach((id, k) => mesh.instanceMatrix.array.set(matrices.subarray(id * 16, id * 16 + 16), k * 16));
+      mesh.computeBoundingSphere();
+    }
+    if (tints) {
+      const instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(ids.length * 3), 3);
+      ids.forEach((id, k) => instanceColor.array.set(tints.subarray(id * 3, id * 3 + 3), k * 3));
+      mesh.instanceColor = instanceColor;
+    }
+    group.add(mesh);
+    return mesh;
+  };
+
+  /** The trees cut into squares `size` wide, each drawn by its own meshes. */
+  const squares = (size: number, near: boolean): Square[] => {
+    const bySquare = new Map<string, number[]>();
+    trees.forEach((t, i) => {
+      const key = `${Math.floor(t.x / size)},${Math.floor(t.z / size)}`;
+      const ids = bySquare.get(key);
+      if (ids) ids.push(i);
+      else bySquare.set(key, [i]);
+    });
+    return [...bySquare.values()].map((ids) => {
+      const at = new THREE.InstancedBufferAttribute(new Float32Array(ids.length * 3), 3);
+      const box = new THREE.Box3();
+      ids.forEach((id, k) => {
+        at.array.set(places.subarray(id * 3, id * 3 + 3), k * 3);
+        box.expandByPoint(position.fromArray(places, id * 3));
+      });
+      const bodies = near
+        ? [instanced(trunkShape, materials.trunk, ids, at, trunks), instanced(crownShape, materials.crown, ids, at, crowns, colors)]
+        : [instanced(plainCrownShape, materials.plainCrown, ids, at, crowns, colors)];
+      const shadow = instanced(near ? shadowShape : plainShadowShape, near ? materials.shadow : materials.plainShadow, ids, at);
+      shadow.renderOrder = 6;
+      // Laid by setSun.
+      shadow.visible = false;
+      return { ids, box, bodies, shadow, on: true };
+    });
+  };
+  const near = squares(NEAR_SQUARE, true);
+  const far = squares(FAR_SQUARE, false);
+
+  let shadows = false;
+  const show = (square: Square): void => {
+    for (const body of square.bodies) body.visible = square.on;
+    square.shadow.visible = square.on && shadows;
+  };
 
   return {
     object: group,
@@ -189,6 +327,7 @@ export function buildTrees(trees: Tree[], groundAt = flat): Trees {
       const awayX = -sun.x / flatLength;
       const awayZ = -sun.z / flatLength;
       q.setFromAxisAngle(up, Math.atan2(-awayZ, awayX));
+      const laid = new Float32Array(trees.length * 16);
       trees.forEach((t, i) => {
         const radius = crownRadius(t, seeds[i]!);
         const reach = t.height * 0.55 * stretch;
@@ -197,11 +336,29 @@ export function buildTrees(trees: Tree[], groundAt = flat): Trees {
           q,
           scale.set(radius + reach, 1, radius * 1.05),
         );
-        shadow.setMatrixAt(i, m);
+        m.toArray(laid, i * 16);
       });
-      shadow.instanceMatrix.needsUpdate = true;
-      shadowMaterial.opacity = 0.38 * strength;
-      shadow.visible = strength > 0.02;
+      for (const square of [...near, ...far]) {
+        const shadow = square.shadow;
+        square.ids.forEach((id, k) => shadow.instanceMatrix.array.set(laid.subarray(id * 16, id * 16 + 16), k * 16));
+        shadow.instanceMatrix.needsUpdate = true;
+        shadow.computeBoundingSphere();
+      }
+      materials.shadow.opacity = materials.plainShadow.opacity = 0.38 * strength;
+      shadows = strength > 0.02;
+      for (const square of [...near, ...far]) show(square);
+    },
+    update(eye) {
+      // Each tree is drawn by one of the two in any case (byDistance): this
+      // only spares the squares where all of them are left out.
+      for (const square of near) {
+        square.on = square.box.distanceToPoint(eye) < TREE_DETAIL;
+        show(square);
+      }
+      for (const square of far) {
+        square.on = farthest(square.box, eye) >= TREE_DETAIL;
+        show(square);
+      }
     },
   };
 }
