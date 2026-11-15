@@ -1,0 +1,26 @@
+.card .record-celebration { margin: 12px auto 0; max-width: 420px; text-align: center; pointer-events: auto; }
+.record-award { position: relative; padding: 12px 38px; border: 1px solid #ffd84a66; border-radius: 10px; background: #ffd84a0c; overflow: hidden; }
+.record-award span, .record-award b { display: block; }
+.record-kicker { font: 700 12px/1.2 'Barlow Condensed', sans-serif; letter-spacing: .14em; text-transform: uppercase; color: #ffd84a; }
+.record-label { margin-top: 5px; font-size: 13px; }
+.record-number { margin: 5px 0; font: 700 36px/1.1 'Barlow Condensed', sans-serif; font-variant-numeric: tabular-nums; color: #ffd84a; }
+.record-scope, .record-previous { font-size: 11px; opacity: .7; }
+.record-previous { min-height: 14px; margin-top: 3px; }
+.record-award .record-stamp { position: absolute; top: 13px; right: 10px; border: 2px solid #ffd84a; border-radius: 4px; width: 26px; height: 26px; color: #ffd84a; font: 700 22px/26px sans-serif; opacity: 0; }
+.record-award.stamped { animation: record-impact 280ms ease-out; background: #ffd84a19; }
+.record-award.stamped .record-stamp { opacity: 1; transform: rotate(-13deg); animation: record-stamp 280ms cubic-bezier(.2,.8,.3,1); }
+.record-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 5px; font-size: 11px; color: #ffffff99; }
+.card .record-footer button { padding: 5px 9px; font-size: 11px; }
+.record-announcement { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.record-celebration details { text-align: left; padding: 8px 12px; border: 1px solid #ffd84a55; border-radius: 8px; font-size: 12px; }
+.record-celebration summary { cursor: pointer; color: #ffd84a; }
+.record-celebration ul { max-height: 140px; overflow: auto; padding-left: 18px; margin: 8px 0 0; }
+.record-celebration li { padding: 3px 0; }
+.card.compact .record-award { padding: 7px 35px; }
+.card.compact .record-number { font-size: 26px; margin: 2px 0; }
+.card.compact .record-previous { display: none; }
+@keyframes record-stamp { from { opacity: 0; transform: scale(2.8) rotate(-25deg); } 65% { opacity: 1; transform: scale(.9) rotate(-10deg); } to { opacity: 1; transform: scale(1) rotate(-13deg); } }
+@keyframes record-impact { 25% { transform: translateY(3px); } 60% { transform: translateY(-1px); } to { transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .record-award.stamped, .record-award.stamped .record-stamp { animation: none; } }
+.card { max-height: 80%; overflow-y: auto; }
+.card.compact { max-height: calc(100% - 36px); }

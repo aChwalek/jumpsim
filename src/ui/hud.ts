@@ -10,6 +10,8 @@ import type { TrackMarks } from '../replay/track';
 import type { Touchdown } from '../sim/landing';
 import { isSideways } from '../viewport';
 import { Altimeter } from './altimeter';
+import { RecordCelebration } from './recordCelebration';
+import type { PersonalRecord } from '../records';
 import { keysHtml, type InputKind, type KeysPhase, type PadKind } from './keys';
 
 const el = (id: string): HTMLElement => {
@@ -164,6 +166,8 @@ export class Hud {
   private readonly frontR = el('frontR');
   private readonly held = el('held');
   private readonly result = el('result');
+  private readonly celebration = new RecordCelebration();
+  onRecordSound: (kind: 'tick' | 'stamp') => void = () => {};
   private readonly gear = el('gear');
   private readonly cue = el('cue');
   private lastCue = '';
@@ -190,7 +194,10 @@ export class Hud {
   constructor() {
     this.result.addEventListener('click', (e) => {
       const act = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act;
-      if (act) this.onCard(act as CardAction);
+      if (act) {
+        this.celebration.finish();
+        this.onCard(act as CardAction);
+      }
     });
     this.watch.addEventListener('click', (e) => {
       const command = (e.target as HTMLElement).closest<HTMLElement>('[data-watch]')?.dataset.watch;
@@ -231,6 +238,7 @@ export class Hud {
 
   /** A whole jump watched again, with its bar on screen; null for none. */
   setWatching(w: Watched | null): void {
+    if (w) this.celebration.finish();
     this.watched = w;
     this.lastWatched = '';
     this.root.classList.toggle('watching', w !== null);
@@ -273,7 +281,7 @@ export class Hud {
    * button, the next ones go along them.
    */
   cardMove(step: -1 | 1): void {
-    const buttons = [...this.result.querySelectorAll<HTMLElement>('[data-act]')].filter((b) => b.getClientRects().length > 0);
+    const buttons = [...this.result.querySelectorAll<HTMLElement>('[data-act], [data-record-skip]')].filter((b) => b.getClientRects().length > 0);
     if (buttons.length === 0) return;
     const at = this.cardFocus ? buttons.indexOf(this.cardFocus) : -1;
     const next = buttons[at < 0 ? 0 : (at + step + buttons.length) % buttons.length]!;
@@ -286,22 +294,31 @@ export class Hud {
   cardActivate(): boolean {
     const b = this.cardFocus;
     if (!b || !this.result.contains(b) || b.getClientRects().length === 0) return false;
+    if (b.hasAttribute('data-record-skip')) {
+      b.click();
+      this.cardFocus = null;
+      return true;
+    }
+    this.celebration.finish();
     this.onCard(b.dataset.act as CardAction);
     return true;
   }
 
   toggle(): void {
+    this.celebration.finish();
     this.root.classList.toggle('hidden');
   }
 
   /** A crash shown again: only the replay's own badge on screen. */
   setReplay(on: boolean): void {
+    if (on) this.celebration.finish();
     this.root.classList.toggle('replaying', on);
     if (on) el('replay').innerHTML = `${T.hud.replay}<small>${T.hud.skipReplay}</small>`;
   }
 
   /** Nothing of the HUD shows behind the menu. */
   setMenuOpen(open: boolean): void {
+    if (open && !this.root.classList.contains('menu')) this.celebration.finish();
     this.root.classList.toggle('menu', open);
   }
 
@@ -349,6 +366,7 @@ export class Hud {
    * out; `malfunction`: and had gone wrong.
    */
   showImpact(log: JumpLog, opening: boolean, speed: number, malfunction: Malfunction | null = null): void {
+    this.celebration.clear();
     const t = T.hud;
     const [title, text] =
       opening && malfunction === 'streamer'
@@ -377,6 +395,7 @@ export class Hud {
    * flying it. `log`: the jump, if it started from the top.
    */
   showStrike(when: 'freefall' | 'opening' | 'canopy', speed: number, log: JumpLog | null): void {
+    this.celebration.clear();
     const t = T.hud;
     const text = { freefall: t.strikeFreefall, opening: t.strikeOpening, canopy: t.strikeCanopy }[when];
     this.cardFocus = null;
@@ -403,7 +422,9 @@ export class Hud {
     log: JumpLog | null = null,
     vines = false,
     scored: { score: AccuracyScore; record: number | null } | null = null,
+    records: readonly PersonalRecord[] = [],
   ): void {
+    this.celebration.clear();
     if (!t) {
       this.result.style.display = 'none';
       return;
@@ -421,6 +442,7 @@ export class Hud {
       </table>
       ${hint()}`;
     this.result.style.display = 'block';
+    this.celebration.start(this.result, records, (kind) => this.onRecordSound(kind));
   }
 
   /** Where the landing stands on the leaderboard: on the card if it shows, else when it does. */
