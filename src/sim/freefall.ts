@@ -962,21 +962,7 @@ export class Freefall {
     const turnRate = progressive ? this.blend((sh) => sh.turnRate) + this.aim.x * this.aim.x * BODY_SHAPES.belly.turnRate : shape.turnRate;
     const wanted = clamp(input.turn, -1, 1) * seen * turnRate * (1 + (p.trackTurn - 1) * this.track) * authority;
     s.yawRate += (wanted - s.yawRate) * Math.min(1, dt / p.turnLag);
-    const up = this.local;
-    if (progressive) {
-      // About the airflow. Head low and back to earth, from head down to the
-      // track on the back, the eyes see the world the other way up.
-      const a = this.aim;
-      const k = a.y < -0.5 && a.z < Math.sin(CAPTURE_UPRIGHT) ? -1 : 1;
-      rotate(up, s.att, a);
-      set(up, up.x * k, up.y * k, up.z * k);
-    } else
-      set(
-        up,
-        right.y * ahead.z - right.z * ahead.y,
-        right.z * ahead.x - right.x * ahead.z,
-        right.x * ahead.y - right.y * ahead.x,
-      );
+    const up = this.turnAxis(this.local);
     wx -= s.yawRate * up.x;
     wy -= s.yawRate * up.y;
     wz -= s.yawRate * up.z;
@@ -995,6 +981,24 @@ export class Freefall {
       const n = 1 / Math.hypot(x, y, z, ww);
       set4(a, x * n, y * n, z * n, ww * n);
     }
+  }
+
+  /** Maps a turn from the upright outside view to the pilot's own frame. */
+  uprightTurn(turn: number): number {
+    return this.turnAxis(this.local).y < 0 ? -turn : turn;
+  }
+
+  /** Up for the eyes: the back when flat, the head upright, including inverted flight. */
+  private turnAxis(out: Vec3): Vec3 {
+    if (this.progressive) {
+      const a = this.aim;
+      // Past head down towards the back track, the eyes see the world inverted.
+      const k = a.y < -0.5 && a.z < Math.sin(CAPTURE_UPRIGHT) ? -1 : 1;
+      rotate(out, this.state.att, a);
+      return set(out, out.x * k, out.y * k, out.z * k);
+    }
+    const f = this.shape.forward;
+    return rotate(out, this.state.att, set(out, 0, -f.z, f.y));
   }
 
   /**

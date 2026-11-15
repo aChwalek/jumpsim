@@ -111,6 +111,24 @@ describe('the four positions', () => {
     }
   });
 
+  test('outside-view turns keep their compass direction in every position, including head down', () => {
+    for (const progressive of [false, true]) {
+      for (const position of POSITIONS) {
+        for (const direction of [-1, 1]) {
+          const { body, env } = flying(position);
+          body.progressive = progressive;
+          const before = body.headingDeg() * DEG;
+          for (let i = 0; i < 0.6 / SIM_DT; i++) {
+            body.step(SIM_DT, { ...noBodyInputs(), turn: body.uprightTurn(direction) }, env);
+          }
+          const after = body.headingDeg() * DEG;
+          const turned = Math.atan2(Math.sin(after - before), Math.cos(after - before));
+          expect(turned * direction, `${position}, progressive=${progressive}, turn=${direction}`).toBeGreaterThan(0.25);
+        }
+      }
+    }
+  });
+
   test('a turn to the right swings the eyes to the right in every position, upside down too', () => {
     for (const p of POSITIONS) {
       const { body, env } = flying(p);

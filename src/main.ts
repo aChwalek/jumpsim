@@ -568,6 +568,14 @@ let impact = false;
 const posture = new Posture();
 fitSuit();
 const still = noBodyInputs();
+const outsideBodyInputs = noBodyInputs();
+/** The outside camera stays upright, so turning follows its vertical reference. */
+function bodyControls(): BodyInputs {
+  if (view !== 'outside' || !jump) return devices.body;
+  Object.assign(outsideBodyInputs, devices.body);
+  outsideBodyInputs.turn = jump.body.uprightTurn(devices.body.turn);
+  return outsideBodyInputs;
+}
 /**
  * On the ground, the walking keys held since the landing: S is the flare as
  * well as a step back, Q and D a turn as well as a step aside. Kept down
@@ -1220,7 +1228,7 @@ function simulate(seconds: number): void {
       jump.trackIt(devices.tracking && !cold);
       // A track the gamepad turned on ends with the freefall, or at the pull.
       if (!jump.body.tracking) devices.padTrack = false;
-      jump.step(dt, cold ? still : jump.afoot ? devices.feet : devices.body, env);
+      jump.step(dt, cold ? still : jump.afoot ? devices.feet : bodyControls(), env);
       if (jump.impact) {
         hitWithoutCanopy(jump);
         return;
@@ -2589,7 +2597,7 @@ function frame(now: number): void {
     const run = jump?.afoot ? jumpFeet().feet : null;
     const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : run ? [run.legL, run.legR] : undefined;
     updateLegs(moving, pose === 'hanging' && !touchdown);
-    const held = posture.update(moving, pose, FREEFALL_STANCES.has(pose) && !blow.cold ? devices.body : still, legs, legCues);
+    const held = posture.update(moving, pose, FREEFALL_STANCES.has(pose) && !blow.cold ? bodyControls() : still, legs, legCues);
     // Limp from a blow, the arms and legs go where the wind takes them.
     const limp = jump?.stunned ? Math.min(1, jump.body.stunned / 0.6) : 0;
     const shown = limp > 0 ? blendPose(copyPose(limpPose, held), LIMP, limp) : held;
