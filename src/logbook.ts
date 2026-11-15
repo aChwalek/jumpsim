@@ -7,9 +7,14 @@ import type { CanopyKind } from './sim/rig';
 import type { LandingRating } from './sim/landing';
 import type { GustLevel, SkyKind } from './sim/weather';
 import type { Start } from './setup';
+import type { Swoop } from './sim/swoop';
 
 /** How a jump ended: a landing, or the ground with no canopy flying. */
 export type Outcome = LandingRating | 'impact';
+
+export const JUMP_DISCIPLINES = ['normal', 'wingsuit', 'base', 'wingbase', 'canopy', 'unknown'] as const;
+export type JumpDiscipline = (typeof JUMP_DISCIPLINES)[number];
+export type LogbookFilter = 'all' | JumpDiscipline;
 
 export interface LogEntry {
   /** Jump number in this logbook, from 1. */
@@ -19,16 +24,20 @@ export interface LogEntry {
   dz: string;
   dzName: string;
   start: Start;
+  /** Absent on older jumps, whose suit was not recorded. */
+  discipline?: Exclude<JumpDiscipline, 'unknown'>;
   hour: number;
   weather: { sky: SkyKind; windFromDeg: number; windKmh: number; gusts: GustLevel };
   canopy: { kind: CanopyKind; areaFt2: number; exitWeightKg: number; wingLoading: number };
-  /** From the plane only. */
+  /** Freefall from a plane or BASE exit. */
   freefall?: {
     exitHeight: number;
     /** Null when the AAD fired. */
     pullHeight: number | null;
     seconds: number;
     topSpeed: number;
+    /** Peak horizontal ground speed in freefall, m/s; absent on older jumps. */
+    topHorizontalSpeed?: number;
     aad: boolean;
   };
   /** A malfunction, a cutaway, a reserve: only when there was one. */
@@ -42,6 +51,10 @@ export interface LogEntry {
   };
   /** Time flying the canopy, s. */
   canopySeconds: number;
+  /** Entire airborne path, including opening; absent from older entries. */
+  flight?: { seconds: number; horizontalDistance: number };
+  /** Measured on new jumps only, including attempts ending in a crash. */
+  swoop?: Swoop;
   outcome: Outcome;
   /** At touchdown, m/s; for an impact, the speed of it. */
   sink: number;
@@ -100,6 +113,14 @@ export function clearLogbook(): void {
   save([]);
 }
 
+export function jumpDiscipline(entry: LogEntry): JumpDiscipline {
+  return entry.discipline ?? (entry.start === 'plane' || entry.start === 'base' ? 'unknown' : 'canopy');
+}
+
+export function filterLogbook(entries: readonly LogEntry[], filter: LogbookFilter): readonly LogEntry[] {
+  return filter === 'all' ? entries : entries.filter((entry) => jumpDiscipline(entry) === filter);
+}
+
 export interface LogStats {
   jumps: number;
   planeJumps: number;
@@ -116,7 +137,18 @@ export interface LogStats {
   bestScore: number | null;
   /** Mean accuracy score over the last ten scored landings. */
   recentScore: number | null;
-  /** Lowest pull by hand, m. */
+  /** Records only count jumps that ended without a crash or impact. */
+  longestFlightSeconds: number | null;
+  longestFlightDistance: number | null;
+  longestFreefallSeconds: number | null;
+  fastestVerticalSpeed: number | null;
+  fastestHorizontalSpeed: number | null;
+  longestSwoopDistance: number | null;
+  longestSwoopSeconds: number | null;
+  fastestSwoopSpeed: number | null;
+  bestStreak: number;
+  currentStreak: number;
+  /** Lowest pull by hand on a survived jump, m (AAD excluded). */
   lowestPull: number | null;
   aadFires: number;
 }
@@ -128,7 +160,15 @@ export function logStats(entries: readonly LogEntry[]): LogStats {
   const recent = distances.slice(-10);
   const scores = entries.flatMap((e) => (e.accuracy !== undefined ? [e.accuracy] : []));
   const recentScores = scores.slice(-10);
-  const pulls = entries.flatMap((e) => (e.freefall?.pullHeight != null ? [e.freefall.pullHeight] : []));
+  const survived = entries.filter((e) => e.outcome !== 'crash' && e.outcome !== 'impact');
+  const pulls = survived.flatMap((e) => (!e.freefall?.aad && e.freefall?.pullHeight != null ? [e.freefall.pullHeight] : []));
+  const maximum = (values: number[]): number | null => values.length ? Math.max(...values) : null;
+  let bestStreak = 0;
+  let currentStreak = 0;
+  for (const entry of entries) {
+    currentStreak = entry.outcome === 'crash' || entry.outcome === 'impact' ? 0 : currentStreak + 1;
+    bestStreak = Math.max(bestStreak, currentStreak);
+  }
   return {
     jumps: entries.length,
     planeJumps: entries.filter((e) => e.start === 'plane').length,
@@ -140,6 +180,16 @@ export function logStats(entries: readonly LogEntry[]): LogStats {
     recentDistance: recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : null,
     bestScore: scores.length ? Math.max(...scores) : null,
     recentScore: recentScores.length ? recentScores.reduce((a, b) => a + b, 0) / recentScores.length : null,
+    longestFlightSeconds: maximum(survived.flatMap((e) => e.flight ? [e.flight.seconds] : [])),
+    longestFlightDistance: maximum(survived.flatMap((e) => e.flight ? [e.flight.horizontalDistance] : [])),
+    longestFreefallSeconds: maximum(survived.flatMap((e) => e.freefall ? [e.freefall.seconds] : [])),
+    fastestVerticalSpeed: maximum(survived.flatMap((e) => e.freefall ? [e.freefall.topSpeed] : [])),
+    fastestHorizontalSpeed: maximum(survived.flatMap((e) => e.freefall?.topHorizontalSpeed !== undefined ? [e.freefall.topHorizontalSpeed] : [])),
+    longestSwoopDistance: maximum(survived.flatMap((e) => e.swoop ? [e.swoop.distance] : [])),
+    longestSwoopSeconds: maximum(survived.flatMap((e) => e.swoop ? [e.swoop.seconds] : [])),
+    fastestSwoopSpeed: maximum(survived.flatMap((e) => e.swoop ? [e.swoop.topSpeed] : [])),
+    bestStreak,
+    currentStreak,
     lowestPull: pulls.length ? Math.min(...pulls) : null,
     aadFires: entries.filter((e) => e.freefall?.aad).length,
   };

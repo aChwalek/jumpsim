@@ -73,6 +73,32 @@ function jumpFromPlane(pullAt: number | null) {
   return { jump, model, env, hill, to1000, throwForward };
 }
 
+test('peak freefall speeds measure separate axes and stop at the pull', () => {
+  const model = new FlightModel(deriveRig(DEFAULT_RIG));
+  const env = calm();
+  const jump = new Jump(model, { x: 0, z: 0, height: 4000, headingDeg: 270, indicatedAirspeed: 40 }, env, flat, () => 0.5);
+  jump.step(SIM_DT, noBodyInputs(), env);
+  expect(jump.log.topSpeed).toBe(0);
+  expect(jump.log.topHorizontalSpeed).toBe(0);
+  jump.act();
+  set(jump.body.state.vel, 70, -80, 24);
+  jump.step(SIM_DT, noBodyInputs(), env);
+  const velocity = jump.body.state.vel;
+  expect(jump.log.topSpeed).toBeCloseTo(-velocity.y, 8);
+  expect(jump.log.topHorizontalSpeed).toBeCloseTo(Math.hypot(velocity.x, velocity.z), 8);
+  // Pulling is enabled only once clear of the plane.
+  for (let i = 0; i < 2 / SIM_DT; i++) jump.step(SIM_DT, noBodyInputs(), env);
+  jump.act();
+  // The body first returns to a flat position before the pilot chute is thrown.
+  for (let i = 0; i < 5 / SIM_DT && jump.phase === 'freefall'; i++) jump.step(SIM_DT, noBodyInputs(), env);
+  expect(jump.phase).toBe('opening');
+  const vertical = jump.log.topSpeed;
+  const horizontal = jump.log.topHorizontalSpeed;
+  for (let i = 0; i < 20; i++) jump.step(SIM_DT, noBodyInputs(), env);
+  expect(jump.log.topSpeed).toBe(vertical);
+  expect(jump.log.topHorizontalSpeed).toBe(horizontal);
+});
+
 describe('freefall belly to earth', () => {
   test('falls at about 200 km/h low down and faster up high', () => {
     const low = bellyAt(1000).body.state.vel.y * -3.6;

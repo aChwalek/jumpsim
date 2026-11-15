@@ -26,7 +26,7 @@ import { CrewView, type CrewLook, type CrewMember } from '../render/crewView';
 import { SMOKE_BURN, SMOKE_COLORS, SMOKE_KINDS, type SmokeColor, type SmokeKind } from '../render/smoke';
 import { GLOW_COLORS, GLOW_COLOR_IDS, OUTFIT_COLORS, OUTFIT_COLOR_IDS, type GlowColor, type OutfitColor } from '../render/outfit';
 import { bestScore } from '../challenge';
-import { OUTCOME_GROUPS, clearLogbook, loadLogbook, logStats, type LogEntry } from '../logbook';
+import { JUMP_DISCIPLINES, OUTCOME_GROUPS, clearLogbook, filterLogbook, jumpDiscipline, loadLogbook, logStats, type LogEntry, type LogbookFilter } from '../logbook';
 import { clearTracks, storedTracks, trackId } from '../replay/store';
 import { PROGRESSIVE_RATE_MAX, PROGRESSIVE_RATE_MIN, QUALITY_LEVELS, SENSITIVITY_MAX, SENSITIVITY_MIN, type Settings } from '../settings';
 import {
@@ -108,6 +108,8 @@ import type { Account } from '../net/account';
 import type { Board, BoardRow, Place } from '../net/scores';
 
 export type { Start } from '../setup';
+
+const swoopDistance = (m: number): string => m < 1 ? `${num(m * 100)} cm` : `${num(m, 2)} m`;
 
 type Category = 'dz' | 'gear' | 'jump' | 'team' | 'weather';
 type ScreenId = 'home' | Category | 'settings' | 'logbook' | 'leaderboard' | 'profile';
@@ -364,6 +366,7 @@ export class Menu {
   private cornerLanguage!: HTMLButtonElement;
   private cornerBoard!: HTMLButtonElement;
   private logbookBody!: HTMLElement;
+  private logbookFilter: LogbookFilter = 'all';
   /** The drop zone whose leaderboard shows, and where its rows go. */
   private boardDz: DzId = 'valbrise';
   private boardBody!: HTMLElement;
@@ -2035,14 +2038,35 @@ export class Menu {
 
   /** Reads the logbook again and lays it out. */
   private fillLogbook(): void {
-    const entries = loadLogbook();
+    const allEntries = loadLogbook();
+    const entries = filterLogbook(allEntries, this.logbookFilter);
     const stats = logStats(entries);
     const t = T.menu.logbookScreen;
     const body = this.logbookBody;
     body.replaceChildren();
+    const filters = h('div', 'log-filters');
+    filters.setAttribute('role', 'group');
+    filters.setAttribute('aria-label', t.filterLabel);
+    for (const filter of ['all', ...JUMP_DISCIPLINES] as const) {
+      if (filter === 'unknown' && this.logbookFilter !== 'unknown' && !allEntries.some((entry) => jumpDiscipline(entry) === 'unknown')) continue;
+      const selected = filter === this.logbookFilter;
+      const pick = button(`log-filter${selected ? ' on' : ''}`, t.disciplines[filter]);
+      pick.dataset.filter = filter;
+      pick.setAttribute('aria-pressed', String(selected));
+      pick.addEventListener('click', () => {
+        this.logbookFilter = filter;
+        this.clearArmed = 0;
+        this.fillLogbook();
+        this.nav.setScreen(this.screens.get('logbook')!, body.querySelector<HTMLElement>(`[data-filter="${filter}"]`));
+      });
+      filters.append(this.nav.add(pick));
+    }
+    body.append(filters);
+    if (this.logbookFilter === 'unknown') body.append(h('p', 'empty', t.unknownNote));
     const time = (s: number): string => {
-      const m = Math.floor(s / 60);
-      return m >= 60 ? t.hours(Math.floor(m / 60), String(m % 60).padStart(2, '0')) : t.minutes(m, String(Math.round(s % 60)).padStart(2, '0'));
+      const rounded = Math.round(s);
+      const m = Math.floor(rounded / 60);
+      return m >= 60 ? t.hours(Math.floor(m / 60), String(m % 60).padStart(2, '0')) : t.minutes(m, String(rounded % 60).padStart(2, '0'));
     };
     const tile = (value: string, label: string, sub = ''): string =>
       `<div class="tile"><b>${value}</b><span>${label}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
@@ -2064,6 +2088,22 @@ export class Menu {
       tile(stats.lowestPull === null ? '—' : `${num(stats.lowestPull)} m`, t.lowest, stats.aadFires ? t.aadFires(stats.aadFires) : ''),
     ].join('');
     body.append(tiles);
+    body.append(h('h3', 'section', t.records));
+    body.append(h('p', 'empty', t.recordsNote));
+    body.append(h('p', 'empty', t.swoopRule));
+    const records = h('div', 'tiles records');
+    records.innerHTML = [
+      tile(stats.longestFlightSeconds === null ? '—' : time(stats.longestFlightSeconds), t.longestFlight),
+      tile(stats.longestFlightDistance === null ? '—' : `${num(stats.longestFlightDistance)} m`, t.longestDistance, t.horizontalPath),
+      tile(stats.longestFreefallSeconds === null ? '—' : time(stats.longestFreefallSeconds), t.longestFreefall),
+      tile(stats.fastestHorizontalSpeed === null ? '—' : `${num(stats.fastestHorizontalSpeed * 3.6)} km/h`, t.fastestHorizontal, t.groundSpeed),
+      tile(stats.fastestVerticalSpeed === null ? '—' : `${num(stats.fastestVerticalSpeed * 3.6)} km/h`, t.fastestVertical),
+      tile(num(stats.bestStreak), t.bestStreak, t.currentStreak(num(stats.currentStreak))),
+      tile(stats.longestSwoopDistance === null ? '—' : swoopDistance(stats.longestSwoopDistance), t.longestSwoop),
+      tile(stats.longestSwoopSeconds === null ? '—' : `${num(stats.longestSwoopSeconds, 2)} s`, t.longestSwoopTime),
+      tile(stats.fastestSwoopSpeed === null ? '—' : `${num(stats.fastestSwoopSpeed * 3.6)} km/h`, t.fastestSwoop),
+    ].join('');
+    body.append(records);
 
     if (stats.jumps) {
       const bar = h('div', 'outcomes');
@@ -2076,7 +2116,7 @@ export class Menu {
     }
 
     body.append(h('h3', 'section', t.list));
-    if (!entries.length) body.append(h('p', 'empty', t.empty));
+    if (!entries.length) body.append(h('p', 'empty', allEntries.length ? t.emptyFilter : t.empty));
     // Which jumps can be watched again is only known a moment later.
     const tracks = storedTracks();
     for (const e of [...entries].reverse()) {
@@ -2094,13 +2134,14 @@ export class Menu {
       body.append(this.nav.add(row, { activate: watch }));
     }
 
-    if (entries.length) {
+    if (allEntries.length) {
       const clear = button('action danger', t.clear);
       const act = (): void => {
         if (performance.now() < this.clearArmed) {
           clearLogbook();
           void clearTracks();
           this.clearArmed = 0;
+          this.logbookFilter = 'all';
           this.fillLogbook();
           this.nav.setScreen(this.screens.get('logbook')!);
           return;
@@ -2132,6 +2173,7 @@ export class Menu {
     const canopy = `${e.canopy.areaFt2} ft²${e.canopy.kind === 'triCell' ? ` ${kindName('triCell')}` : ''} · ${e.canopy.exitWeightKg} kg`;
     const ff = e.freefall ? (e.freefall.aad ? t.aad : e.freefall.pullHeight !== null ? t.pulledAt(num(e.freefall.pullHeight)) : '') : '';
     const bad = e.outcome === 'hard' || e.outcome === 'crash' || e.outcome === 'impact';
+    const swoop = e.swoop ? `<small>${t.swoopResult(swoopDistance(e.swoop.distance), num(e.swoop.seconds, 2), num(e.swoop.entrySpeed * 3.6), num(e.swoop.topSpeed * 3.6))}</small>` : '';
     const result =
       e.outcome === 'impact'
         ? `${num(e.sink * 3.6)} km/h`
@@ -2139,7 +2181,7 @@ export class Menu {
     const row = h('div', 'row entry');
     row.innerHTML = `
       <span class="n">#${e.n}</span>
-      <span class="what"><b>${e.dzName}</b> · ${start}${ff}<small>${when} · ${canopy} · ${t.wind(String(e.weather.windKmh))}</small></span>
+      <span class="what"><b>${e.dzName}</b> · ${start}${ff}<small>${when} · ${t.disciplines[jumpDiscipline(e)]} · ${canopy} · ${t.wind(String(e.weather.windKmh))}</small>${swoop}</span>
       <span class="res${bad ? ' bad' : ''}"><b>${T.logbook.outcomes[e.outcome]}</b><small>${result}</small></span>
       <button class="watch" tabindex="-1" title="${t.watch}" aria-label="${t.watch}">${ICON_PLAY}</button>`;
     return row;

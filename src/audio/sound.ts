@@ -699,6 +699,18 @@ export class Sound {
     if (this.ctx && this.noise && this.volume) playLanding(this.ctx, this.noise, this.volume, l);
   }
 
+  /** Short counter clicks and a paper-and-rubber stamp, through the master volume. */
+  record(kind: 'tick' | 'stamp'): void {
+    const { ctx, volume, noise } = this;
+    if (!ctx || !volume || !noise || ctx.state !== 'running' || this.muted) return;
+    if (kind === 'stamp') {
+      thump(ctx, volume, 0.22);
+      burst(ctx, noise, volume, { type: 'bandpass', from: 1900, to: 500, level: 0.3, seconds: 0.09 });
+    } else {
+      burst(ctx, noise, volume, { type: 'highpass', from: 2400, to: 1600, level: 0.025, seconds: 0.012 });
+    }
+  }
+
   /** The audible altimeter going off. */
   beep(b: Beeps): void {
     if (this.ctx && this.volume) playBeeps(this.ctx, this.volume, b);

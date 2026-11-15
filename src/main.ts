@@ -24,6 +24,7 @@ import { TopView } from './render/topView';
 import { FIELD_OF_VIEW, GEAR_LAYER, OUTSIDE_LAYER, Resolution, createCamera, createGearCamera, createRenderer, createScene, nightVision } from './render/scene';
 import { bestScore, scoreAccuracy, type AccuracyScore } from './challenge';
 import { loadLogbook, logJump, type LogEntry, type Outcome } from './logbook';
+import { brokenRecords, type PersonalRecord } from './records';
 import { QUALITY_LEVELS, loadSettings, saveSettings } from './settings';
 import {
   MALFUNCTION_ODDS,
@@ -58,6 +59,7 @@ import { noBodyInputs, stepPosition, type BodyInputs, type BodyPosition } from '
 import { Jump, type JumpOptions } from './sim/jump';
 import { MAIN_MALFUNCTIONS } from './sim/opening';
 import { detectTouchdown, feetHeight, worst, type Touchdown } from './sim/landing';
+import { SwoopTracker } from './sim/swoop';
 import { engineHubs } from './sim/plane';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import type { RunUp } from './sim/runUp';
@@ -94,6 +96,7 @@ const hud = new Hud();
 const devices = new InputDevices(canvas);
 const touchControls = new TouchControls(document.getElementById('touch')!, devices);
 const sound = new Sound();
+hud.onRecordSound = (kind) => sound.record(kind);
 const altisonic = new Altisonic();
 
 /** What the current jump is set up with. */
@@ -595,6 +598,16 @@ function letGoFeet(feet: BodyInputs): BodyInputs {
 const hands = neutralControls();
 /** Seconds flown under canopy on this jump, for the logbook. */
 let canopyTime = 0;
+/** Airborne time and horizontal path, excluding the plane, run-up and ground. */
+let flightTime = 0;
+let flightDistance = 0;
+const swoop = new SwoopTracker();
+const swoopFeetBefore = vec3();
+const swoopFeetAfter = vec3();
+function recordFlightStep(dt: number, x: number, z: number): void {
+  flightTime += dt;
+  flightDistance += Math.hypot(model.state.pos.x - x, model.state.pos.z - z);
+}
 /** A crash: the body goes limp and the ground does the rest. */
 let ragdoll: Ragdoll | null = null;
 /** The ragdoll's hits already heard. */
@@ -672,14 +685,16 @@ const watchWind = new THREE.Vector3();
 const watchEnv: Environment = { wind: vec3(), airDensity: AIR_DENSITY_SEA_LEVEL };
 
 /** Writes the jump that just ended in the logbook. */
-function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distance?: number, wet?: boolean, accuracy?: number): void {
+function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distance?: number, wet?: boolean, accuracy?: number): PersonalRecord[] {
   const { gear, weather } = setup;
   const log = jump?.log;
+  const previous = loadLogbook();
   const logged = logJump({
     time: Date.now(),
     dz: setup.dz,
     dzName: dz.name,
     start: scenario,
+    discipline: !jump ? 'canopy' : jump.base ? (jump.wings ? 'wingbase' : 'base') : (jump.wings ? 'wingsuit' : 'normal'),
     hour: setup.hour,
     weather: { ...weather },
     canopy: { kind: gear.kind, areaFt2: gear.canopyAreaFt2, exitWeightKg: gear.exitWeightKg, wingLoading: rig.wingLoading },
@@ -695,10 +710,13 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
             // Until the pull; to the ground when there was none.
             seconds: jump.opening ? log.freefallSeconds : jump.time,
             topSpeed: log.topSpeed,
+            topHorizontalSpeed: log.topHorizontalSpeed,
             aad: log.aad,
           }
         : undefined,
     canopySeconds: canopyTime,
+    flight: { seconds: flightTime, horizontalDistance: flightDistance },
+    swoop: swoop.result ? { ...swoop.result } : undefined,
     outcome,
     sink,
     groundSpeed,
@@ -707,6 +725,7 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
     accuracy,
   });
   trackRecorder.logged(logged.n, logged.time);
+  return brokenRecords(previous, logged);
 }
 
 /** Each landing sent to the leaderboard gets the next number: the answer for an older one is not shown. */
@@ -847,6 +866,8 @@ function spawn(kind: Start): void {
   stepsHeard = 0;
   endCrash();
   canopyTime = 0;
+  flightTime = flightDistance = 0;
+  swoop.reset();
   smoke.clear();
   sparks.clear();
   smokeLitAt = null;
@@ -1228,7 +1249,10 @@ function simulate(seconds: number): void {
       jump.trackIt(devices.tracking && !cold);
       // A track the gamepad turned on ends with the freefall, or at the pull.
       if (!jump.body.tracking) devices.padTrack = false;
+      const x = model.state.pos.x;
+      const z = model.state.pos.z;
       jump.step(dt, cold ? still : jump.afoot ? devices.feet : bodyControls(), env);
+      if (!flying && jump.phase !== 'plane' && jump.phase !== 'standing') recordFlightStep(dt, x, z);
       if (jump.impact) {
         hitWithoutCanopy(jump);
         return;
@@ -1272,8 +1296,15 @@ function simulate(seconds: number): void {
     beforeStep.x = s.pos.x;
     beforeStep.y = s.pos.y;
     beforeStep.z = s.pos.z;
+    model.pilotPoint(swoopFeetBefore, model.rig.feetPos);
+    const beforeHeight = swoopFeetBefore.y - solid(swoopFeetBefore.x, swoopFeetBefore.z, swoopFeetBefore.y);
+    const beforeSpeed = Math.hypot(s.vel.x, s.vel.z);
     model.step(dt, applied, env);
+    model.pilotPoint(swoopFeetAfter, model.rig.feetPos);
+    const height = swoopFeetAfter.y - solid(swoopFeetAfter.x, swoopFeetAfter.z, swoopFeetAfter.y);
+    swoop.step(dt, Math.hypot(swoopFeetAfter.x - swoopFeetBefore.x, swoopFeetAfter.z - swoopFeetBefore.z), beforeHeight, height, beforeSpeed, Math.hypot(s.vel.x, s.vel.z));
     canopyTime += dt;
+    recordFlightStep(dt, beforeStep.x, beforeStep.z);
     touchdown = detectTouchdown(model, solid);
     if (touchdown && hitSide()) {
       touchdown = null;
@@ -1296,13 +1327,13 @@ function simulate(seconds: number): void {
       windAt(env.wind, setup.weather, canopyAboveFeet(), airTime);
       arrival = new Arrival(model, landed, { groundAt: solid, wet, wind: vec3(env.wind.x, env.wind.y, env.wind.z) });
       heldSinceLanding.forward = heldSinceLanding.turn = heldSinceLanding.slide = true;
+      const records = logThisJump(landed.rating, landed.sink, landed.groundSpeed, distance, wet, scored?.score.points);
       verdict = () => {
-        hud.showResult(landed, distance, wet, log, vines, scored);
+        hud.showResult(landed, distance, wet, log, vines, scored, records);
         // The mouse, for the card's buttons.
         devices.release();
       };
       recorder.crash();
-      logThisJump(landed.rating, landed.sink, landed.groundSpeed, distance, wet, scored?.score.points);
       postScore(scored?.score ?? null);
       land({ sink: landed.sink, groundSpeed: landed.groundSpeed, wet });
       // What is left of the frame is spent on the ground.

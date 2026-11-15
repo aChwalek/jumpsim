@@ -462,7 +462,11 @@
 
 /* ------------------------------------------------------------ logbook */
 
+#menu .log-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 12px; }
+#menu .log-filter { padding: 7px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--tile); color: var(--dim); font: inherit; cursor: pointer; }
+#menu .log-filter.on { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
 #menu .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 2px 0 12px; }
+#menu .tiles.records { grid-template-columns: repeat(2, 1fr); }
 #menu .tile { padding: 11px 13px; border-radius: 12px; background: var(--tile); border: 1px solid var(--line); }
 #menu .tile b { display: block; font: 600 28px/1.05 var(--display); }
 #menu .tile span { display: block; font-size: 12.5px; color: rgba(243, 245, 247, 0.84); }

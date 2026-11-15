@@ -150,6 +150,8 @@ export interface JumpLog {
   freefallSeconds: number;
   /** Fastest fall, m/s. */
   topSpeed: number;
+  /** Fastest horizontal ground speed during freefall, m/s. */
+  topHorizontalSpeed: number;
   /** Highest load of the opening, g. */
   openingLoad: number;
   aad: boolean;
@@ -272,6 +274,7 @@ export class Jump {
       openHeight: 0,
       freefallSeconds: 0,
       topSpeed: 0,
+      topHorizontalSpeed: 0,
       openingLoad: 0,
       aad: false,
       cutawayHeight: null,
@@ -499,6 +502,7 @@ export class Jump {
       this.follow();
       const b = this.body.state;
       this.log.topSpeed = Math.max(this.log.topSpeed, -b.vel.y);
+      this.log.topHorizontalSpeed = Math.max(this.log.topHorizontalSpeed, Math.hypot(b.vel.x, b.vel.z));
       if (!this.base && !this.single && this.height() < AAD_HEIGHT && -b.vel.y > AAD_SPEED) this.pull(true);
       else if (this.rslAt !== null && this.time >= this.rslAt) this.pull(false, 'rsl');
       else if (this.pullWhenFlat && this.body.offPosition() < FLAT_ENOUGH) this.pull(false);
