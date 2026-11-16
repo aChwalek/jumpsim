@@ -30,12 +30,24 @@ const TEXEL_WEIGHT = 10;
 
 interface TileJson {
   geometricError: number;
+  boundingVolume: { box: number[] };
   extras?: { h: number; t: number };
   children?: TileJson[];
 }
 
-/** Sets each square's error from its extras, at least its children's. */
+/**
+ * How far above its ground a square's box reaches, m: the box holds the
+ * ground only, and a square whose ground is out of the picture is not drawn,
+ * nor are its trees, which may stand 50 m tall in it.
+ */
+const TREE_ROOM = 55;
+
+/** Sets each square's error from its extras, at least its children's; lifts its box over its trees. */
 function weigh(tile: TileJson, height: number, texel: number): number {
+  // The tileset's frame is z up: the box's centre z and its half-height up.
+  const box = tile.boundingVolume.box;
+  box[2] = box[2]! + TREE_ROOM / 2;
+  box[11] = box[11]! + TREE_ROOM / 2;
   const children = (tile.children ?? []).map((c) => weigh(c, height, texel));
   if (!tile.extras) return tile.geometricError;
   tile.geometricError = children.length ? Math.max(tile.extras.h * height, tile.extras.t * texel, ...children.map((e) => e * 1.01)) : 0;

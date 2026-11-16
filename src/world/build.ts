@@ -170,7 +170,7 @@ export function buildWorld(dz: DzPack, light: Lighting, view?: WorldView): World
         tiles.update();
         local?.update(eye, seconds, tiles.arrived() !== arrived);
         arrived = tiles.arrived();
-        forest?.update(eye);
+        forest?.update(eye, seconds);
       }
       lamps.visible = light.lamps.value > 0.01;
       grassLight.lerpColors(light.groundShade, light.ground, light.clouds.sunThrough(eye.x, groundAt(eye.x, eye.z), eye.z));

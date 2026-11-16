@@ -12,17 +12,23 @@
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-/** Nearer than this, m, a tree is drawn whole; farther, plainly. */
+/** Nearer than this, m, a tree is drawn whole; farther, plainly; over BAND either side, the one dissolves into the other. */
 const WHOLE = 350;
+const BAND = 30;
+/** How long a square's trees take to come in or go, s: when a square is split into four finer ones, the one set dissolves into the other. */
+const FADE = 0.5;
 /** A square this close, m, has its trees in the whole meshes too. */
-const NEAR_SQUARE = WHOLE + 200;
+const NEAR_SQUARE = WHOLE + BAND + 200;
 /** Squares nearer than this lay their trees' shadows, m. */
 const SHADOWS = 1600;
 /** How far the eye goes before the squares are sorted near and far again, m. */
 const RESORT = 40;
 
-/** x, y, z, height | radius, slope x, slope z, conifer | r, g, b: 11 floats a tree. */
-const STRIDE = 11;
+/**
+ * x, y, z, height | radius, slope x, slope z, conifer | r, g, b | fade: 12
+ * floats a tree. Fade: 0 shown; t > 0 coming in since t (s); t < 0 going since -t.
+ */
+const STRIDE = 12;
 
 /** A square's trees of one kind, in the world, and the box round them. */
 interface Grove {
@@ -30,6 +36,8 @@ interface Grove {
   data: Float32Array;
   box: THREE.Box3;
   shown: boolean;
+  /** Hidden, but still going until then, s. */
+  goingUntil: number;
   near: boolean;
   shadows: boolean;
 }
@@ -63,6 +71,7 @@ class Shape {
     this.geometry.setAttribute('tree', new THREE.InterleavedBufferAttribute(this.buffer, 4, 0));
     this.geometry.setAttribute('crown', new THREE.InterleavedBufferAttribute(this.buffer, 4, 4));
     this.geometry.setAttribute('tint', new THREE.InterleavedBufferAttribute(this.buffer, 3, 8));
+    this.geometry.setAttribute('fade', new THREE.InterleavedBufferAttribute(this.buffer, 1, 11));
   }
 
   begin(): void {
@@ -142,17 +151,35 @@ const TREE_GLSL = /* glsl */ `
   attribute vec4 crown;
   attribute vec3 tint;
   attribute float part;
+  attribute float fade;
+  uniform float forestTime;
   varying vec3 vTree;
+  varying float vShow;
   float treeSeed() { return fract(sin(dot(tree.xz, vec2(12.9898, 78.233))) * 43758.5453); }
+  // How much of the tree shows as its square comes in or goes.
+  float treeShown() {
+    float since = clamp((forestTime - abs(fade)) / ${FADE.toFixed(2)}, 0.0, 1.0);
+    return fade < 0.0 ? 1.0 - since : since;
+  }
+`;
+
+/** A pixel shows if the tree's share is above its place in a 4 x 4 pattern: two shares that add up to one share the pixels. */
+const DITHER_GLSL = /* glsl */ `
+  float treeDither(vec2 p) {
+    ivec2 q = ivec2(mod(p, 4.0));
+    const float m[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+    return (m[q.x + q.y * 4] + 0.5) / 16.0;
+  }
 `;
 
 /**
  * Lambert, flat, each tree in its own place, size and colour; the trunk
  * brown. `split`: drawn only nearer than WHOLE (1), only farther (2), or at any distance (0).
  */
-function bodyMaterial(split: 0 | 1 | 2): THREE.MeshLambertMaterial {
+function bodyMaterial(split: 0 | 1 | 2, time: { value: number }): THREE.MeshLambertMaterial {
   const material = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.forestTime = time;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${TREE_GLSL}`)
       .replace(
@@ -169,21 +196,30 @@ function bodyMaterial(split: 0 | 1 | 2): THREE.MeshLambertMaterial {
       )
       .replace(
         '#include <project_vertex>',
-        split === 0
-          ? '#include <project_vertex>'
-          : `#include <project_vertex>
-          if (distance(cameraPosition, tree.xyz + vec3(0.0, tree.w * 0.5, 0.0)) ${split === 1 ? '>=' : '<'} ${WHOLE.toFixed(1)}) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);`,
+        `#include <project_vertex>
+        vShow = treeShown();
+        ${
+          split === 0
+            ? ''
+            : `// Whole near, plain far, the one dissolving into the other across the band.
+          float across = smoothstep(${(WHOLE - BAND).toFixed(1)}, ${(WHOLE + BAND).toFixed(1)}, distance(cameraPosition, tree.xyz + vec3(0.0, tree.w * 0.5, 0.0)));
+          vShow *= ${split === 1 ? '1.0 - across' : 'across'};`
+        }
+        if (vShow <= 0.0) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);`,
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vTree;')
-      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = vTree;');
+      .replace('#include <common>', `#include <common>\nvarying vec3 vTree;\nvarying float vShow;\n${DITHER_GLSL}`)
+      .replace(
+        '#include <color_fragment>',
+        '#include <color_fragment>\nif (vShow < 0.999 && vShow <= treeDither(gl_FragCoord.xy)) discard;\ndiffuseColor.rgb = vTree;',
+      );
   };
   material.customProgramCacheKey = () => `forest-body-${split}`;
   return material;
 }
 
 /** A dark pool on the ground, stretched away from the sun, lying on the slope under the tree. */
-function shadowMaterial(sun: { away: THREE.Vector2; stretch: { value: number } }): THREE.MeshBasicMaterial {
+function shadowMaterial(sun: { away: THREE.Vector2; stretch: { value: number } }, time: { value: number }): THREE.MeshBasicMaterial {
   const material = new THREE.MeshBasicMaterial({
     color: 0x0c1a08,
     transparent: true,
@@ -197,6 +233,7 @@ function shadowMaterial(sun: { away: THREE.Vector2; stretch: { value: number } }
   material.onBeforeCompile = (shader) => {
     shader.uniforms.sunAway = { value: sun.away };
     shader.uniforms.sunStretch = sun.stretch;
+    shader.uniforms.forestTime = time;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${TREE_GLSL}\nuniform vec2 sunAway;\nuniform float sunStretch;`)
       .replace(
@@ -204,8 +241,12 @@ function shadowMaterial(sun: { away: THREE.Vector2; stretch: { value: number } }
         `float reach = tree.w * 0.55 * sunStretch;
         vec2 side = vec2(-sunAway.y, sunAway.x);
         vec2 d = sunAway * (position.x * (crown.x + reach) + reach) + side * (position.z * crown.x * 1.05);
-        vec3 transformed = vec3(tree.x + d.x, tree.y + crown.y * d.x + crown.z * d.y + 0.05, tree.z + d.y);`,
+        vec3 transformed = vec3(tree.x + d.x, tree.y + crown.y * d.x + crown.z * d.y + 0.05, tree.z + d.y);
+        vShow = treeShown();`,
       );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vShow;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= vShow;');
   };
   material.customProgramCacheKey = () => 'forest-shadow';
   return material;
@@ -217,7 +258,7 @@ export interface Forest {
   add(tile: object, scene: THREE.Object3D, frame: THREE.Matrix4): void;
   remove(tile: object): void;
   show(tile: object, shown: boolean): void;
-  update(eye: THREE.Vector3): void;
+  update(eye: THREE.Vector3, seconds: number): void;
   setSun(sun: THREE.Vector3, strength: number): void;
   /** Trees in the meshes: near squares' (whole or plain by distance), far squares', shadows. */
   stats(): { near: number; far: number; shadows: number };
@@ -227,9 +268,10 @@ export interface Forest {
 export function buildForest(): Forest {
   const object = new THREE.Group();
   object.name = 'trees';
-  const materials = [bodyMaterial(1), bodyMaterial(2), bodyMaterial(0)] as const;
+  const time = { value: 0 };
+  const materials = [bodyMaterial(1, time), bodyMaterial(2, time), bodyMaterial(0, time)] as const;
   const sun = { away: new THREE.Vector2(1, 0), stretch: { value: 1 } };
-  const shadowMat = shadowMaterial(sun);
+  const shadowMat = shadowMaterial(sun, time);
   const shapes = {
     coniferWhole: new Shape(SHAPES.coniferWhole(), materials[0]),
     broadleafWhole: new Shape(SHAPES.broadleafWhole(), materials[0]),
@@ -260,10 +302,19 @@ export function buildForest(): Forest {
     return changed;
   };
 
+  /** Shown, or still going. */
+  const drawn = (g: Grove): boolean => g.shown || g.goingUntil > time.value;
+  /** Marks a grove's trees coming in or going from now. */
+  const fadeAll = (g: Grove, coming: boolean): void => {
+    // Never 0, which reads as shown.
+    const mark = Math.max(1e-3, time.value) * (coming ? 1 : -1);
+    for (let k = 0; k < g.count; k++) g.data[k * STRIDE + 11] = mark;
+  };
+
   const fill = (): void => {
     for (const s of Object.values(shapes)) s.begin();
     for (const { conifers, broadleaves } of groves.values()) {
-      if (!conifers.shown) continue;
+      if (!drawn(conifers)) continue;
       for (const [g, conifer] of [
         [conifers, true],
         [broadleaves, false],
@@ -279,7 +330,15 @@ export function buildForest(): Forest {
     for (const s of Object.values(shapes)) s.end();
   };
 
-  const grove = (count: number): Grove => ({ count: 0, data: new Float32Array(count * STRIDE), box: new THREE.Box3(), shown: false, near: false, shadows: false });
+  const grove = (count: number): Grove => ({
+    count: 0,
+    data: new Float32Array(count * STRIDE),
+    box: new THREE.Box3(),
+    shown: false,
+    goingUntil: 0,
+    near: false,
+    shadows: false,
+  });
 
   return {
     object,
@@ -325,6 +384,7 @@ export function buildForest(): Forest {
         d[o + 8] = base[0]! * 0.45 + color.r * 0.55;
         d[o + 9] = base[1]! * 0.45 + color.g * 0.55;
         d[o + 10] = base[2]! * 0.45 + color.b * 0.5;
+        d[o + 11] = 0;
         g.box.expandByPoint(v);
         g.count++;
       }
@@ -338,23 +398,36 @@ export function buildForest(): Forest {
       const g = groves.get(tile);
       if (!g) return;
       groves.delete(tile);
-      if (g.conifers.shown) dirty = true;
+      if (drawn(g.conifers)) dirty = true;
     },
     show(tile, shown) {
       const g = groves.get(tile);
       if (!g || g.conifers.shown === shown) return;
-      g.conifers.shown = g.broadleaves.shown = shown;
+      for (const grove of [g.conifers, g.broadleaves]) {
+        grove.shown = shown;
+        // Going: kept a moment longer, dissolving.
+        grove.goingUntil = shown ? 0 : time.value + FADE;
+        fadeAll(grove, shown);
+      }
       dirty = true;
     },
-    update(eye) {
+    update(eye, seconds) {
+      time.value = seconds;
       // The squares near and far again, once the eye has gone some way: refill only if one has crossed over.
       if (dirty || eye.distanceTo(sortedAt) > RESORT) {
         for (const { conifers, broadleaves } of groves.values()) {
-          if (!conifers.shown) continue;
+          if (!drawn(conifers)) continue;
           if (place(conifers, eye)) dirty = true;
           if (place(broadleaves, eye)) dirty = true;
         }
         sortedAt.copy(eye);
+      }
+      // A square gone by now leaves the meshes.
+      for (const { conifers } of groves.values()) {
+        if (!conifers.shown && conifers.goingUntil > 0 && conifers.goingUntil <= seconds) {
+          conifers.goingUntil = 0;
+          dirty = true;
+        }
       }
       if (!dirty) return;
       fill();
