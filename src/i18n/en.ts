@@ -389,6 +389,13 @@ export const en: Strings = {
     categories: { dz: 'DZ', gear: 'GEAR', jump: 'JUMP', team: 'TEAM', weather: 'WEATHER' },
     lines: { dz: 'DROP ZONE', gear: 'GEAR', jump: 'JUMP', team: 'TEAM', weather: 'WEATHER' },
     dragHint: 'Drag to turn around',
+    invite: {
+      label: 'Invite a friend',
+      copied: 'Link copied ✓',
+      title: "Send this jump's link: your friend comes into your room, with the same setup.",
+      text: (dz: string) => `Come and jump with me at ${dz} on Lowpull`,
+      prompt: "This jump's link, to send:",
+    },
     back: 'Back',
     resume: 'Resume the jump',
     jumpButton: 'Jump',

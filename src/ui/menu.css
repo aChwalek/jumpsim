@@ -288,11 +288,23 @@
 }
 #menu .crew-tag i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
 #menu .crew-tag.ready i { background: #6ee07a; box-shadow: 0 0 6px rgba(110, 224, 122, 0.8); }
+/* Bottom left: the invite button has the right. */
 #menu .stage-hint {
-  position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); pointer-events: none; white-space: nowrap;
+  position: absolute; left: 18px; bottom: 16px; pointer-events: none; white-space: nowrap;
   font-size: 11px; font-weight: 600; color: var(--faint); letter-spacing: 0.04em; opacity: 0; transition: opacity 0.2s;
 }
 #menu .stage:hover .stage-hint { opacity: 1; }
+/* Asking a friend along: by the jumpers, over the button that goes. */
+#menu .stage .invite {
+  position: absolute; right: 14px; bottom: 14px; z-index: 2; display: flex; align-items: center; gap: 8px;
+  padding: 9px 16px 9px 12px; border-radius: 999px; border-color: rgba(255, 213, 107, 0.55);
+  background: rgba(21, 16, 31, 0.82); color: var(--accent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  font: 700 16px/1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
+}
+#menu .stage .invite:hover { background: rgba(49, 39, 64, 0.96); border-color: var(--accent); }
+#menu .stage .invite .icon { width: 20px; height: 20px; }
+#menu .stage .invite.done { color: #6ee07a; border-color: rgba(110, 224, 122, 0.6); }
+#menu .stage.with-map .invite { display: none; }
 /* The map in the jumpers' place, under the name. */
 #menu .stage.with-map { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 0 16px 14px; box-sizing: border-box; background: var(--glass); }
 #menu .stage.with-map .side-head { position: static; align-self: stretch; padding: 18px 6px 0; }
@@ -725,6 +737,7 @@ html.sideways #menu {
   #menu .stage { border-radius: 16px; }
   #menu .stage-hint { display: none; }
   #menu .go { flex-direction: column-reverse; gap: 6px; }
+  #menu .stage .invite { right: 10px; bottom: 10px; padding: 7px 12px 7px 10px; font-size: 14px; }
   #menu .go .jump { min-height: 48px; padding: 8px 14px; }
   #menu .go .jump .go-label { font-size: 23px; }
   #menu .go .resume { padding: 8px 0; font-size: 14px; }
@@ -754,6 +767,7 @@ html.sideways #menu .side-height .what { font-size: 12px; }
 html.sideways #menu .stage { border-radius: 16px; }
 html.sideways #menu .stage-hint { display: none; }
 html.sideways #menu .go { flex-direction: column-reverse; gap: 6px; }
+html.sideways #menu .stage .invite { right: 10px; bottom: 10px; padding: 7px 12px 7px 10px; font-size: 14px; }
 html.sideways #menu .go .jump { min-height: 48px; padding: 8px 14px; }
 html.sideways #menu .go .jump .go-label { font-size: 23px; }
 html.sideways #menu .go .resume { padding: 8px 0; font-size: 14px; }

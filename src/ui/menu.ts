@@ -96,6 +96,7 @@ import {
   ICON_COG,
   ICON_DZ,
   ICON_GLOBE,
+  ICON_INVITE,
   ICON_LOCK,
   ICON_MORE,
   ICON_PEOPLE,
@@ -106,6 +107,7 @@ import {
   ICON_WEATHER,
 } from './icons';
 import { Nav } from './nav';
+import { browserWays, shareLink } from './share';
 import { MAX_PEERS } from '../net/protocol';
 import { NAME_MAX, cleanName, type SharedSetup } from '../net/room';
 import { loadBoard, loadPlaces, madeUpName } from '../net/leaderboard';
@@ -311,6 +313,8 @@ const ICON_PEOPLE_EL = (): Element => html(ICON_PEOPLE);
 const SHARED: ReadonlySet<ScreenId> = new Set<ScreenId>(['dz', 'weather', 'jump']);
 /** Time to click again to start without everyone ready, ms. */
 const ARM_MS = 4000;
+/** "Link copied" stays on the invite button this long, ms. */
+const INVITED_MS = 2500;
 /** How often the time to the next load is redrawn, ms. */
 const TICK_MS = 250;
 
@@ -406,6 +410,8 @@ export class Menu {
   /** How many are in the public room of the drop zone on the menu; null when not known. */
   private publicCount: number | null = null;
   private startArmed = 0;
+  /** Said on the invite button after the link was copied, until then (performance.now, ms). */
+  private invitedUntil = 0;
 
   constructor(
     initial: Setup,
@@ -723,8 +729,18 @@ export class Menu {
     });
 
     const hint = h('span', 'stage-hint', T.menu.dragHint);
+    // A friend along: by the jumpers, over the button that goes.
+    const invite = button('invite');
+    invite.dataset.key = 'invite';
+    invite.title = T.menu.invite.title;
+    invite.addEventListener('click', () => void this.invite());
+    this.updaters.push(() => {
+      const copied = performance.now() < this.invitedUntil;
+      invite.classList.toggle('done', copied);
+      invite.innerHTML = `${ICON_INVITE}<span>${copied ? T.menu.invite.copied : T.menu.invite.label}</span>`;
+    });
     // The name and the height over the jumpers' heads, in the sky behind them.
-    this.stage = h('div', 'stage', this.crew.el, head, hint, this.map.el);
+    this.stage = h('div', 'stage', this.crew.el, head, hint, this.nav.add(invite), this.map.el);
 
     this.resume = button('resume', T.menu.resume);
     this.jump = button('jump');
@@ -752,6 +768,24 @@ export class Menu {
     this.ticking.push(showJump);
     const go = h('div', 'go', this.nav.add(this.resume), this.nav.add(this.jump));
     return h('aside', 'side', this.stage, go);
+  }
+
+  /**
+   * Asks a friend along: the room's link, through the device's sheet or
+   * copied. Alone, a room is made first, with this jump's setup: whoever
+   * opens the link comes into it.
+   */
+  private async invite(): Promise<void> {
+    if (!this.room) this.onCreateRoom();
+    const room = this.room;
+    if (!room) return;
+    const t = T.menu.invite;
+    const dz = dzInfo(room.publicDz ?? this.setup.dz).name;
+    const how = await shareLink({ title: 'Lowpull', text: t.text(dz), url: room.link }, browserWays(t.prompt));
+    if (how !== 'copied') return;
+    this.invitedUntil = performance.now() + INVITED_MS;
+    this.refresh();
+    setTimeout(() => this.refresh(), INVITED_MS + 100);
   }
 
   /** Switches the language and builds the screens again, where they were. */

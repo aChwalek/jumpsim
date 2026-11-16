@@ -391,6 +391,14 @@ export const fr = {
     /** On the lines of the home screen. */
     lines: { dz: 'DROPZONE', gear: 'GEAR', jump: 'JUMP', team: 'TEAM', weather: 'MÉTÉO' },
     dragHint: 'Glisse pour tourner autour',
+    /** The button over the jumpers that asks a friend along. */
+    invite: {
+      label: 'Inviter un ami',
+      copied: 'Lien copié ✓',
+      title: 'Envoie le lien de ce saut : ton ami arrive dans ta salle, avec les mêmes réglages.',
+      text: (dz: string) => `Viens sauter avec moi à ${dz} sur Lowpull`,
+      prompt: 'Le lien de ce saut, à envoyer :',
+    },
     back: 'Retour',
     resume: 'Reprendre le saut',
     jumpButton: 'Sauter',
