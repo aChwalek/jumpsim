@@ -1,6 +1,7 @@
 // Touchdown detection and a verdict on how it went.
 
 import type { FlightModel } from './flightModel';
+import { againstGround, groundNormal, type GroundAt } from './slope';
 import { emptyTelemetry, readTelemetry } from './telemetry';
 import { calmAir } from './flightModel';
 import { vec3 } from './vec';
@@ -22,9 +23,9 @@ const RUN_FROM = 2;
 export const SLIDE_FROM = 15 / 3.6;
 
 export interface Touchdown {
-  /** Downward speed of the feet at contact, m/s. */
+  /** Speed of the feet into the ground at contact, m/s: straight down on the flat, square to a slope. */
   sink: number;
-  /** Horizontal speed over the ground at contact, m/s. */
+  /** Speed of the feet along the ground at contact, m/s: over it on the flat, along a slope. */
   groundSpeed: number;
   /** Bank angle at contact, degrees. */
   bankDeg: number;
@@ -56,6 +57,7 @@ export function rateLanding(sink: number, groundSpeed: number, bankDeg: number):
 
 const feet = vec3();
 const feetVel = vec3();
+const up = vec3();
 const tel = emptyTelemetry();
 const still = calmAir();
 
@@ -68,15 +70,17 @@ export function feetHeight(model: FlightModel, groundAt: (x: number, z: number, 
   return feet.y - groundAt(feet.x, feet.z, feet.y);
 }
 
-/** Returns the touchdown if the feet have reached the ground, otherwise null. */
-export function detectTouchdown(
-  model: FlightModel,
-  groundAt: (x: number, z: number, y?: number) => number,
-): Touchdown | null {
+/**
+ * Returns the touchdown if the feet have reached the ground, otherwise null.
+ * On a slope the feet are judged against it: flying down along a steep face
+ * and brushing it is a touch, not coming down onto it from the height of the
+ * fall.
+ */
+export function detectTouchdown(model: FlightModel, groundAt: GroundAt): Touchdown | null {
   if (feetHeight(model, groundAt) > 0) return null;
   model.pilotPointVelocity(feetVel, model.rig.feetPos);
   readTelemetry(model, still, tel);
-  const sink = Math.max(0, -feetVel.y);
-  const groundSpeed = Math.hypot(feetVel.x, feetVel.z);
-  return { sink, groundSpeed, bankDeg: tel.bankDeg, rating: rateLanding(sink, groundSpeed, tel.bankDeg) };
+  const { into, along } = againstGround(feetVel, groundNormal(up, groundAt, feet.x, feet.z, feet.y));
+  const sink = Math.max(0, into);
+  return { sink, groundSpeed: along, bankDeg: tel.bankDeg, rating: rateLanding(sink, along, tel.bankDeg) };
 }
