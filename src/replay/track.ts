@@ -13,7 +13,7 @@
 // columns of zeros compress to almost nothing (see store.ts).
 
 import type { Ouch } from '../audio/sound';
-import { STANCE_CODES, emptySnapshot, type Phase, type Snapshot } from '../net/snapshot';
+import { STANCE_CODES, emptySnapshot, makeReleased, type Phase, type ReleasedFrame, type Snapshot } from '../net/snapshot';
 import { makePose, type Pose } from '../render/body';
 import type { SliderState } from '../render/canopyView';
 import type { DeployStage } from '../render/deployment';
@@ -67,17 +67,6 @@ export interface TrackFrame {
   released: ReleasedFrame;
 }
 
-export interface ReleasedFrame {
-  pos: Vec3;
-  vel: Vec3;
-  att: Quat;
-  /** How far it has lost its shape, 0 to 1. */
-  crumple: number;
-  /** How far it has gone down in a heap, 0 to 1; and the way, level. */
-  heap: number;
-  fallTo: Vec3;
-}
-
 const noControls = (): Controls => ({ brakeL: 0, brakeR: 0, frontL: 0, frontR: 0 });
 
 export function makeTrackFrame(): TrackFrame {
@@ -111,7 +100,7 @@ export function makeTrackFrame(): TrackFrame {
     hasJoints: false,
     joints: new Float32Array(3 * JOINT_COUNT),
     hasReleased: false,
-    released: { pos: vec3(), vel: vec3(), att: quat(), crumple: 0, heap: 0, fallTo: vec3(0, 0, 1) },
+    released: makeReleased(),
   };
 }
 
@@ -277,7 +266,11 @@ const RELEASED = channels(
   ['attX'],
 );
 
-/** Another jumper, as they are sent (see net/snapshot.ts); `sample`: the row of the base it goes with. */
+/**
+ * Another jumper, as they are sent (see net/snapshot.ts); `sample`: the row
+ * of the base it goes with. Their ragdoll and cut-away main, when they have
+ * them, in rows of their own as ours are.
+ */
 const OTHER = channels(
   [
     ['sample', 1, 'step'],
@@ -312,9 +305,41 @@ const OTHER = channels(
     ['handBrakeR', UNIT],
     ['handFrontL', UNIT],
     ['handFrontR', UNIT],
+    // Version 2 stopped here.
+    ['slider', 1, 'step'],
+    ['twist', UNIT],
+    ['heap', UNIT],
+    ['heapFromX', MM, 'step'],
+    ['heapFromY', MM, 'step'],
+    ['heapFromZ', MM, 'step'],
+    ['fallToX', UNIT, 'step'],
+    ['fallToZ', UNIT, 'step'],
+    ['gather', UNIT],
+    ['hipL', UNIT],
+    ['hipR', UNIT],
+    ['kneeL', UNIT],
+    ['kneeR', UNIT],
+    ['spread', UNIT],
+    ['sway', UNIT],
+    ['lean', UNIT],
+    ['bow', UNIT],
+    ['handLX', MM],
+    ['handLY', MM],
+    ['handLZ', MM],
+    ['handRX', MM],
+    ['handRY', MM],
+    ['handRZ', MM],
+    ['elbowLX', UNIT],
+    ['elbowLY', UNIT],
+    ['elbowLZ', UNIT],
+    ['elbowRX', UNIT],
+    ['elbowRY', UNIT],
+    ['elbowRZ', UNIT],
   ],
   ['attX', 'pilotX'],
 );
+/** The others' channels in version 2: the newer ones, after them, read as zero. */
+const OTHER_V2 = 32;
 
 const B = BASE.index;
 const R = RELEASED.index;
@@ -357,10 +382,14 @@ const enum OtherFlag {
   ReserveHandle = 16,
   Landed = 32,
   Packed = 64,
+  Posed = 128,
+  Walker = 256,
+  Joints = 512,
+  Released = 1024,
 }
 
-/** Another jumper as the numbers of each channel, `sample` the row of the base. */
-function otherValues(s: Snapshot, sample: number, v: Float64Array): void {
+/** Another jumper as the numbers of each channel, `sample` the row of the base; their ragdoll and cut-away main if they have them. */
+function otherValues(s: Snapshot, sample: number, v: Float64Array, joints: Float64Array, released: Float64Array): void {
   v[O.sample] = sample;
   v[O.phase] = PHASE_CODES[s.phase];
   v[O.stance] = STANCE_CODES[s.stance];
@@ -372,7 +401,11 @@ function otherValues(s: Snapshot, sample: number, v: Float64Array): void {
     (s.mainHandle ? OtherFlag.MainHandle : 0) |
     (s.reserveHandle ? OtherFlag.ReserveHandle : 0) |
     (s.landed ? OtherFlag.Landed : 0) |
-    (s.inflation === null ? OtherFlag.Packed : 0);
+    (s.inflation === null ? OtherFlag.Packed : 0) |
+    (s.posed ? OtherFlag.Posed : 0) |
+    (s.walker ? OtherFlag.Walker : 0) |
+    (s.hasJoints ? OtherFlag.Joints : 0) |
+    (s.hasReleased ? OtherFlag.Released : 0);
   put3(v, O.posX, s.pos);
   put3(v, O.velX, s.vel);
   put4(v, O.attX, s.att);
@@ -390,9 +423,20 @@ function otherValues(s: Snapshot, sample: number, v: Float64Array): void {
   v[O.handBrakeR] = s.hands.brakeR;
   v[O.handFrontL] = s.hands.frontL;
   v[O.handFrontR] = s.hands.frontR;
+  v[O.slider] = SLIDER_CODES[s.slider];
+  v[O.twist] = s.twist;
+  v[O.heap] = s.heap;
+  put3(v, O.heapFromX, s.heapFrom);
+  v[O.fallToX] = s.fallTo.x;
+  v[O.fallToZ] = s.fallTo.z;
+  v[O.gather] = s.gather;
+  putPose(v, O, s.pose);
+  if (s.hasJoints) joints.set(s.joints);
+  if (s.hasReleased) putReleased(released, s.released);
 }
 
-function valuesOther(v: ArrayLike<number>, s: Snapshot): void {
+/** Another jumper from the numbers of each channel; `joints` and `released` only read if the flags say so. */
+function valuesOther(v: ArrayLike<number>, joints: ArrayLike<number>, released: ArrayLike<number>, s: Snapshot): void {
   s.phase = PHASES[v[O.phase]!] ?? 'none';
   s.stance = STANCES[v[O.stance]!] ?? 'hanging';
   s.deploy = DEPLOYS[v[O.deploy]!] ?? 'canopy';
@@ -403,6 +447,10 @@ function valuesOther(v: ArrayLike<number>, s: Snapshot): void {
   s.mainHandle = (flags & OtherFlag.MainHandle) !== 0;
   s.reserveHandle = (flags & OtherFlag.ReserveHandle) !== 0;
   s.landed = (flags & OtherFlag.Landed) !== 0;
+  s.posed = (flags & OtherFlag.Posed) !== 0;
+  s.walker = (flags & OtherFlag.Walker) !== 0;
+  s.hasJoints = (flags & OtherFlag.Joints) !== 0;
+  s.hasReleased = (flags & OtherFlag.Released) !== 0;
   s.inflation = flags & OtherFlag.Packed ? null : v[O.inflation]!;
   get3(v, O.posX, s.pos);
   get3(v, O.velX, s.vel);
@@ -420,6 +468,70 @@ function valuesOther(v: ArrayLike<number>, s: Snapshot): void {
   s.hands.brakeR = v[O.handBrakeR]!;
   s.hands.frontL = v[O.handFrontL]!;
   s.hands.frontR = v[O.handFrontR]!;
+  s.slider = SLIDERS[v[O.slider]!] ?? 'open';
+  s.twist = v[O.twist]!;
+  s.heap = v[O.heap]!;
+  get3(v, O.heapFromX, s.heapFrom);
+  s.fallTo.x = v[O.fallToX]!;
+  s.fallTo.y = 0;
+  s.fallTo.z = v[O.fallToZ]!;
+  s.gather = v[O.gather]!;
+  getPose(v, O, s.pose);
+  if (s.hasJoints) for (let i = 0; i < s.joints.length; i++) s.joints[i] = joints[i]!;
+  if (s.hasReleased) getReleased(released, s.released);
+}
+
+type PoseChannels = Record<'hipL' | 'hipR' | 'kneeL' | 'kneeR' | 'spread' | 'sway' | 'lean' | 'bow' | 'handLX' | 'handRX' | 'elbowLX' | 'elbowRX', number>;
+
+function putPose(v: Float64Array, c: PoseChannels, p: Pose): void {
+  v[c.hipL] = p.hipL;
+  v[c.hipR] = p.hipR;
+  v[c.kneeL] = p.kneeL;
+  v[c.kneeR] = p.kneeR;
+  v[c.spread] = p.spread;
+  v[c.sway] = p.sway;
+  v[c.lean] = p.lean;
+  v[c.bow] = p.bow;
+  put3(v, c.handLX, p.handL);
+  put3(v, c.handRX, p.handR);
+  put3(v, c.elbowLX, p.elbowL);
+  put3(v, c.elbowRX, p.elbowR);
+}
+
+function getPose(v: ArrayLike<number>, c: PoseChannels, p: Pose): void {
+  p.hipL = v[c.hipL]!;
+  p.hipR = v[c.hipR]!;
+  p.kneeL = v[c.kneeL]!;
+  p.kneeR = v[c.kneeR]!;
+  p.spread = v[c.spread]!;
+  p.sway = v[c.sway]!;
+  p.lean = v[c.lean]!;
+  p.bow = v[c.bow]!;
+  get3(v, c.handLX, p.handL);
+  get3(v, c.handRX, p.handR);
+  get3(v, c.elbowLX, p.elbowL);
+  get3(v, c.elbowRX, p.elbowR);
+}
+
+function putReleased(v: Float64Array, r: ReleasedFrame): void {
+  put3(v, R.posX, r.pos);
+  put3(v, R.velX, r.vel);
+  put4(v, R.attX, r.att);
+  v[R.crumple] = r.crumple;
+  v[R.heap] = r.heap;
+  v[R.fallToX] = r.fallTo.x;
+  v[R.fallToZ] = r.fallTo.z;
+}
+
+function getReleased(v: ArrayLike<number>, r: ReleasedFrame): void {
+  get3(v, R.posX, r.pos);
+  get3(v, R.velX, r.vel);
+  get4(v, R.attX, r.att);
+  r.crumple = v[R.crumple]!;
+  r.heap = v[R.heap]!;
+  r.fallTo.x = v[R.fallToX]!;
+  r.fallTo.y = 0;
+  r.fallTo.z = v[R.fallToZ]!;
 }
 
 /** The frame as the numbers of each channel, in their own units. */
@@ -455,34 +567,13 @@ function frameValues(f: TrackFrame, v: Float64Array, joints: Float64Array, relea
   v[B.deployTime] = f.deployTime;
   v[B.bagOut] = f.bagOut;
   v[B.heap] = f.heap;
-  const p = f.pose;
-  v[B.hipL] = p.hipL;
-  v[B.hipR] = p.hipR;
-  v[B.kneeL] = p.kneeL;
-  v[B.kneeR] = p.kneeR;
-  v[B.spread] = p.spread;
-  v[B.sway] = p.sway;
-  v[B.lean] = p.lean;
-  v[B.bow] = p.bow;
-  put3(v, B.handLX, p.handL);
-  put3(v, B.handRX, p.handR);
-  put3(v, B.elbowLX, p.elbowL);
-  put3(v, B.elbowRX, p.elbowR);
+  putPose(v, B, f.pose);
   v[B.heading] = f.heading;
   v[B.distance] = f.distance;
   v[B.above] = f.above;
   put3(v, B.focusX, f.focus);
   if (f.hasJoints) joints.set(f.joints);
-  if (f.hasReleased) {
-    const r = f.released;
-    put3(released, R.posX, r.pos);
-    put3(released, R.velX, r.vel);
-    put4(released, R.attX, r.att);
-    released[R.crumple] = r.crumple;
-    released[R.heap] = r.heap;
-    released[R.fallToX] = r.fallTo.x;
-    released[R.fallToZ] = r.fallTo.z;
-  }
+  if (f.hasReleased) putReleased(released, f.released);
 }
 
 /** The frame from the numbers of each channel; `joints` and `released` only read if the flags say so. */
@@ -517,35 +608,13 @@ function valuesFrame(v: ArrayLike<number>, joints: ArrayLike<number>, released: 
   f.deployTime = v[B.deployTime]!;
   f.bagOut = v[B.bagOut]!;
   f.heap = v[B.heap]!;
-  const p = f.pose;
-  p.hipL = v[B.hipL]!;
-  p.hipR = v[B.hipR]!;
-  p.kneeL = v[B.kneeL]!;
-  p.kneeR = v[B.kneeR]!;
-  p.spread = v[B.spread]!;
-  p.sway = v[B.sway]!;
-  p.lean = v[B.lean]!;
-  p.bow = v[B.bow]!;
-  get3(v, B.handLX, p.handL);
-  get3(v, B.handRX, p.handR);
-  get3(v, B.elbowLX, p.elbowL);
-  get3(v, B.elbowRX, p.elbowR);
+  getPose(v, B, f.pose);
   f.heading = v[B.heading]!;
   f.distance = v[B.distance]!;
   f.above = v[B.above]!;
   get3(v, B.focusX, f.focus);
   if (f.hasJoints) for (let i = 0; i < f.joints.length; i++) f.joints[i] = joints[i]!;
-  if (f.hasReleased) {
-    const r = f.released;
-    get3(released, R.posX, r.pos);
-    get3(released, R.velX, r.vel);
-    get4(released, R.attX, r.att);
-    r.crumple = released[R.crumple]!;
-    r.heap = released[R.heap]!;
-    r.fallTo.x = released[R.fallToX]!;
-    r.fallTo.y = 0;
-    r.fallTo.z = released[R.fallToZ]!;
-  }
+  if (f.hasReleased) getReleased(released, f.released);
 }
 
 function put3(out: Float64Array, at: number, p: { x: number; y: number; z: number }): void {
@@ -615,6 +684,9 @@ export interface Track {
   released: Int32Array;
   /** Each other jumper's rows, as `meta.others`: every one names the row of the base it goes with. */
   others: Int32Array[];
+  /** And their ragdoll's and their cut-away main's, for those of their rows that have them, in order. */
+  otherJoints: Int32Array[];
+  otherReleased: Int32Array[];
 }
 
 /** Twenty samples a second; every frame while the body is thrown about. */
@@ -630,8 +702,8 @@ export class TrackRecorder {
   private base: Int32Array[] = [];
   private joints: (Int32Array | null)[] = [];
   private released: (Int32Array | null)[] = [];
-  /** Each other jumper's rows, and their index in `meta.others` by id. */
-  private others: Int32Array[][] = [];
+  /** Each other jumper's rows, with their ragdoll's and cut-away main's if any; their index in `meta.others` by id. */
+  private others: OtherRows[] = [];
   private readonly otherIndex = new Map<string, number>();
   private clock = 0;
   private last = Number.NEGATIVE_INFINITY;
@@ -639,6 +711,8 @@ export class TrackRecorder {
   private readonly jointValues = new Float64Array(JOINTS.count);
   private readonly releasedValues = new Float64Array(RELEASED.count);
   private readonly otherValues = new Float64Array(OTHER.count);
+  private readonly otherJointValues = new Float64Array(JOINTS.count);
+  private readonly otherReleasedValues = new Float64Array(RELEASED.count);
 
   /** Recording, since `begin`, until `finish` or `drop`. */
   get recording(): boolean {
@@ -685,11 +759,14 @@ export class TrackRecorder {
       if (i === undefined) {
         i = this.others.length;
         this.otherIndex.set(o.id, i);
-        this.others.push([]);
+        this.others.push({ rows: [], joints: [], released: [] });
         (this.meta.others ??= []).push({ name: o.name, gear: { ...o.gear } });
       }
-      otherValues(o.snap, sample, this.otherValues);
-      this.others[i]!.push(quantizeNew(OTHER, this.otherValues));
+      otherValues(o.snap, sample, this.otherValues, this.otherJointValues, this.otherReleasedValues);
+      const kept = this.others[i]!;
+      kept.rows.push(quantizeNew(OTHER, this.otherValues));
+      kept.joints.push(o.snap.hasJoints ? quantizeNew(JOINTS, this.otherJointValues) : null);
+      kept.released.push(o.snap.hasReleased ? quantizeNew(RELEASED, this.otherReleasedValues) : null);
     }
     frameValues(f, this.values, this.jointValues, this.releasedValues);
     const row = new Int32Array(BASE.count);
@@ -738,10 +815,18 @@ export class TrackRecorder {
       const base = new Int32Array(count * BASE.count);
       this.base.forEach((row, i) => base.set(row, i * BASE.count));
       // Only those seen in what is kept of the jump.
-      const kept = (meta.others ?? []).map((m, i) => ({ m, rows: this.others[i] ?? [] })).filter((o) => o.rows.length > 0);
-      if (meta.others) meta.others = kept.map((o) => o.m);
-      const others = kept.map((o) => concat(o.rows, OTHER.count));
-      track = { meta, count, base, joints: concat(this.joints, JOINTS.count), released: concat(this.released, RELEASED.count), others };
+      const kept = (meta.others ?? []).map((m, i) => ({ m, o: this.others[i] })).filter((k) => k.o && k.o.rows.length > 0);
+      if (meta.others) meta.others = kept.map((k) => k.m);
+      track = {
+        meta,
+        count,
+        base,
+        joints: concat(this.joints, JOINTS.count),
+        released: concat(this.released, RELEASED.count),
+        others: kept.map((k) => concat(k.o!.rows, OTHER.count)),
+        otherJoints: kept.map((k) => concat(k.o!.joints, JOINTS.count)),
+        otherReleased: kept.map((k) => concat(k.o!.released, RELEASED.count)),
+      };
     }
     this.drop();
     return track;
@@ -754,10 +839,12 @@ export class TrackRecorder {
     this.base.splice(0, n);
     this.joints.splice(0, n);
     this.released.splice(0, n);
-    for (const rows of this.others) {
+    for (const { rows, joints, released } of this.others) {
       let gone = 0;
       while (gone < rows.length && rows[gone]![O.sample]! < n) gone++;
       rows.splice(0, gone);
+      joints.splice(0, gone);
+      released.splice(0, gone);
       for (const row of rows) row[O.sample]! -= n;
     }
     if (this.meta) this.meta.events = this.meta.events.filter((e) => e.t >= t);
@@ -765,6 +852,13 @@ export class TrackRecorder {
 }
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/** Another jumper's rows as recorded; the ragdoll's and the cut-away main's null where they have none. */
+interface OtherRows {
+  rows: Int32Array[];
+  joints: (Int32Array | null)[];
+  released: (Int32Array | null)[];
+}
 
 function quantizeNew(set: Channels<string>, v: Float64Array): Int32Array {
   const row = new Int32Array(set.count);
@@ -782,8 +876,11 @@ function concat(rows: (Int32Array | null)[], width: number): Int32Array {
 // ------------------------------------------------------------ bytes
 
 const MAGIC = [0x4a, 0x53, 0x54, 0x4b]; // JSTK
-/** 2: the others on the jump. 1 is still read, with none. */
-const VERSION = 2;
+/**
+ * 3: the others as they were drawn, all of it. 2: the others on the jump,
+ * their arms and legs from their stance; still read. 1 is still read, with none.
+ */
+const VERSION = 3;
 
 class Writer {
   private bytes = new Uint8Array(1 << 16);
@@ -912,10 +1009,16 @@ export function encodeTrack(track: Track): Uint8Array {
   writeColumns(w, track.released, RELEASED.count);
   w.u8(OTHER.count);
   w.u32(track.others.length);
-  for (const rows of track.others) {
+  track.others.forEach((rows, m) => {
     w.u32(rows.length / OTHER.count);
     writeColumns(w, rows, OTHER.count);
-  }
+    const joints = track.otherJoints[m] ?? new Int32Array(0);
+    const released = track.otherReleased[m] ?? new Int32Array(0);
+    w.u32(joints.length / JOINTS.count);
+    writeColumns(w, joints, JOINTS.count);
+    w.u32(released.length / RELEASED.count);
+    writeColumns(w, released, RELEASED.count);
+  });
   return w.done();
 }
 
@@ -925,7 +1028,7 @@ export function decodeTrack(bytes: Uint8Array): Track | null {
     const r = new Reader(bytes);
     for (const b of MAGIC) if (r.u8() !== b) return null;
     const version = r.u8();
-    if (version !== 1 && version !== VERSION) return null;
+    if (version < 1 || version > VERSION) return null;
     const meta = JSON.parse(new TextDecoder().decode(r.raw(r.u32()))) as TrackMeta;
     if (typeof meta?.n !== 'number' || !Array.isArray(meta.events) || !meta.setup) return null;
     const count = r.u32();
@@ -939,17 +1042,39 @@ export function decodeTrack(bytes: Uint8Array): Track | null {
     const released = readColumns(r, releasedRows, RELEASED.count);
     if (count < 2) return null;
     const others: Int32Array[] = [];
+    const otherJoints: Int32Array[] = [];
+    const otherReleased: Int32Array[] = [];
     if (version >= 2) {
-      if (r.u8() !== OTHER.count) return null;
+      const otherCount = r.u8();
+      if (otherCount !== (version === 2 ? OTHER_V2 : OTHER.count)) return null;
       const members = r.u32();
       if (members !== (meta.others?.length ?? 0) || members > bytes.length - r.at) return null;
-      for (let m = 0; m < members; m++) {
+      const table = (width: number): Int32Array | null => {
         const rows = r.u32();
-        if (rows > bytes.length - r.at) return null;
-        others.push(readColumns(r, rows, OTHER.count));
+        return rows > bytes.length - r.at ? null : readColumns(r, rows, width);
+      };
+      for (let m = 0; m < members; m++) {
+        const values = table(otherCount);
+        if (!values) return null;
+        if (version === 2) {
+          // Nothing kept yet of what came after: the arms and legs drawn from the stance.
+          const rows = values.length / otherCount;
+          const padded = new Int32Array(rows * OTHER.count);
+          for (let i = 0; i < rows; i++) padded.set(values.subarray(i * otherCount, (i + 1) * otherCount), i * OTHER.count);
+          others.push(padded);
+          otherJoints.push(new Int32Array(0));
+          otherReleased.push(new Int32Array(0));
+          continue;
+        }
+        const j = table(JOINTS.count);
+        const rel = table(RELEASED.count);
+        if (!j || !rel) return null;
+        others.push(values);
+        otherJoints.push(j);
+        otherReleased.push(rel);
       }
     } else delete meta.others;
-    return { meta, count, base, joints, released, others };
+    return { meta, count, base, joints, released, others, otherJoints, otherReleased };
   } catch {
     return null;
   }
@@ -992,9 +1117,15 @@ export class TrackPlayer {
   private readonly mixedReleased = new Float64Array(RELEASED.count);
   /** The others on the jump, as they are at the moment shown. */
   readonly others: OtherShown[];
-  /** Each other's samples in their own units, and their row at each sample of the base, or -1. */
-  private readonly otherData: { rows: Float32Array; at: Int32Array }[];
+  /**
+   * Each other's samples in their own units, and their row at each sample of
+   * the base, or -1; their ragdoll's and cut-away main's, and the row of
+   * those at each of their own rows, or -1.
+   */
+  private readonly otherData: { rows: Float32Array; at: Int32Array; joints: Float32Array; jointRow: Int32Array; released: Float32Array; releasedRow: Int32Array }[];
   private readonly mixedOther = new Float64Array(OTHER.count);
+  private readonly mixedOtherJoints = new Float64Array(JOINTS.count);
+  private readonly mixedOtherReleased = new Float64Array(RELEASED.count);
 
   constructor(readonly track: Track) {
     const n = track.count;
@@ -1016,12 +1147,22 @@ export class TrackPlayer {
     this.others = members.map((m) => ({ name: m.name, gear: m.gear, shown: false, snap: emptySnapshot() }));
     this.otherData = members.map((_, m) => {
       const rows = dequantize(OTHER, track.others[m] ?? new Int32Array(0));
+      const joints = dequantize(JOINTS, track.otherJoints[m] ?? new Int32Array(0));
+      const released = dequantize(RELEASED, track.otherReleased[m] ?? new Int32Array(0));
+      const count = rows.length / OTHER.count;
       const at = new Int32Array(n).fill(-1);
-      for (let r = 0; r < rows.length / OTHER.count; r++) {
+      const jointRow = new Int32Array(count);
+      const releasedRow = new Int32Array(count);
+      let j = 0;
+      let rel = 0;
+      for (let r = 0; r < count; r++) {
         const i = rows[r * OTHER.count + O.sample]!;
         if (i >= 0 && i < n) at[i] = r;
+        const flags = rows[r * OTHER.count + O.flags]!;
+        jointRow[r] = flags & OtherFlag.Joints && j < joints.length / JOINTS.count ? j++ : -1;
+        releasedRow[r] = flags & OtherFlag.Released && rel < released.length / RELEASED.count ? rel++ : -1;
       }
-      return { rows, at };
+      return { rows, at, joints, jointRow, released, releasedRow };
     });
     this.start = this.at(0, B.t);
     this.end = this.at(n - 1, B.t);
@@ -1106,21 +1247,31 @@ export class TrackPlayer {
     // Flags from the sample before; the ragdoll and the cut-away main only where it has them.
     this.frame.hasJoints = ja >= 0;
     this.frame.hasReleased = ra >= 0;
-    // The others where they were drawn, between two samples only if drawn at both.
-    this.otherData.forEach(({ rows, at }, m) => {
+    // The others where they were drawn, between two samples only if drawn at both;
+    // their ragdoll and cut-away main only if they have them at both.
+    this.otherData.forEach((d, m) => {
       const o = this.others[m]!;
-      const oa = at[i]!;
-      const ob = at[i + 1]!;
+      const oa = d.at[i]!;
+      const ob = d.at[i + 1]!;
       o.shown = oa >= 0;
       if (oa < 0) return;
-      const ra = row(rows, OTHER.count, oa);
-      if (ob >= 0) {
-        const rb = row(rows, OTHER.count, ob);
-        interpolate(OTHER, this.mixedOther, ra, rb, k);
-        if ((ra[O.flags]! | rb[O.flags]!) & OtherFlag.Packed) this.mixedOther[O.inflation] = ra[O.inflation]!;
-        if (ra[O.deploy] !== rb[O.deploy]) this.mixedOther[O.deployTime] = ra[O.deployTime]!;
-        valuesOther(this.mixedOther, o.snap);
-      } else valuesOther(ra, o.snap);
+      const ra = row(d.rows, OTHER.count, oa);
+      const ja = d.jointRow[oa]!;
+      const la = d.releasedRow[oa]!;
+      const jointsA = ja >= 0 ? row(d.joints, JOINTS.count, ja) : this.mixedOtherJoints;
+      const releasedA = la >= 0 ? row(d.released, RELEASED.count, la) : this.mixedOtherReleased;
+      if (ob < 0) return valuesOther(ra, jointsA, releasedA, o.snap);
+      const rb = row(d.rows, OTHER.count, ob);
+      interpolate(OTHER, this.mixedOther, ra, rb, k);
+      if ((ra[O.flags]! | rb[O.flags]!) & OtherFlag.Packed) this.mixedOther[O.inflation] = ra[O.inflation]!;
+      if (ra[O.deploy] !== rb[O.deploy]) this.mixedOther[O.deployTime] = ra[O.deployTime]!;
+      const jb = d.jointRow[ob]!;
+      const lb = d.releasedRow[ob]!;
+      if (ja >= 0 && jb >= 0) interpolate(JOINTS, this.mixedOtherJoints, jointsA, row(d.joints, JOINTS.count, jb), k);
+      else if (ja >= 0) this.mixedOtherJoints.set(jointsA);
+      if (la >= 0 && lb >= 0) interpolate(RELEASED, this.mixedOtherReleased, releasedA, row(d.released, RELEASED.count, lb), k);
+      else if (la >= 0) this.mixedOtherReleased.set(releasedA);
+      valuesOther(this.mixedOther, this.mixedOtherJoints, this.mixedOtherReleased, o.snap);
     });
   }
 

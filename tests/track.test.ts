@@ -195,6 +195,17 @@ test('the others on the jump are kept as they were drawn, and played back with i
     léa.snap.phase = f.phase;
     léa.snap.stance = t < 30 ? 'door' : 'belly';
     léa.snap.inflation = null;
+    léa.snap.posed = true;
+    léa.snap.pose.hipL = t / 60;
+    léa.snap.pose.handR.set(0.2, -0.1, t / 100);
+    léa.snap.slider = t < 30 ? 'open' : 'collapsed';
+    léa.snap.twist = -t / 10;
+    // A crash from 45 s, the main cut away from 40 s.
+    léa.snap.hasJoints = t >= 45;
+    léa.snap.joints.fill(t);
+    léa.snap.hasReleased = t >= 40;
+    léa.snap.released.pos.y = 2000 - t;
+    léa.snap.released.crumple = (t - 40) / 20;
     léa.snap.pos.x = t;
     léa.snap.att.y = Math.sin(t / 20);
     léa.snap.att.w = Math.cos(t / 20);
@@ -213,6 +224,8 @@ test('the others on the jump are kept as they were drawn, and played back with i
   const back = decodeTrack(encodeTrack(track))!;
   expect(back.meta.others).toEqual(track.meta.others);
   expect(back.others.map((rows) => Array.from(rows))).toEqual(track.others.map((rows) => Array.from(rows)));
+  expect(back.otherJoints.map((rows) => Array.from(rows))).toEqual(track.otherJoints.map((rows) => Array.from(rows)));
+  expect(back.otherReleased.map((rows) => Array.from(rows))).toEqual(track.otherReleased.map((rows) => Array.from(rows)));
 
   const p = new TrackPlayer(back);
   p.seek(35.025);
@@ -221,12 +234,65 @@ test('the others on the jump are kept as they were drawn, and played back with i
   expect(l!.snap.pos.x).toBeCloseTo(35.025, 1);
   expect(l!.snap.stance).toBe('belly');
   expect(l!.snap.inflation).toBeNull();
+  expect(l!.snap.posed).toBe(true);
+  expect(l!.snap.pose.hipL).toBeCloseTo(35.025 / 60, 2);
+  expect(l!.snap.pose.handR.z).toBeCloseTo(0.35025, 2);
+  expect(l!.snap.slider).toBe('collapsed');
+  expect(l!.snap.twist).toBeCloseTo(-3.5025, 2);
+  expect([l!.snap.hasJoints, l!.snap.hasReleased]).toEqual([false, false]);
   expect(t!.shown).toBe(false);
+  p.seek(50.025);
+  expect([l!.snap.hasJoints, l!.snap.hasReleased]).toEqual([true, true]);
+  expect(l!.snap.joints[7]).toBeCloseTo(50.025, 1);
+  expect(l!.snap.released.pos.y).toBeCloseTo(1949.975, 1);
+  expect(l!.snap.released.crumple).toBeCloseTo(0.501, 2);
   p.seek(50);
   expect(p.others[1]!.shown).toBe(true);
   expect(p.others[1]!.snap.pos.y).toBeCloseTo(950, 1);
   expect(p.others[1]!.snap.landed).toBe(true);
   expect(p.others[1]!.gear.color).toBe('green');
+});
+
+test('the others of a track of the second version still read, drawn from their stance', () => {
+  const recorder = new TrackRecorder();
+  const setup = cloneSetup(defaultSetup());
+  recorder.begin(setup, 'plane');
+  const f = makeTrackFrame();
+  const léa: OtherJumper = { id: 'bot-0', name: 'Léa', gear: setup.gear, snap: emptySnapshot() };
+  // Nothing kept that version 2 did not have: every channel after its own at zero.
+  léa.snap.pose.elbowL.set(0, 0, 0);
+  léa.snap.pose.elbowR.set(0, 0, 0);
+  léa.snap.fallTo.z = 0;
+  for (let t = 0; t < 20; t += FRAME) {
+    f.phase = léa.snap.phase = 'freefall';
+    léa.snap.stance = 'belly';
+    léa.snap.inflation = null;
+    léa.snap.pos.x = t;
+    if (recorder.tick(FRAME, false)) recorder.push(f, [léa]);
+  }
+  recorder.logged(3, 3);
+  const track = recorder.finish()!;
+  const bytes = encodeTrack(track);
+  // Version 3 has, for each one, its newer channels (one zero byte a row each here), then no ragdoll and no cut-away main.
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const values = track.others[0]!.length;
+  let at = bytes.length - 9 - 8;
+  while (at > 0 && !(view.getUint32(at + 1, true) === 1 && bytes[at]! * view.getUint32(at + 5, true) === values)) at--;
+  const width = bytes[at]!;
+  const rows = view.getUint32(at + 5, true);
+  const newer = (width - 32) * rows + 8;
+  expect(bytes.subarray(bytes.length - newer).every((b) => b === 0)).toBe(true);
+  const v2 = bytes.slice(0, bytes.length - newer);
+  v2[4] = 2;
+  v2[at] = 32;
+  const back = decodeTrack(v2);
+  expect(back).not.toBeNull();
+  expect(Array.from(back!.others[0]!)).toEqual(Array.from(track.others[0]!));
+  expect([back!.otherJoints[0]!.length, back!.otherReleased[0]!.length]).toEqual([0, 0]);
+  const p = new TrackPlayer(back!);
+  p.seek(10);
+  expect(p.others[0]!.snap.pos.x).toBeCloseTo(10, 1);
+  expect([p.others[0]!.snap.posed, p.others[0]!.snap.hasJoints, p.others[0]!.snap.slider]).toEqual([false, false, 'open']);
 });
 
 test('a track of the first version still reads, with no one else on it', () => {

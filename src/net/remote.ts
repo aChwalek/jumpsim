@@ -1,7 +1,10 @@
 import * as THREE from 'three';
+import { copyPose } from '../render/body';
 import { CANOPY_COLORS, RESERVE_PALETTE } from '../render/canopyColors';
 import { CanopyView } from '../render/canopyView';
-import { Posture } from '../render/posture';
+import { FREEFALL_STANCES, Posture } from '../render/posture';
+import { RagdollView } from '../render/ragdollView';
+import { ReleasedMain } from '../render/releasedMain';
 import { RigView, type RigFrame } from '../render/rigView';
 import { SMOKE_BURN } from '../render/smoke';
 import { fitTrail, type Trail } from '../render/sparks';
@@ -11,8 +14,9 @@ import { hasWings } from '../sim/suit';
 import { FlightModel } from '../sim/flightModel';
 import { noBodyInputs } from '../sim/freefall';
 import { feetHeight } from '../sim/landing';
+import { J } from '../sim/ragdoll';
 import { Stride } from '../sim/runUp';
-import type { Vec3 } from '../sim/vec';
+import { vec3, type Vec3 } from '../sim/vec';
 import { SnapshotBuffer } from './interp';
 import { copySnapshot, emptySnapshot, type Snapshot } from './snapshot';
 
@@ -29,11 +33,15 @@ export interface RemoteFrame {
 }
 
 const still = noBodyInputs();
+/** Where a canopy gathered up off the ground is held, pilot frame: against the belly. */
+const CARRY_AT = vec3(0, -0.55, -0.42);
 
 /**
- * Another player's jumper, drawn from what they send. Nothing is simulated
- * here: their sim runs on their machine. Their state is put into flight
- * models only because that is what the views read.
+ * Another player's jumper, drawn from what they send: all of it as they draw
+ * it, the body, the canopy, the slider, the twists, the heap on the ground,
+ * a crash, a main cut away. Nothing is simulated here: their sim runs on
+ * their machine. Their state is put into flight models only because that is
+ * what the views read. A bot's body is posed here, from its stance and keys.
  */
 export class RemoteJumper {
   readonly buffer = new SnapshotBuffer();
@@ -56,6 +64,17 @@ export class RemoteJumper {
   private main: FlightModel | null = null;
   private reserve: FlightModel | null = null;
   private view: RigView | null = null;
+  /** Their main once cut away, and their body thrown about by a crash: made when first needed. */
+  private released: CanopyView | null = null;
+  private readonly releasedMain = new ReleasedMain();
+  private ragdoll: RagdollView | null = null;
+  /** The slider straight to how it is, not sliding there: a new rig, a jump in a replay. */
+  private jumped = true;
+  private readonly heapFrom = new THREE.Vector3();
+  private readonly fallTo = new THREE.Vector3();
+  private readonly walked = new THREE.Vector3();
+  private readonly bundle = new THREE.Vector3();
+  private readonly carried = vec3();
   /** Their smoke, if they jump with a canister; lit when they left (local clock, ms). */
   private smoke: Trail | null = null;
   private smokeLitAt: number | null = null;
@@ -104,13 +123,27 @@ export class RemoteJumper {
       // Back in their plane: a new canister for the next jump. The smoke left drifts on.
       if (sampled) this.smokeLitAt = null;
       this.smoke?.update(f.dt, null, this.smokeVel, f.wind);
+      this.ragdoll?.update(null);
+      this.dropReleased();
       return;
     }
 
     // A new jump after a reserve ride or a cutaway: a fresh rig.
     if (!s.reserve && !s.cutaway && (view.detached || view.canopy.reserve)) return this.newView(f.light);
-    // Cut away: the main goes, and is not drawn on its way down here.
-    if ((s.cutaway || s.reserve) && !view.detached && !view.canopy.reserve) view.detachCanopy().dispose();
+    // Cut away: the main goes its own way, drawn where they say it is.
+    if ((s.cutaway || s.reserve) && !view.detached && !view.canopy.reserve) {
+      const main = view.detachCanopy();
+      if (s.cutaway && s.hasReleased) this.keepReleased(main);
+      else main.dispose();
+    }
+    if (!s.hasReleased) this.dropReleased();
+    else if (s.cutaway && !this.released && this.gear && this.main) {
+      // Seen again with their main still on its way down: drawn anew.
+      const main = new CanopyView(this.main.rig, CANOPY_COLORS[this.gear.color].cells, f.light);
+      main.setReleased(true);
+      main.setSlider(s.slider, true);
+      this.keepReleased(main);
+    }
     if (s.reserve && view.detached) {
       view.attachCanopy(new CanopyView(this.reserve.rig, RESERVE_PALETTE, f.light, true));
       seenFromAfar(view.object);
@@ -122,17 +155,39 @@ export class RemoteJumper {
     Object.assign(st.vel, s.vel);
     Object.assign(st.att, s.att);
     Object.assign(st.pilotAtt, s.pilotAtt);
+    st.twist = s.twist;
     model.deflationL = s.deflationL;
     model.deflationR = s.deflationR;
 
     view.setInflation(s.inflation);
-    view.setArms(s.onRisers);
-    if (s.phase === 'standing') this.stride.step(f.dt, Math.hypot(s.vel.x, s.vel.z));
-    view.body.setPose(this.posture.update(f.dt, s.stance, still, s.phase === 'standing' ? [this.stride.legL, this.stride.legR] : undefined));
+    view.setArms(s.onRisers && !s.hasJoints);
+    if (!s.posed) {
+      // A bot: posed here. Kept as drawn, for the replay of the jump.
+      if (s.phase === 'standing') this.stride.step(f.dt, Math.hypot(s.vel.x, s.vel.z));
+      const legs: [number, number] | undefined = s.phase === 'standing' ? [this.stride.legL, this.stride.legR] : undefined;
+      copyPose(s.pose, this.posture.update(f.dt, s.stance, FREEFALL_STANCES.has(s.stance) ? s.body : still, legs));
+      s.posed = true;
+    }
+    view.body.setPose(s.pose);
     view.body.showArms(!s.onRisers);
     view.body.setHeight(feetHeight(model, f.groundAt));
     view.body.setHandles(s.mainHandle, s.reserveHandle);
-    if (!view.detached) view.canopy.setHeap(0);
+    // Thrown about by a crash: the ragdoll instead of the body.
+    view.body.group.visible = !s.hasJoints;
+    if (s.hasJoints) this.ragdollOf(f.light).update(s.joints);
+    else this.ragdoll?.update(null);
+    if (!view.detached) {
+      const canopy = view.canopy;
+      if (!s.reserve) canopy.setSlider(s.slider, this.jumped);
+      if (s.heap > 0) canopy.setHeap(s.heap, this.heapFrom.set(s.heapFrom.x, s.heapFrom.y, s.heapFrom.z), this.fallTo.set(s.fallTo.x, 0, s.fallTo.z));
+      else canopy.setHeap(0);
+      if (s.walker) canopy.dragHeap(this.walked.set(s.pos.x, 0, s.pos.z));
+      if (s.gather > 0) {
+        const p = model.pilotPoint(this.carried, CARRY_AT);
+        canopy.setGather(s.gather, this.bundle.set(p.x, p.y, p.z));
+      } else canopy.setGather(0);
+    }
+    this.jumped = false;
     const frame = this.frame;
     frame.time = f.time;
     frame.dt = f.dt;
@@ -142,6 +197,10 @@ export class RemoteJumper {
     frame.deployTime = s.deployTime;
     frame.bagOut = s.bagOut;
     view.update(model, s.controls, f.groundAt, f.light, s.hands, frame);
+    if (this.released) {
+      const { time, dt, wind, airDensity, groundAt, light } = f;
+      this.releasedMain.draw(this.released, s.released, { time, dt, wind, airDensity, groundAt, light });
+    }
     this.drawSmoke(f, view);
   }
 
@@ -157,6 +216,7 @@ export class RemoteJumper {
 
   /** Gone to another moment of a replay: no smoke lit, the body straight into its stance. */
   restart(): void {
+    this.jumped = true;
     this.smokeLitAt = null;
     this.wasLanded = false;
     this.phase = null;
@@ -167,18 +227,55 @@ export class RemoteJumper {
   dispose(): void {
     this.dropSmoke();
     this.disposeView();
+    if (this.ragdoll) {
+      this.scene.remove(this.ragdoll.object);
+      this.ragdoll.object.traverse((node) => {
+        const { geometry, material } = node as THREE.Mesh;
+        geometry?.dispose();
+        for (const m of Array.isArray(material) ? material : material ? [material] : []) m.dispose();
+      });
+      this.ragdoll = null;
+    }
   }
 
   private disposeView(): void {
+    this.dropReleased();
     if (!this.view) return;
     this.scene.remove(this.view.object);
     this.view.dispose();
     this.view = null;
   }
 
+  private keepReleased(main: CanopyView): void {
+    for (const o of [main.object, main.shadow, main.deployment.object]) {
+      seenFromAfar(o);
+      this.scene.add(o);
+    }
+    this.released = main;
+  }
+
+  private dropReleased(): void {
+    if (!this.released) return;
+    this.scene.remove(this.released.object, this.released.shadow, this.released.deployment.object);
+    this.released.dispose();
+    this.released = null;
+  }
+
+  /** Their body thrown about by a crash, in what they wear. */
+  private ragdollOf(light: Lighting): RagdollView {
+    if (this.ragdoll) return this.ragdoll;
+    const ragdoll = new RagdollView();
+    for (const m of ragdoll.materials()) if (m instanceof THREE.MeshLambertMaterial) light.clouds.shade(m, 'light');
+    if (this.gear) ragdoll.setOutfit(outfitOf(this.gear));
+    seenFromAfar(ragdoll.object);
+    this.scene.add(ragdoll.object);
+    return (this.ragdoll = ragdoll);
+  }
+
   private newView(light: Lighting): void {
     if (!this.gear || !this.main) return;
     this.disposeView();
+    this.jumped = true;
     this.view = new RigView(this.main.rig, CANOPY_COLORS[this.gear.color].cells, light);
     this.view.object.visible = false;
     seenFromAfar(this.view.object);
@@ -193,6 +290,7 @@ export class RemoteJumper {
     const suit = suitOf(this.gear);
     this.view?.body.setSuit(suit, wingColor(this.gear.color));
     this.view?.setOutfit(outfitOf(this.gear));
+    this.ragdoll?.setOutfit(outfitOf(this.gear));
     this.posture.wings = hasWings(suit) ? suit.level : null;
   }
 
@@ -225,7 +323,9 @@ export class RemoteJumper {
     if (!aboard && this.smokeLitAt === null) this.smokeLitAt = f.now;
     const burning = this.smokeLitAt !== null && f.now - this.smokeLitAt < SMOKE_BURN * 1000;
     this.smokeVel.set(s.vel.x, s.vel.y, s.vel.z);
-    this.smoke.update(f.dt, burning ? view.body.smokePoint(this.smokeFrom) : null, this.smokeVel, f.wind);
+    // From the foot thrown about by a crash, or the body's own.
+    const from = s.hasJoints ? this.smokeFrom.fromArray(s.joints, 3 * J.footR) : view.body.smokePoint(this.smokeFrom);
+    this.smoke.update(f.dt, burning ? from : null, this.smokeVel, f.wind);
   }
 
   /**

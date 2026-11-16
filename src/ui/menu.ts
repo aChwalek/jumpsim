@@ -1,12 +1,17 @@
-// The menu. On the left, the jump summed up in five lines (drop zone, gear,
-// jump, team, weather); each opens its own screen to change it. On the right,
-// always there: the drop zone and the height, the jumper and the others ready
-// to board in front of their plane (crewView.ts), and the button to jump.
-// While the drop zone or the weather is being changed, the drop zone from
-// above with the pattern and jump run takes the jumpers' place (dzMap.ts).
-// The corner holds the language, the logbook and the settings. Everything
-// can be reached with the mouse, the keyboard or a gamepad (see nav.ts).
-// What changes the scenery is shown at once behind the menu.
+// The menu. It opens on the title screen: the name in the middle, under it on
+// the left what to do (jump, the leaderboard, the logbook, the settings), on
+// the right who is jumping and the way to sign in, over the drop zone turning
+// slowly below. Jump leads to the jump being set up ('home'): on the left,
+// the jump summed up in five lines (drop zone, gear, jump, team, weather);
+// each opens its own screen to change it. On the right, always there: the
+// drop zone and the height, the jumper and the others ready to board in front
+// of their plane (crewView.ts), and the button to jump. While the drop zone or
+// the weather is being changed, the drop zone from above with the pattern and
+// jump run takes the jumpers' place (dzMap.ts). The corner holds the
+// language, the leaderboard, the logbook and the settings. Escape in flight
+// comes back to the jump's setup, not to the title. Everything can be reached
+// with the mouse, the keyboard or a gamepad (see nav.ts). What changes the
+// scenery is shown at once behind the menu.
 //
 // Every word comes from the dictionary of the language in use (../i18n):
 // changing the language builds the screens again.
@@ -112,8 +117,10 @@ export type { Start } from '../setup';
 const swoopDistance = (m: number): string => m < 1 ? `${num(m * 100)} cm` : `${num(m, 2)} m`;
 
 type Category = 'dz' | 'gear' | 'jump' | 'team' | 'weather';
-type ScreenId = 'home' | Category | 'settings' | 'logbook' | 'leaderboard' | 'profile';
+type ScreenId = 'title' | 'home' | Category | 'settings' | 'logbook' | 'leaderboard' | 'profile';
 type CornerScreen = 'settings' | 'logbook' | 'leaderboard';
+/** The screens the leaderboard, the logbook, the settings and the profile are opened from, and go back to. */
+type Origin = 'title' | 'home';
 
 const CATEGORIES: { id: Category; icon: string }[] = [
   { id: 'dz', icon: ICON_DZ },
@@ -356,7 +363,13 @@ export class Menu {
   private updaters: (() => void)[] = [];
   /** What shows the time to the next load: redrawn while it counts down. */
   private ticking: (() => void)[] = [];
-  private screen: ScreenId = 'home';
+  private screen: ScreenId = 'title';
+  /** Where the leaderboard, the logbook, the settings and the profile go back to: the screen last shown of the two. */
+  private origin: Origin = 'title';
+  /** On the title screen: what is focused coming back from each screen, and by default. */
+  private readonly titleFocus = new Map<ScreenId, HTMLElement>();
+  private titleJump!: HTMLElement;
+  private titleResume!: HTMLElement;
   private canCancel = false;
   private panel!: HTMLElement;
   private resume!: HTMLButtonElement;
@@ -381,7 +394,6 @@ export class Menu {
   private places: Place[] | null | undefined = undefined;
   /** From the logbook, read again when the menu opens: for the profile. */
   private profileStats = { jumps: 0, bestScore: null as number | null };
-  private profileLine!: HTMLButtonElement;
   private profileBody!: HTMLElement;
   /** On each drop zone's card, its best accuracy score. */
   private readonly dzRecords = new Map<DzId, HTMLElement>();
@@ -405,7 +417,8 @@ export class Menu {
       root,
       {
         back: () => this.back(),
-        start: () => this.go(),
+        // On the title screen, Start goes to the jump's setup: once more there jumps.
+        start: () => (this.screen === 'title' ? this.show('home') : this.go()),
         tab: (step) => this.tab(step),
         shortcut: (b) => this.toggleScreen(b === 'x' ? 'logbook' : 'settings'),
       },
@@ -417,7 +430,12 @@ export class Menu {
     window.setInterval(() => {
       if (this.isOpen && this.room?.loadAt) for (const tick of this.ticking) tick();
     }, TICK_MS);
-    this.show('home');
+    this.show('title');
+  }
+
+  /** Open on the title screen: the scenery behind it is the drop zone seen from a circle round it. */
+  get titleShown(): boolean {
+    return this.isOpen && this.screen === 'title';
   }
 
   /** The setup as it stands in the menu. */
@@ -425,8 +443,12 @@ export class Menu {
     return cloneSetup(this.setup);
   }
 
-  /** `canCancel`: a jump is under way and can be resumed. `screen`: back to the logbook, after watching a jump of it. */
-  open(canCancel: boolean, screen: 'home' | 'logbook' = 'home'): void {
+  /**
+   * `canCancel`: a jump is under way and can be resumed. `screen`: the title
+   * screen on arriving, the jump's setup from a jump, the logbook after
+   * watching a jump of it.
+   */
+  open(canCancel: boolean, screen: 'title' | 'home' | 'logbook' = 'home'): void {
     this.setResumable(canCancel);
     this.isOpen = true;
     this.root.style.display = 'grid';
@@ -434,7 +456,8 @@ export class Menu {
     // A jump may have gone in the logbook, and up the boards, since last time.
     this.readStats();
     this.readPlaces();
-    if (screen !== 'logbook') return this.show('home', canCancel ? this.resume : this.jump);
+    if (screen === 'title') return this.show('title', canCancel ? this.titleResume : this.titleJump);
+    if (screen === 'home') return this.show('home', canCancel ? this.resume : this.jump);
     this.show('logbook');
     // Back on the line of the jump just watched.
     const row = this.watched ? this.logbookBody.querySelector<HTMLElement>(`[data-track="${this.watched}"]`) : null;
@@ -501,6 +524,8 @@ export class Menu {
   /** Whether signing in with Google is offered. */
   setGoogle(offered: boolean): void {
     this.google = offered;
+    // The title screen's sign-in button comes, or goes.
+    this.refresh();
     if (this.screen === 'profile') this.fillProfile();
   }
 
@@ -631,13 +656,12 @@ export class Menu {
     this.screens.set('leaderboard', this.buildLeaderboard());
     this.screens.set('profile', this.buildProfile());
     for (const s of this.screens.values()) this.panel.append(s);
+    // The title screen covers the whole menu, not the panel.
+    const title = this.buildTitle();
+    this.screens.set('title', title);
 
     const corner = h('div', 'menu-corner');
-    this.cornerLanguage = button('corner-btn lang');
-    this.cornerLanguage.innerHTML = `${ICON_GLOBE}${LANGS.map((l) => `<span class="lang-opt${l === lang ? ' on' : ''}">${l.toUpperCase()}</span>`).join('')}`;
-    this.cornerLanguage.title = T.menu.languageTitle;
-    this.cornerLanguage.dataset.key = 'lang';
-    this.cornerLanguage.addEventListener('click', () => this.setLanguage(LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length]!));
+    this.cornerLanguage = this.languageButton('lang');
     this.cornerBoard = button('corner-btn');
     this.cornerLogbook = button('corner-btn');
     this.cornerSettings = button('corner-btn');
@@ -658,7 +682,27 @@ export class Menu {
       this.nav.add(this.cornerSettings),
     );
     const brand = html(`<header class="menu-brand"><div><h1><img src="${import.meta.env.BASE_URL}brand/lowpull.svg" width="156" height="52" alt="Lowpull" /></h1><p>${T.menu.tagline}</p></div></header>`);
-    this.root.replaceChildren(brand, this.panel, this.buildSide(), corner);
+    this.root.replaceChildren(brand, this.panel, this.buildSide(), corner, title);
+  }
+
+  /** The language pill: FR and EN, the one in use lit; a click takes the next. */
+  private languageButton(key: string): HTMLButtonElement {
+    const b = button('corner-btn lang');
+    b.innerHTML = `${ICON_GLOBE}${LANGS.map((l) => `<span class="lang-opt${l === lang ? ' on' : ''}">${l.toUpperCase()}</span>`).join('')}`;
+    b.title = T.menu.languageTitle;
+    b.dataset.key = key;
+    b.addEventListener('click', () => this.setLanguage(LANGS[(LANGS.indexOf(lang) + 1) % LANGS.length]!));
+    return b;
+  }
+
+  /** Where the jump starts and how high, as the right side's head and the title screen's Jump say it. */
+  private where(): { metres: number; what: string } {
+    const info = dzInfo(this.setup.dz);
+    const { start, exitHeight } = this.setup.jump;
+    const j = T.menu.jump;
+    if (start === 'plane') return { metres: exitHeight, what: j.aircraftNames[aircraftOf(this.setup)] };
+    if (start === 'base') return { metres: info.base?.height ?? 0, what: j.starts.base };
+    return { metres: start === 'pattern' ? info.starts.pattern : info.starts.final, what: j.starts[start] };
   }
 
   /**
@@ -671,15 +715,8 @@ export class Menu {
     const head = h('header', 'side-head', name, height);
     this.updaters.push(() => {
       const info = dzInfo(this.setup.dz);
-      const { start, exitHeight } = this.setup.jump;
-      const j = T.menu.jump;
       name.innerHTML = `<span>${info.name}</span>${info.icao ? `<small class="chip">${info.icao}</small>` : ''}`;
-      const [metres, what] =
-        start === 'plane'
-          ? [exitHeight, j.aircraftNames[aircraftOf(this.setup)]]
-          : start === 'base'
-            ? [info.base?.height ?? 0, j.starts.base]
-            : [start === 'pattern' ? info.starts.pattern : info.starts.final, j.starts[start]];
+      const { metres, what } = this.where();
       height.innerHTML = `<b>${num(metres)}</b><span class="unit">m</span><span class="what">${what}</span>`;
     });
 
@@ -733,12 +770,14 @@ export class Menu {
     if (this.isShut(id)) return;
     const from = this.screen;
     this.screen = id;
+    if (id === 'title' || id === 'home') this.origin = id;
     for (const [key, el] of this.screens) el.hidden = key !== id;
     this.root.dataset.screen = id;
     const map = WITH_MAP.has(id);
     this.map.setShown(map);
     this.stage.classList.toggle('with-map', map);
-    this.crew.setActive(this.isOpen && !map);
+    // The title screen has no jumpers on show: no need to draw them.
+    this.crew.setActive(this.isOpen && !map && id !== 'title');
     this.cornerSettings.classList.toggle('on', id === 'settings');
     this.cornerLogbook.classList.toggle('on', id === 'logbook');
     this.cornerBoard.classList.toggle('on', id === 'leaderboard');
@@ -754,24 +793,39 @@ export class Menu {
     const screen = this.screens.get(id)!;
     screen.querySelector('.body')?.scrollTo(0, 0);
     let target = focus ?? null;
+    if (!target && id === 'title') {
+      // Back on the title screen, the focus goes back to what opened the screen just left.
+      target = this.titleFocus.get(from) ?? (this.canCancel ? this.titleResume : this.titleJump);
+    }
     if (!target && id === 'home') {
       // Back home, the focus goes back to where the screen just left was opened from.
       const opener =
         from === 'settings' ? this.cornerSettings : from === 'logbook' ? this.cornerLogbook : from === 'leaderboard' ? this.cornerBoard : null;
-      target = this.lines.get(from as Category) ?? opener ?? (from === 'profile' ? this.profileLine : null) ?? (this.canCancel ? this.resume : this.jump);
+      target = this.lines.get(from as Category) ?? opener ?? (this.canCancel ? this.resume : this.jump);
     }
     // Elsewhere it goes to the first line, not to the back button.
     target ??= screen.querySelector<HTMLElement>('.body [data-nav]:not(.disabled)');
     this.nav.setScreen(screen, target);
   }
 
+  /**
+   * Escape or B. On the title screen, and on the jump's setup during a jump,
+   * back to the jump; the setup otherwise goes back to the title screen.
+   */
   private back(): void {
-    if (this.screen === 'home') this.cancel();
-    else this.show('home');
+    if (this.screen === 'title' || (this.screen === 'home' && this.canCancel)) this.cancel();
+    else this.show(this.parent(this.screen));
+  }
+
+  /** Where a screen's back button leads. */
+  private parent(id: ScreenId): ScreenId {
+    if (id === 'home') return 'title';
+    if (CATEGORIES.some((c) => c.id === id)) return 'home';
+    return this.origin;
   }
 
   private toggleScreen(id: CornerScreen): void {
-    this.show(this.screen === id ? 'home' : id);
+    this.show(this.screen === id ? this.origin : id);
   }
 
   /** The category before or after, from a category screen. */
@@ -1002,7 +1056,7 @@ export class Menu {
     const bar = h('header', 'screen-bar');
     const back = button('back');
     back.innerHTML = `${ICON_BACK}<span>${T.menu.back}</span>`;
-    back.addEventListener('click', () => this.show('home'));
+    back.addEventListener('click', () => this.show(this.parent(id)));
     bar.append(this.nav.add(back));
     if (title) bar.append(h('h2', 'title', title));
     else {
@@ -1036,41 +1090,105 @@ export class Menu {
     return h('span', `avatar ${cls}`, letter);
   }
 
-  /** How the player stands, in a line: guest or signed in, jumps, best score, best place. */
-  private profileSummary(): string {
+  /**
+   * The title screen: the name in the middle; under it, on the left, what to
+   * do, and on the right who is jumping, with the way to sign in.
+   */
+  private buildTitle(): HTMLElement {
+    const t = T.menu.title;
     const p = T.menu.profile;
-    const { jumps, bestScore } = this.profileStats;
-    const best = this.places?.[0];
-    return [
-      this.account && !this.account.anonymous ? p.google : p.guest,
-      p.jumps(jumps),
-      bestScore === null ? '' : p.record(num(bestScore)),
-      best ? p.place(T.ordinal(best.rank), dzInfo(best.dz).name) : '',
-    ]
-      .filter(Boolean)
-      .join(' · ');
-  }
+    this.titleFocus.clear();
 
-  /** At the top of the home: who is jumping. To the profile. */
-  private buildProfileLine(): HTMLButtonElement {
-    const p = T.menu.profile;
-    const label = html(`<span class="line-label">${ICON_USER}<span>${p.line}</span></span>`);
-    const big = h('span', 'big');
-    const sub = h('span', 'sub');
-    const main = h('span', 'line-main', big, sub);
-    const aside = h('span', 'line-aside', this.avatar('small'));
+    const top = h('div', 'title-top', this.nav.add(this.languageButton('title-lang')));
+    const brand = html(
+      `<header class="title-brand"><h1><img src="${import.meta.env.BASE_URL}brand/lowpull.svg" width="436" height="145" alt="Lowpull" /></h1><p>${T.menu.tagline}</p></header>`,
+    );
+
+    /** A line of the title's menu: an icon, a word, and a line under it. */
+    const item = (key: string, icon: string, label: string, act: () => void, o: { cls?: string; pad?: string } = {}): { el: HTMLButtonElement; sub: HTMLElement } => {
+      const sub = h('small', 'title-sub');
+      const el = button(`title-item ${o.cls ?? ''}`, html(`<span class="title-icon">${icon}</span>`), h('span', 'title-text', h('span', 'title-label', label), sub));
+      if (o.pad) el.append(html(`<i class="btn pad">${o.pad}</i>`));
+      el.dataset.key = key;
+      el.addEventListener('click', act);
+      return { el: this.nav.add(el), sub };
+    };
+    const resume = item('title-resume', ICON_PLAY, t.resume, () => this.cancel(), { cls: 'title-resume', pad: 'B' });
+    const jump = item('title-jump', ICON_PLANE, t.jump, () => this.show('home'), { cls: 'primary', pad: 'Start' });
+    const board = item('title-board', ICON_TROPHY, t.board, () => this.show('leaderboard'));
+    const logbook = item('title-logbook', ICON_BOOK, t.logbook, () => this.show('logbook'), { pad: 'X' });
+    const settings = item('title-settings', ICON_COG, t.settings, () => this.show('settings'), { pad: 'Y' });
+    settings.sub.textContent = t.settingsSub;
+    this.titleJump = jump.el;
+    this.titleResume = resume.el;
+    this.titleFocus.set('home', jump.el);
+    this.titleFocus.set('leaderboard', board.el);
+    this.titleFocus.set('logbook', logbook.el);
+    this.titleFocus.set('settings', settings.el);
+    this.updaters.push(() => {
+      const { metres, what } = this.where();
+      jump.sub.textContent = t.jumpSub(dzInfo(this.setup.dz).name, num(metres), what);
+      const best = this.places?.[0];
+      board.sub.textContent = best ? t.boardPlace(T.ordinal(best.rank), dzInfo(best.dz).name) : t.boardSub;
+      logbook.sub.textContent = t.logbookSub(this.profileStats.jumps);
+    });
+    const menu = h('nav', 'title-menu', resume.el, jump.el, board.el, logbook.el, settings.el);
+
+    // Who is jumping: to the profile; under it, their numbers, and signing in for a guest.
+    const name = h('b', 'pilot-name');
+    const status = h('span', 'pilot-status');
     const more = h('span', 'line-more');
     more.innerHTML = ICON_MORE;
-    const line = button('line line-profile', label, main, aside, more);
-    line.dataset.key = 'line-profile';
-    line.addEventListener('click', () => this.show('profile'));
+    const head = button('pilot-head', this.avatar('big'), h('span', 'pilot-who', name, status), more);
+    head.dataset.key = 'title-profile';
+    head.title = t.profile;
+    head.addEventListener('click', () => this.show('profile'));
+    this.titleFocus.set('profile', head);
+    const tile = (label: string): { el: HTMLElement; value: HTMLElement; label: HTMLElement } => {
+      const value = h('b');
+      const caption = h('span', '', label);
+      return { el: h('div', 'tile', value, caption), value, label: caption };
+    };
+    const jumps = tile('');
+    const record = tile(p.recordTile);
+    const place = tile(p.bestPlaceTile);
+    const signIn = button('pilot-signin', p.signIn);
+    signIn.dataset.key = 'title-signin';
+    signIn.addEventListener('click', () => this.onSignIn());
+    const note = h('p', 'pilot-note', p.signInNote);
     this.updaters.push(() => {
       // The name is the player's own: text, not markup.
-      big.textContent = this.settings.playerName || T.menu.room.defaultName;
-      sub.textContent = this.profileSummary();
+      name.textContent = this.settings.playerName || T.menu.room.defaultName;
+      const signedIn = !!this.account && !this.account.anonymous;
+      status.textContent = signedIn ? p.google : p.guest;
+      const { jumps: n, bestScore } = this.profileStats;
+      jumps.value.textContent = num(n);
+      jumps.label.textContent = p.jumpsTile(n);
+      record.value.textContent = bestScore === null ? '—' : num(bestScore);
+      const best = this.places?.[0];
+      place.value.textContent = best ? T.ordinal(best.rank) : '—';
+      signIn.hidden = note.hidden = signedIn || !this.google;
     });
-    this.profileLine = line;
-    return line;
+    const pilot = h(
+      'aside',
+      'title-pilot',
+      html(`<span class="pilot-label">${ICON_USER}<span>${p.line}</span></span>`),
+      this.nav.add(head),
+      h('div', 'pilot-tiles', jumps.el, record.el, place.el),
+      this.nav.add(signIn),
+      note,
+    );
+
+    const m = T.menu.hints;
+    const screen = h(
+      'section',
+      'title-screen',
+      top,
+      brand,
+      h('div', 'title-row', menu, pilot),
+      hints(`${m.title}<span class="resume-hint">${m.titleResume}</span>`, `${m.titlePad}<span class="resume-hint">${m.titlePadResume}</span>`),
+    );
+    return screen;
   }
 
   /** The profile: name, account, numbers, places on the boards. */
@@ -1149,10 +1267,16 @@ export class Menu {
     if (first) this.nav.focus(first, false);
   }
 
+  /** The jump being set up: back to the title screen, then a line for each part of it. */
   private buildHome(): HTMLElement {
     const screen = h('section', 'screen screen-home');
+    const bar = h('header', 'screen-bar');
+    const back = button('back');
+    back.innerHTML = `${ICON_BACK}<span>${T.menu.toTitle}</span>`;
+    back.dataset.key = 'home-back';
+    back.addEventListener('click', () => this.show('title'));
+    bar.append(this.nav.add(back), h('h2', 'title', T.menu.prep));
     const list = h('div', 'lines');
-    list.append(this.nav.add(this.buildProfileLine()));
     for (const c of CATEGORIES) {
       const label = html(`<span class="line-label">${c.icon}<span>${T.menu.lines[c.id]}</span></span>`);
       const main = h('span', 'line-main');
@@ -1188,10 +1312,11 @@ export class Menu {
     }
     const m = T.menu.hints;
     screen.append(
+      bar,
       list,
       hints(
-        `${m.home}<span class="resume-hint">${m.homeResume}</span>`,
-        `${m.homePad}<span class="resume-hint">${m.homePadResume}</span>${m.homePadMore}`,
+        `${m.home}<span class="resume-hint">${m.homeResume}</span><span class="title-hint">${m.homeBack}</span>`,
+        `${m.homePad}<span class="resume-hint">${m.homePadResume}</span><span class="title-hint">${m.homePadBack}</span>${m.homePadMore}`,
       ),
     );
     return screen;

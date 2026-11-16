@@ -59,6 +59,7 @@
 #menu.pad span.pad { display: inline; }
 #menu .resume-hint { display: none; }
 #menu.resumable .resume-hint { display: inline; }
+#menu.resumable .title-hint { display: none; }
 
 @keyframes menu-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes menu-spin { to { transform: rotate(360deg); } }
@@ -113,6 +114,93 @@
 #menu .corner-btn.lang .icon { margin-right: 4px; }
 #menu .lang-opt { padding: 2px 7px; border-radius: 12px; font: 700 12px/1.3 var(--body); letter-spacing: 0.06em; color: var(--faint); }
 #menu .lang-opt.on { background: var(--accent); color: var(--ink); }
+
+/* ------------------------------------------------------------ the title screen: the first thing seen */
+
+/* Alone over the scenery: the rest of the menu waits. Darker at the top for the name, at the foot for the hints. */
+#menu[data-screen='title'] > :not(.title-screen) { display: none; }
+#menu[data-screen='title'] {
+  background:
+    radial-gradient(ellipse 75% 65% at 50% 48%, rgba(33, 26, 47, 0) 45%, rgba(33, 26, 47, 0.5)),
+    linear-gradient(180deg, rgba(33, 26, 47, 0.5), rgba(33, 26, 47, 0.08) 34%, rgba(33, 26, 47, 0.12) 64%, rgba(33, 26, 47, 0.62));
+}
+#menu .title-screen {
+  grid-area: 1 / 1 / -1 / -1; position: relative; min-height: 0; overflow-y: auto; scrollbar-width: none;
+  display: flex; flex-direction: column; align-items: center; gap: clamp(22px, 5.5vh, 60px);
+  padding: 8px 0 34px; animation: menu-in 0.3s ease-out;
+}
+#menu .title-top { position: absolute; top: 0; right: 0; z-index: 1; }
+/* Centred when there is room, from the top when there is not. */
+#menu .title-brand { margin-top: auto; text-align: center; }
+#menu .title-brand h1 { margin: 0; line-height: 1; }
+#menu .title-brand img { display: block; width: clamp(220px, 30vw, 440px); height: auto; margin: 0 auto; filter: drop-shadow(0 4px 22px rgba(33, 26, 47, 0.6)); }
+#menu .title-brand p {
+  margin: 12px 0 0; font: 600 clamp(11px, 1.1vw, 14px)/1 var(--body); letter-spacing: 0.3em; text-transform: uppercase;
+  color: var(--text); text-shadow: 0 1px 10px rgba(33, 26, 47, 0.8);
+}
+#menu .title-row { margin-bottom: auto; width: min(100%, 1000px); display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+
+/* What to do: big words, the jump first and lit. */
+#menu .title-menu { display: flex; flex-direction: column; gap: 8px; width: min(100%, 390px); }
+#menu .title-item {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; column-gap: 14px;
+  min-height: 62px; padding: 8px 16px; text-align: left; border-radius: 14px;
+  background: rgba(33, 26, 47, 0.86); border-color: var(--line);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+#menu .title-item:hover, #menu .title-item.focus { background: rgba(49, 39, 64, 0.95); border-color: var(--accent-line); }
+#menu .title-item.focus { box-shadow: inset 3px 0 0 var(--accent), 0 10px 30px rgba(0, 0, 0, 0.25); }
+#menu .title-icon { display: flex; color: var(--accent); }
+#menu .title-icon .icon { width: 24px; height: 24px; }
+#menu .title-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+#menu .title-label { font: 700 25px/1 var(--display); letter-spacing: 0.13em; text-transform: uppercase; }
+#menu .title-sub { font-size: 12.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#menu .title-item.primary {
+  min-height: 80px; background: var(--accent); color: var(--ink); border-color: var(--accent);
+  box-shadow: 0 12px 34px rgba(255, 213, 107, 0.2);
+}
+#menu .title-item.primary:hover { background: var(--accent-hi); }
+#menu .title-item.primary.focus { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--accent), 0 12px 34px rgba(255, 205, 50, 0.32); }
+#menu .title-item.primary .title-icon { color: var(--ink); }
+#menu .title-item.primary .title-icon .icon { width: 28px; height: 28px; stroke-width: 1.8; }
+#menu .title-item.primary .title-label { font-size: 36px; }
+#menu .title-item.primary .title-sub { color: rgba(33, 26, 47, 0.75); font-weight: 600; }
+#menu .title-item.primary .btn { background: rgba(0, 0, 0, 0.12); border-color: rgba(0, 0, 0, 0.25); color: var(--ink); }
+#menu .title-resume { display: none; }
+#menu.resumable .title-resume { display: grid; }
+
+/* Who is jumping, on a card like the setup's panel. */
+#menu .title-pilot {
+  position: relative; width: min(100%, 340px); box-sizing: border-box; padding: 16px 14px 14px; border-radius: 14px;
+  background: var(--glass); border: 1px solid var(--line);
+  backdrop-filter: blur(16px) saturate(1.15); -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+#menu .title-pilot::before { content: ''; position: absolute; top: 0; left: 14px; right: 14px; height: 3px; background: var(--sunset); }
+#menu .pilot-label {
+  display: flex; align-items: center; gap: 9px; margin: 0 4px 8px; color: var(--accent);
+  font: 700 14px/1 var(--display); letter-spacing: 0.15em;
+}
+#menu .pilot-label .icon { width: 17px; height: 17px; }
+#menu .pilot-head {
+  width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) 16px; align-items: center; column-gap: 14px;
+  padding: 8px 8px; text-align: left; border-radius: 12px; background: none; border-color: transparent;
+}
+#menu .pilot-head:hover, #menu .pilot-head.focus { background: var(--tile-hi); border-color: var(--accent-line); }
+#menu .pilot-head.focus { box-shadow: inset 3px 0 0 var(--accent); }
+#menu .pilot-head:hover .line-more, #menu .pilot-head.focus .line-more { color: var(--accent); }
+#menu .pilot-who { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+#menu .pilot-name { font: 600 28px/1 var(--display); color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#menu .pilot-status { font-size: 13px; color: var(--dim); }
+#menu .pilot-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+#menu .pilot-tiles .tile { padding: 8px 10px; }
+#menu .pilot-tiles .tile b { font-size: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#menu .pilot-tiles .tile span { font-size: 11.5px; }
+#menu .pilot-signin { width: 100%; margin-top: 12px; padding: 11px 0; border-radius: 10px; font-weight: 600; background: #fff; color: #1f1f1f; border-color: #fff; }
+#menu .pilot-signin:hover { background: #ececec; }
+#menu .pilot-signin.focus { box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--accent); }
+#menu .pilot-note { margin: 8px 4px 0; font-size: 12px; color: var(--dim); }
+#menu .title-screen .hints { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; color: var(--dim); text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7); }
 
 /* ------------------------------------------------------------ home: the jump, line by line */
 
@@ -500,9 +588,6 @@
 
 /* ------------------------------------------------------------ the pilot: the home's first line, the profile */
 
-/* Who jumps, apart from what is jumped: a tile of its own above the others. */
-#menu .line-profile { margin-bottom: 6px; background: var(--tile); border-color: var(--line); }
-#menu .line-profile + .line::before { display: none; }
 #menu .avatar {
   position: relative; display: grid; place-items: center; flex: none; overflow: hidden; border-radius: 50%;
   background: linear-gradient(135deg, var(--accent), #f08a4a); color: var(--ink); font: 700 20px/1 var(--display);
@@ -673,3 +758,51 @@ html.sideways #menu .go .jump { min-height: 48px; padding: 8px 14px; }
 html.sideways #menu .go .jump .go-label { font-size: 23px; }
 html.sideways #menu .go .resume { padding: 8px 0; font-size: 14px; }
 html.sideways #menu .tabs .pad, html.sideways #menu .tabs span { display: none !important; }
+
+/* ------------------------------------------------------------ the title screen, on smaller screens */
+
+/* Narrow: what to do above who is jumping, both in the middle. */
+@media (max-width: 780px) {
+  html:not(.sideways) #menu .title-row { flex-direction: column; align-items: center; gap: 14px; }
+  html:not(.sideways) #menu .title-pilot { width: min(100%, 390px); }
+}
+@media (max-height: 760px) {
+  #menu .title-item { min-height: 54px; }
+  #menu .title-item.primary { min-height: 68px; }
+  #menu .title-item.primary .title-label { font-size: 31px; }
+}
+/* A phone on its side: little height, so a smaller name, no tagline, no tiles. */
+@media (max-height: 500px) and (orientation: landscape) {
+  #menu .title-screen { gap: 10px; padding: 0; }
+  #menu .title-brand img { width: 170px; }
+  #menu .title-brand p, #menu .title-screen .hints, #menu .pilot-tiles, #menu .pilot-note { display: none; }
+  #menu .title-row { gap: 12px; }
+  #menu .title-menu { gap: 6px; width: min(56%, 360px); }
+  #menu .title-item { min-height: 46px; padding: 5px 12px; column-gap: 10px; border-radius: 12px; }
+  #menu .title-item .title-label { font-size: 19px; }
+  #menu .title-item .title-sub { font-size: 11px; }
+  #menu .title-item.primary { min-height: 56px; }
+  #menu .title-item.primary .title-label { font-size: 25px; }
+  #menu .title-pilot { width: min(42%, 300px); padding: 12px 10px 10px; }
+  #menu .pilot-label { margin-bottom: 4px; font-size: 12.5px; }
+  #menu .pilot-head { padding: 6px; column-gap: 10px; }
+  #menu .pilot-head .avatar.big { width: 44px; height: 44px; font-size: 22px; }
+  #menu .pilot-name { font-size: 22px; }
+  #menu .pilot-signin { margin-top: 8px; padding: 9px 0; }
+}
+html.sideways #menu .title-screen { gap: 10px; padding: 0; }
+html.sideways #menu .title-brand img { width: 170px; }
+html.sideways #menu .title-brand p, html.sideways #menu .title-screen .hints, html.sideways #menu .pilot-tiles, html.sideways #menu .pilot-note { display: none; }
+html.sideways #menu .title-row { gap: 12px; }
+html.sideways #menu .title-menu { gap: 6px; width: min(56%, 360px); }
+html.sideways #menu .title-item { min-height: 46px; padding: 5px 12px; column-gap: 10px; border-radius: 12px; }
+html.sideways #menu .title-item .title-label { font-size: 19px; }
+html.sideways #menu .title-item .title-sub { font-size: 11px; }
+html.sideways #menu .title-item.primary { min-height: 56px; }
+html.sideways #menu .title-item.primary .title-label { font-size: 25px; }
+html.sideways #menu .title-pilot { width: min(42%, 300px); padding: 12px 10px 10px; }
+html.sideways #menu .pilot-label { margin-bottom: 4px; font-size: 12.5px; }
+html.sideways #menu .pilot-head { padding: 6px; column-gap: 10px; }
+html.sideways #menu .pilot-head .avatar.big { width: 44px; height: 44px; font-size: 22px; }
+html.sideways #menu .pilot-name { font-size: 22px; }
+html.sideways #menu .pilot-signin { margin-top: 8px; padding: 9px 0; }
