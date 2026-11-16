@@ -22,17 +22,20 @@
   "assets": {
     "directory": "./dist"
   },
-  // One Durable Object per room, and one for the accuracy leaderboard (/scores).
-  // SQLite-backed: the only kind on the Free plan.
+  // One Durable Object per room, one per drop zone to seat its public room's
+  // players in shards of 8 (Lobby), and one for the accuracy leaderboard
+  // (/scores). SQLite-backed: the only kind on the Free plan.
   "durable_objects": {
     "bindings": [
       { "name": "ROOMS", "class_name": "Room" },
+      { "name": "LOBBIES", "class_name": "Lobby" },
       { "name": "LEADERBOARD", "class_name": "Leaderboard" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Room"] },
-    { "tag": "v2", "new_sqlite_classes": ["Leaderboard"] }
+    { "tag": "v2", "new_sqlite_classes": ["Leaderboard"] },
+    { "tag": "v3", "new_sqlite_classes": ["Lobby"] }
   ],
   // The accounts (Better Auth, /api/auth): a database of their own, apart from
   // the game's, to be shared by whatever else comes under lowpull.app. Its
@@ -56,6 +59,7 @@
     "durable_objects": {
       "bindings": [
         { "name": "ROOMS", "class_name": "Room" },
+        { "name": "LOBBIES", "class_name": "Lobby" },
         { "name": "LEADERBOARD", "class_name": "Leaderboard" }
       ]
     },

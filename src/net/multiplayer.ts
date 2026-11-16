@@ -69,6 +69,8 @@ export interface RoomEvents {
   changed(): void;
   /** Someone at our drop zone left their plane. */
   exited(name: string): void;
+  /** Seated in another room than asked: the drop zone's public room was full, this is one opened past it. */
+  moved(room: string): void;
 }
 
 /** Who a player is, sent once on connecting and again when it changes. */
@@ -91,6 +93,8 @@ export function setRoomInUrl(room: string | null): void {
   else url.searchParams.delete('room');
   history.replaceState(history.state, '', url);
 }
+
+const signalUrl = (room: string): string => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/signal/${room}`;
 
 /** The address to give the others for a room. */
 export function roomLink(room: string): string {
@@ -174,15 +178,20 @@ export class Multiplayer {
   private loadTimer = 0;
   /** Which of the last load to leave we are, 0 the first: each has a place of their own in the plane. */
   seat = 0;
+  /** The room we are in: the one asked, or one of its drop zone's opened past it when full. */
+  private where: string;
+  /** Refused, the room full: we call back now and then. */
+  private refused = false;
 
   constructor(
-    readonly room: string,
+    room: string,
     private readonly scene: THREE.Scene,
     private readonly light: () => Lighting,
     name: string,
     private readonly events: RoomEvents,
   ) {
     this.name = cleanName(name);
+    this.where = room;
     const pinned = publicDz(room);
     this.isPublic = pinned !== null;
     this.onClock = pinned !== null && !dzInfo(pinned).base;
@@ -190,9 +199,15 @@ export class Multiplayer {
       this.loadSlot = nextLoad(this.serverNow());
       this.loadTimer = window.setInterval(() => this.rotate(), LOAD_CHECK_MS);
     }
-    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-    this.mesh = new Mesh(`${scheme}://${location.host}/signal/${room}`, '/turn', {
-      welcome: (you, peers) => {
+    this.mesh = new Mesh(signalUrl(room), '/turn', {
+      welcome: (you, peers, seated) => {
+        this.refused = false;
+        // Only ever to another of the same drop zone's: a private room is the one in the link.
+        if (seated && seated !== this.where && ROOM_NAME.test(seated) && pinned && publicDz(seated) === pinned) {
+          this.where = seated;
+          this.mesh.follow(signalUrl(seated));
+          this.events.moved(seated);
+        }
         // Told when we came in by the server's clock, a one-way trip ago: until it has answered the time.
         if (this.clockSamples.length === 0) this.clockOffset = you.joined - Date.now();
         this.loadSlot = nextLoad(this.serverNow());
@@ -213,7 +228,8 @@ export class Multiplayer {
         this.state.leave(id);
         this.leading();
       },
-      offline: () => {
+      offline: (full) => {
+        this.refused = full;
         this.state.players.clear();
         this.state.selfId = null;
         this.events.changed();
@@ -238,6 +254,16 @@ export class Multiplayer {
       time: (sent, now) => this.onTime(sent, now),
     });
     this.askLater();
+  }
+
+  /** The room we are in: the one asked, or one of its drop zone's opened past it when full. */
+  get room(): string {
+    return this.where;
+  }
+
+  /** Refused, the room having its MAX_PEERS: we call back now and then. */
+  get isFull(): boolean {
+    return this.refused;
   }
 
   /** The server's clock now, ms: the same for everyone in the room, to a few ms. */

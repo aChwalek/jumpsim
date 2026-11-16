@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
-import { MAX_PEERS, PUBLIC_PREFIX, ROOM_NAME, type ClientMessage, type Member, type ServerMessage } from '../src/net/protocol';
+import { FULL_CLOSE, MAX_PEERS, ROOM_NAME, type ClientMessage, type Member, type ServerMessage } from '../src/net/protocol';
+import { publicShard, seatOrder, shardName, type Shard, type ShardCount } from '../src/net/shards';
 import { PERF_BLOBS, PERF_DOUBLES, PERF_MAX_BYTES } from '../src/net/perfSchema';
 import {
   BOARD_DZS,
@@ -24,8 +25,10 @@ interface Secrets {
 /**
  * The static site, plus:
  *  - `/signal/<room>`: a WebSocket to the room's Durable Object, which
- *    introduces the browsers to each other;
- *  - `/players/<room>` (GET): how many are in a drop zone's public room;
+ *    introduces the browsers to each other; in a drop zone's public room,
+ *    to the first of its shards with room (its Lobby says which);
+ *  - `/players/<room>` (GET): how many are in a drop zone's public room, all
+ *    its shards together;
  *  - `/turn` (POST): short-lived credentials for Cloudflare's TURN relay;
  *  - `/perf` (POST): how the picture runs in a browser, to Analytics Engine;
  *  - `/api/auth/*`: accounts (Better Auth, see auth.ts); `/api/providers`
@@ -47,12 +50,62 @@ export default {
     if (!match) return new Response('Not found', { status: 404 });
     const room = match[2] ?? '';
     if (!ROOM_NAME.test(room)) return new Response('Bad room name', { status: 400 });
-    // Only the public rooms say who is in: the others are for those given the link.
-    const counting = match[1] === 'players';
-    if (counting && (request.method !== 'GET' || !room.startsWith(PUBLIC_PREFIX))) return new Response('Not found', { status: 404 });
-    return env.ROOMS.get(env.ROOMS.idFromName(room)).fetch(request);
+    const shard = publicShard(room);
+    if (match[1] === 'players') {
+      // Only the public rooms say who is in: the others are for those given the link.
+      if (request.method !== 'GET' || !shard) return new Response('Not found', { status: 404 });
+      return json({ players: await lobby(env, shard).players(shard.base) });
+    }
+    if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
+    const response = await (shard ? seat(request, env, shard) : enter(request, env, room));
+    return response.status === 409 ? full() : response;
   },
 } satisfies ExportedHandler<Env>;
+
+/** Says to the Room which room it is: it does not know its own name. */
+const ROOM_HEADER = 'X-Room';
+
+/** Into a room's Durable Object; one with MAX_PEERS answers 409. */
+function enter(request: Request, env: Env, room: string): Promise<Response> {
+  const headers = new Headers(request.headers);
+  headers.set(ROOM_HEADER, room);
+  return env.ROOMS.get(env.ROOMS.idFromName(room)).fetch(new Request(request, { headers }));
+}
+
+const lobby = (env: Env, shard: Shard) => env.LOBBIES.get(env.LOBBIES.idFromName(shard.base));
+
+/**
+ * Into a drop zone's public room: the shard asked if it has room, or another
+ * the Lobby says has, or a new one. Each Room takes or refuses on its own, one
+ * at a time: two coming in together cannot both take its last place.
+ */
+async function seat(request: Request, env: Env, shard: Shard): Promise<Response> {
+  let order: number[];
+  try {
+    order = await lobby(env, shard).seats(shard.base, shard.n);
+  } catch {
+    // No Lobby: the one asked, as before there were several.
+    order = [shard.n];
+  }
+  let response = new Response('Room full', { status: 409 });
+  for (const n of order) {
+    response = await enter(request, env, shardName(shard.base, n));
+    if (response.status !== 409) break;
+  }
+  return response;
+}
+
+/**
+ * The room has MAX_PEERS: a socket closed at once with FULL_CLOSE, for the
+ * page to say so and call back later. Refused before the socket opens, the
+ * browser would only see that it failed, as when the network is down.
+ */
+function full(): Response {
+  const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
+  server.accept();
+  server.close(FULL_CLOSE, 'Room full');
+  return new Response(null, { status: 101, webSocket: client });
+}
 
 /** How long TURN credentials last, s: longer than anyone stays in a room. */
 const TURN_TTL = 24 * 3600;
@@ -170,18 +223,27 @@ async function scores(request: Request, url: URL, env: Env & AuthSecrets): Promi
  */
 export class Room extends DurableObject<Env> {
   override async fetch(request: Request): Promise<Response> {
-    if (new URL(request.url).pathname.startsWith('/players/')) return json({ players: this.ctx.getWebSockets().length });
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
+    const room = request.headers.get(ROOM_HEADER) ?? '';
     const others = this.ctx.getWebSockets();
-    if (others.length >= MAX_PEERS) return new Response('Room full', { status: 403 });
+    if (others.length >= MAX_PEERS) {
+      this.tell(room, others.length);
+      return new Response('Room full', { status: 409 });
+    }
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
     const you: Member = { id: crypto.randomUUID().slice(0, 8), joined: Date.now() };
     // Tagged with its id, to find it again when a message is for it.
     this.ctx.acceptWebSocket(server, [you.id]);
-    server.serializeAttachment(you);
-    send(server, { type: 'welcome', you, peers: others.map(member) });
+    server.serializeAttachment({ ...you, room } satisfies Seat);
+    send(server, { type: 'welcome', you, peers: others.map(member), room });
     for (const ws of others) send(ws, { type: 'join', member: you });
+    this.tell(room, others.length + 1);
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /** How many are in: for the Lobby, when what it knew is old. */
+  players(): number {
+    return this.ctx.getWebSockets().length;
   }
 
   override async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
@@ -212,17 +274,92 @@ export class Room extends DurableObject<Env> {
   }
 
   private left(ws: WebSocket): void {
-    const { id } = member(ws);
-    for (const other of this.ctx.getWebSockets()) if (other !== ws) send(other, { type: 'leave', id });
+    const { id, room } = ws.deserializeAttachment() as Seat;
+    const others = this.ctx.getWebSockets().filter((other) => other !== ws);
+    for (const other of others) send(other, { type: 'leave', id });
     try {
       ws.close();
     } catch {
       // Already closed.
     }
+    this.tell(room, others.length);
+  }
+
+  /** In a drop zone's public room: tells its Lobby how many are in this one now. */
+  private tell(room: string | undefined, players: number): void {
+    const shard = room ? publicShard(room) : null;
+    if (!shard) return;
+    const told = Promise.resolve(lobby(this.env, shard).report(shard.n, players)).catch(() => {
+      // It asks again when what it knows gets old.
+    });
+    this.ctx.waitUntil(told);
   }
 }
 
-const member = (ws: WebSocket): Member => ws.deserializeAttachment() as Member;
+/** What each socket keeps through hibernation: who it is, and which room it came in by (none before the shards). */
+type Seat = Member & { room?: string };
+
+const member = (ws: WebSocket): Member => {
+  const { id, joined } = ws.deserializeAttachment() as Seat;
+  return { id, joined };
+};
+
+/** What a Lobby knows of a shard older than this is asked again, ms: a Room restarted (a deploy) does not say it emptied. */
+const LOBBY_STALE_MS = 60_000;
+
+/**
+ * A drop zone's public room, past MAX_PEERS: how many are in each of its
+ * shards, as they say on every coming and going, to seat whoever comes in and
+ * count them all. Only the shards with someone in are kept.
+ */
+export class Lobby extends DurableObject<Env> {
+  private readonly sql: SqlStorage;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+    this.sql.exec('CREATE TABLE IF NOT EXISTS shards (n INTEGER PRIMARY KEY, players INTEGER NOT NULL, at INTEGER NOT NULL)');
+  }
+
+  /** The shards of `base` to try, in order, for someone who asked for shard `want`. */
+  async seats(base: string, want: number): Promise<number[]> {
+    return seatOrder(await this.counts(base), want);
+  }
+
+  /** Everyone in `base`'s shards. */
+  async players(base: string): Promise<number> {
+    return (await this.counts(base)).reduce((sum, s) => sum + s.players, 0);
+  }
+
+  /** From a shard: how many are in it now. */
+  report(n: number, players: number): void {
+    if (players > 0) {
+      this.sql.exec(
+        'INSERT INTO shards (n, players, at) VALUES (?, ?, ?) ON CONFLICT (n) DO UPDATE SET players = excluded.players, at = excluded.at',
+        n,
+        players,
+        Date.now(),
+      );
+    } else {
+      this.sql.exec('DELETE FROM shards WHERE n = ?', n);
+    }
+  }
+
+  /** How many are in each shard, those not heard of for a while asked again first. */
+  private async counts(base: string): Promise<ShardCount[]> {
+    const old = this.sql.exec<{ n: number }>('SELECT n FROM shards WHERE at < ?', Date.now() - LOBBY_STALE_MS).toArray();
+    await Promise.all(
+      old.map(async ({ n }) => {
+        try {
+          this.report(n, await this.env.ROOMS.get(this.env.ROOMS.idFromName(shardName(base, n))).players());
+        } catch {
+          // Kept as it was: asked again next time.
+        }
+      }),
+    );
+    return this.sql.exec<{ n: number; players: number }>('SELECT n, players FROM shards').toArray();
+  }
+}
 
 function send(ws: WebSocket, message: ServerMessage): void {
   try {

@@ -1,4 +1,4 @@
-import type { ClientMessage, Member, ServerMessage } from './protocol';
+import { FULL_CLOSE, type ClientMessage, type Member, type ServerMessage } from './protocol';
 
 /**
  * How browsers find a way to each other through home routers: a STUN server
@@ -13,17 +13,19 @@ const ICE_REFRESH_MS = 12 * 3600 * 1000;
 const ICE_TIMEOUT_MS = 4000;
 /** Wait before calling the signalling server again after losing it, ms. */
 const RECONNECT_MS = 3000;
+/** Longer when the room was full: a place frees when someone leaves, not in a moment. */
+const FULL_RETRY_MS = 15_000;
 
 type Signal = { sdp: RTCSessionDescriptionInit } | { candidate: RTCIceCandidateInit | null };
 
 export interface MeshEvents {
-  /** In the room (again): who we are, who is there. */
-  welcome(you: Member, peers: Member[]): void;
+  /** In the room (again): who we are, who is there, and which room it is (another than asked when that one was full; undefined from an older server). */
+  welcome(you: Member, peers: Member[], room: string | undefined): void;
   /** Someone came into the room, or left it (whether or not we could reach them). */
   joined(member: Member): void;
   left(id: string): void;
-  /** Lost the signalling server: out of the room until it comes back. */
-  offline(): void;
+  /** Lost the signalling server, or `full`, refused by it: out of the room until it comes back. */
+  offline(full: boolean): void;
   /** A message for the whole room, through the server. */
   room(from: string, data: unknown): void;
   /** A peer's channels are open: a good time to tell it who we are. */
@@ -57,7 +59,7 @@ export class Mesh {
 
   /** `url`: the room's signalling WebSocket; `iceUrl`: where to ask for the ICE servers. */
   constructor(
-    private readonly url: string,
+    private url: string,
     private readonly iceUrl: string,
     private readonly events: MeshEvents,
   ) {
@@ -99,6 +101,11 @@ export class Mesh {
     if (p) this.sendControl(p, data);
   }
 
+  /** Seated in another room than asked: to call back that one after losing the server. */
+  follow(url: string): void {
+    this.url = url;
+  }
+
   dispose(): void {
     this.closed = true;
     clearInterval(this.refresh);
@@ -127,14 +134,15 @@ export class Mesh {
     socket.onmessage = (e) => {
       if (typeof e.data === 'string') this.onServer(JSON.parse(e.data) as ServerMessage);
     };
-    socket.onclose = () => {
+    socket.onclose = (e) => {
       if (this.socket !== socket) return;
       this.socket = null;
       this.id = null;
       // A new id when we come back: the others will be told we left, and call us again.
       for (const id of [...this.peers.keys()]) this.drop(id);
-      this.events.offline();
-      if (!this.closed) setTimeout(() => this.connect(), RECONNECT_MS);
+      const full = e.code === FULL_CLOSE;
+      this.events.offline(full);
+      if (!this.closed) setTimeout(() => this.connect(), full ? FULL_RETRY_MS : RECONNECT_MS);
     };
   }
 
@@ -142,7 +150,7 @@ export class Mesh {
     switch (m.type) {
       case 'welcome':
         this.id = m.you.id;
-        this.events.welcome(m.you, m.peers);
+        this.events.welcome(m.you, m.peers, m.room);
         // The newcomer calls everyone already there: only one side ever offers.
         for (const p of m.peers) void this.call(p.id);
         break;
