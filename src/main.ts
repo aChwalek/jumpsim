@@ -110,7 +110,7 @@ await readKeyboardLayout();
 let dz: DzPack = await dzInfo(setup.dz).load();
 /** What the feet can stand on or hit: the ground, and roofs and walls where there are some. */
 let solid = solidOf(dz);
-let world: World = buildWorld(dz, light);
+let world: World = buildWorld(dz, light, { camera, renderer });
 world.showChallenges(setup.jump.challenges);
 scene.add(world.object);
 
@@ -234,7 +234,7 @@ function applyDz(): void {
   solid = solidOf(dz);
   scene.remove(world.object);
   world.dispose();
-  world = buildWorld(dz, light);
+  world = buildWorld(dz, light, { camera, renderer });
   scene.add(world.object);
 }
 

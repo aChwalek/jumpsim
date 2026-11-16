@@ -48,6 +48,8 @@
   // How the picture runs in the browsers (POST /perf): frame rate, phase, device.
   // Queried with the SQL API, dataset jumpsim_perf (see src/net/perfSchema.ts).
   "analytics_engine_datasets": [{ "binding": "PERF", "dataset": "jumpsim_perf" }],
+  // The terrain tiles built by tools/tiles, too big for the assets: served by the Worker at /tiles/.
+  "r2_buckets": [{ "binding": "TILES", "bucket_name": "jumpsim-tiles" }],
   // Branches other than main get their own Preview URL (`wrangler preview`).
   // Bindings are not inherited: each Preview gets its own rooms, and its own
   // leaderboard, so that trying a branch out leaves the live site's alone.
@@ -68,6 +70,8 @@
       }
     ],
     // Previews report to their own dataset, not mixed with the live site's.
-    "analytics_engine_datasets": [{ "binding": "PERF", "dataset": "jumpsim_perf_preview" }]
+    "analytics_engine_datasets": [{ "binding": "PERF", "dataset": "jumpsim_perf_preview" }],
+    // The same terrain tiles: they are only read.
+    "r2_buckets": [{ "binding": "TILES", "bucket_name": "jumpsim-tiles" }]
   }
 }

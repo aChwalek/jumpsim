@@ -33,16 +33,18 @@ interface Secrets {
  *  - `/scores` (POST): a scored landing for the accuracy leaderboard, from
  *    the account signed in; `/scores/<dz>` (GET): that drop zone's board;
  *    `/scores/me` (GET): the account's place at each.
+ *  - `/tiles/<map>/...` (GET): a map's terrain tiles (tools/tiles), from R2.
  * Assets are served before the Worker runs, so it only sees what is not a file.
  */
 export default {
-  async fetch(request, env): Promise<Response> {
+  async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === '/turn') return iceServers(request, env as Env & Secrets);
     if (url.pathname === '/perf') return perf(request, env);
     if (url.pathname.startsWith('/api/auth/')) return createAuth(env as Env & AuthSecrets, request).handler(request);
     if (url.pathname === '/api/providers') return json({ google: googleOffered(env as AuthSecrets) });
     if (url.pathname === '/scores' || url.pathname.startsWith('/scores/')) return scores(request, url, env as Env & AuthSecrets);
+    if (url.pathname.startsWith('/tiles/')) return tile(request, url, env, ctx);
     const match = url.pathname.match(/^\/(signal|players)\/([^/]+)$/);
     if (!match) return new Response('Not found', { status: 404 });
     const room = match[2] ?? '';
@@ -53,6 +55,34 @@ export default {
     return env.ROOMS.get(env.ROOMS.idFromName(room)).fetch(request);
   },
 } satisfies ExportedHandler<Env>;
+
+/** What a terrain tile file is, by its ending. */
+const TILE_TYPES: Record<string, string> = { json: 'application/json', glb: 'model/gltf-binary' };
+
+/**
+ * A map's terrain tiles: the tileset and its squares, read from R2 and kept
+ * in the edge's cache. A rebuild writes the same names, so they are kept an
+ * hour, the tileset five minutes.
+ */
+async function tile(request: Request, url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Expected GET', { status: 405 });
+  const key = url.pathname.slice('/tiles/'.length);
+  const type = TILE_TYPES[key.split('.').pop() ?? ''];
+  if (!type || key.includes('..')) return new Response('Not found', { status: 404 });
+  const cache = caches.default;
+  const hit = await cache.match(request);
+  if (hit) return hit;
+  const object = await env.TILES.get(key);
+  if (!object) return new Response('Not found', { status: 404 });
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('Content-Type', type);
+  headers.set('ETag', object.httpEtag);
+  headers.set('Cache-Control', `public, max-age=${key.endsWith('.json') ? 300 : 3600}`);
+  const response = new Response(request.method === 'HEAD' ? null : object.body, { headers });
+  if (request.method === 'GET') ctx.waitUntil(cache.put(request, response.clone()));
+  return response;
+}
 
 /** How long TURN credentials last, s: longer than anyone stays in a room. */
 const TURN_TTL = 24 * 3600;
