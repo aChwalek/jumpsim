@@ -6,3 +6,6 @@ dist
 worker/worker-configuration.d.ts
 .dev.vars
 __pycache__/
+
+# Terrain tiles built by tools/tiles (hosted apart, too big for git)
+public/tiles/

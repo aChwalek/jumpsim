@@ -85,6 +85,7 @@ import { madeUpName, sendScore } from './net/leaderboard';
 import { UNNAMED } from './net/scores';
 import { ensureAccount, googleOffered, loadAccount, renameAccount, signInWithGoogle, signOut, type Account } from './net/account';
 import { buildWorld, type World } from './world/build';
+import { lipOf } from './world/bridge';
 import { isWet, landingHeading, solidOf, spawnsFor, type DzPack } from './world/dz';
 import { dzInfo } from './world/dzs';
 import { MAP_HALF } from './ui/dzMap';
@@ -111,7 +112,7 @@ await readKeyboardLayout();
 let dz: DzPack = await dzInfo(setup.dz).load();
 /** What the feet can stand on or hit: the ground, and roofs and walls where there are some. */
 let solid = solidOf(dz);
-let world: World = buildWorld(dz, light);
+let world: World = buildWorld(dz, light, { camera, renderer });
 world.showChallenges(setup.jump.challenges);
 scene.add(world.object);
 
@@ -235,7 +236,7 @@ function applyDz(): void {
   solid = solidOf(dz);
   scene.remove(world.object);
   world.dispose();
-  world = buildWorld(dz, light);
+  world = buildWorld(dz, light, { camera, renderer });
   scene.add(world.object);
 }
 
@@ -927,8 +928,10 @@ function spawn(kind: Start): void {
   } else if (kind === 'base') {
     const b = dz.base!;
     windAt(env.wind, setup.weather, b.height, airTime);
-    // Off a bridge, no run: from the lip of the deck.
-    const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg: b.headingDeg, height: b.height, standing: b.runUp === 0 } as const;
+    // Off a bridge, no run: from the lip of the deck, which the jumper can shuffle along.
+    const standing = b.runUp === 0;
+    const lip = standing && dz.bridges ? (lipOf(dz.bridges, b.x, b.z) ?? undefined) : undefined;
+    const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg: b.headingDeg, height: b.height, standing, lip } as const;
     jump = new Jump(model, ledge, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction: unlucky ? 'offHeading' : null });
     // Company on top: beside us, each going in turn, before or after us.
     startBots({ top: b });
@@ -1014,15 +1017,15 @@ function takePosition(position: BodyPosition): void {
  * On foot, free to walk and turn: on top of the object before the run-up,
  * or on the ground once at rest after the landing. Then the mouse and the
  * right stick turn the body, as in any first-person game; locked on a
- * target, the body faces where the camera looks (see faceTheView). Not on
- * the lip of a bridge, where nobody turns round, nor while gathering the
- * canopy up.
+ * target, the body faces where the camera looks (see faceTheView). On the
+ * lip of a bridge too, to turn round and go off backwards. Not while
+ * gathering the canopy up.
  */
 function onFoot(): boolean {
   if (replay || ragdoll) return false;
   if (arrival) return arrival.canWalk && !(gather !== null && gather < 1);
   if (jump?.phase === 'plane') return jump.walk !== null;
-  return jump?.phase === 'standing' && jump.runUp !== null && !jump.runUp.standing;
+  return jump?.phase === 'standing' && jump.runUp !== null;
 }
 
 const viewDir = new THREE.Vector3();
@@ -1421,15 +1424,16 @@ function simulate(seconds: number): void {
       const end = skim.after(dt);
       skidSound(dt);
       const feet = model.pilotPoint(vec3(), skim.contact);
-      const wet = isWet(dz, feet.x, feet.z);
       const vines = !!dz.onVines?.(feet.x, feet.z);
       if (end === 'up') {
-        // Off the ground again, flying: the next touch is a touchdown of its own.
-        endSkim();
+        // Off the ground again, flying: a touch and go. The next touch is a
+        // touchdown of its own, and what was slid here is not the landing's.
+        endSkim(false);
         continue;
       }
-      if (end || ((wet || vines) && skim.push > 0)) {
-        settle(skimmed(skim, end ?? 'fall', firstTouch!), wet, vines, left);
+      // Gone down on water is gone into it.
+      if (end || (vines && skim.push > 0)) {
+        settle(skimmed(skim, end ?? 'fall', firstTouch!), skim.wet, vines, left);
         return;
       }
       continue;
@@ -1446,11 +1450,12 @@ function simulate(seconds: number): void {
       const vines = !!dz.onVines?.(feet.x, feet.z);
       // Where the feet first touch is where the landing scores, slide or not.
       firstTouch ??= { x: feet.x, z: feet.z, sink: touchdown.sink, groundSpeed: touchdown.groundSpeed };
-      if (!wet && !vines && slidesOn(touchdown)) {
-        // Too fast to run, gently down and level: the feet slide on the grass.
-        skim = new Skim(model, solid);
+      if (!vines && slidesOn(touchdown, wet)) {
+        // Too fast to run, gently down and level: the feet slide on the grass,
+        // or plane over the water.
+        skim = new Skim(model, solid, wetAt);
         touchdown = null;
-        sound.step(firstTouch.groundSpeed);
+        if (!wet) sound.step(firstTouch.groundSpeed);
         continue;
       }
       settle(touchdown, wet, vines, left);
@@ -1486,9 +1491,12 @@ function skimmed(k: Skim, end: SkimEnd, first: FirstTouch): Touchdown {
   return { sink: 0, groundSpeed: k.speed, bankDeg, rating };
 }
 
-/** The slide on the feet is over, one way or another: the ground lets go. */
-function endSkim(): void {
-  if (skim) skidded += skim.distance;
+/** Whether the drop zone has water at (x, z). */
+const wetAt = (x: number, z: number): boolean => isWet(dz, x, z);
+
+/** The slide on the feet is over, one way or another: the ground lets go. `landing`: it is the landing's slide. */
+function endSkim(landing = true): void {
+  if (skim && landing) skidded += skim.distance;
   skim = null;
   model.footForce.x = model.footForce.y = model.footForce.z = 0;
 }
@@ -1499,7 +1507,7 @@ function skidSound(dt: number): void {
   skidHeard += dt;
   if (skidHeard < 0.09) return;
   skidHeard = 0;
-  sound.skid(skim.speed, Math.min(1, skim.push));
+  sound.skid(skim.speed, Math.min(1, skim.push), skim.wet);
 }
 
 /** The landing is over in the air: what the feet do now is the ground's, from `left` seconds before the frame's end. */
@@ -1644,7 +1652,11 @@ function hitSide(at = rig.feetPos): boolean {
   const s = model.state;
   const feet = model.pilotPoint(feetNow, at);
   const top = solid(feet.x, feet.z, feet.y);
-  if (top - (feet.y - (s.pos.y - beforeStep.y)) <= 0.5) return false;
+  // Measured from where the feet were a step before, or from the ground there
+  // when they were already on it, knees bent into it, sliding down a slope.
+  const was = feet.y - (s.pos.y - beforeStep.y);
+  const under = solid(feet.x - (s.pos.x - beforeStep.x), feet.z - (s.pos.z - beforeStep.z), was + 0.5);
+  if (top - Math.max(was, under) <= 0.5) return false;
   impact = true;
   const speed = Math.hypot(s.vel.x, s.vel.y, s.vel.z);
   s.pos.x = beforeStep.x;
@@ -2287,7 +2299,7 @@ function drawReleased(dt: number): void {
   releasedView.update(
     releasedPos,
     releasedAtt,
-    { time: airTime, dt, air: releasedAir, controls: noHands, hands: noHands, pilotAtt: null, ground },
+    { time: airTime, dt, air: releasedAir, controls: noHands, hands: noHands, pilotAtt: null, ground, groundAt: solid },
     light,
   );
   releasedView.topAttach(releasedTop);
@@ -2436,7 +2448,7 @@ function keysPhase(): KeysPhase | null {
   if (watching) return watching.free ? 'replayFree' : 'replay';
   if (touchdown || arrival || impact) return 'ground';
   if (!jump || jump.phase === 'canopy' || jump.phase === 'opening') return singleCanopy() ? 'baseCanopy' : 'canopy';
-  if (jump.afoot) return 'ledge';
+  if (jump.afoot) return jump.runUp?.standing && jump.phase === 'standing' ? 'lip' : 'ledge';
   if (jump.phase === 'plane') return 'plane';
   if (jump.wings && jump.cutawayAt === null) return 'wingsuit';
   return jump.body.progressive ? 'freefallProgressive' : 'freefall';
@@ -2465,6 +2477,7 @@ function touchLayout(): TouchLayout | null {
       return { ...none, mode: 'canopy', cutaway: phase === 'canopy' && jump !== null, slider };
     }
     case 'ledge':
+    case 'lip':
     case 'plane':
       return { ...none, mode: 'walk', main: t.exit, cross: true };
     case 'freefall':
@@ -2563,8 +2576,11 @@ function cue(): string {
   }
   if (jump.phase === 'standing') {
     const exit = c.exitIn[jump.body.position];
-    const standing = jump.runUp?.standing;
-    const go = fingers ? (standing ? T.touch.jumpOut : T.touch.runAndJump) : standing ? c.jumpOut(keyLabel('KeyW')) : c.runAndJump(keyLabel('KeyW'));
+    const r = jump.runUp;
+    const standing = r?.standing;
+    // On the lip, the key that steps out over the edge: back, facing the deck.
+    const step = keyLabel(r && !r.facingOut ? 'KeyS' : 'KeyW');
+    const go = fingers ? (standing ? T.touch.jumpOut : T.touch.runAndJump) : standing ? c.jumpOut(step) : c.runAndJump(keyLabel('KeyW'));
     return `${c.onTop}<small>${exit ? `${exit} · ` : ''}${go}</small>`;
   }
   if (jump.phase === 'freefall' && jump.base) {

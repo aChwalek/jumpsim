@@ -8,6 +8,7 @@ import type { RigParams } from '../sim/rig';
 import { BOC, Body, PIN, RESERVE_PIN, RING } from './body';
 import { CanopyView, type CanopyLook } from './canopyView';
 import type { DeployStage } from './deployment';
+import { castShadow, onShadowPlane, shadowFall, shadowGrazing, shadowOpacity, type GroundAt } from './groundShadow';
 import { DEFAULT_GLOW, DEFAULT_HELMET, DEFAULT_SUIT, GLOW_COLORS, OUTFIT_COLORS, type Outfit } from './outfit';
 import type { Lighting } from './scene';
 
@@ -41,6 +42,10 @@ export class RigView {
   private readonly shadow = new THREE.Group();
   private readonly feet = new THREE.Vector3();
   private readonly head = new THREE.Vector3();
+  private readonly middle = new THREE.Vector3();
+  private readonly along = new THREE.Vector3();
+  private readonly across = new THREE.Vector3();
+  private readonly fall = shadowFall();
   private readonly pos = new THREE.Vector3();
   private readonly att = new THREE.Quaternion();
   private readonly pilotAtt = new THREE.Quaternion();
@@ -77,6 +82,9 @@ export class RigView {
     // One metre across, stretched to the pilot's shadow every frame.
     this.pilotShadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24).rotateX(-Math.PI / 2), this.shadowMaterial);
     this.pilotShadow.renderOrder = 7;
+    // Laid on the slope by a matrix of its own, which the bounds do not follow.
+    this.pilotShadow.matrixAutoUpdate = false;
+    this.pilotShadow.frustumCulled = false;
     this.shadow.add(this.pilotShadow);
     light.clouds.shade(this.shadowMaterial, 'shadow');
     const lit = new Set<THREE.Material>();
@@ -98,6 +106,7 @@ export class RigView {
       hands: { brakeL: 0, brakeR: 0, frontL: 0, frontR: 0 },
       pilotAtt: this.pilotAtt,
       ground: 0,
+      groundAt: () => 0,
     };
   }
 
@@ -164,7 +173,7 @@ export class RigView {
   update(
     model: FlightModel,
     controls: Controls,
-    groundAt: (x: number, z: number, y?: number) => number,
+    groundAt: GroundAt,
     light: Lighting,
     hands: Controls,
     frame: RigFrame,
@@ -192,29 +201,45 @@ export class RigView {
     if (!this.detached) this.updateCanopy(rig, groundAt, light, frame);
 
     // The pilot's shadow runs from the feet to the head: its near end comes
-    // up to the feet as they come down to the ground.
-    const cast = (out: THREE.Vector3, x: number, y: number, z: number): THREE.Vector3 => {
-      this.pilotPoint(out, { x, y, z });
-      const ground = groundAt(out.x, out.z, out.y);
-      const t = (out.y - ground) / sun.y;
-      return out.set(out.x - sun.x * t, ground, out.z - sun.z * t);
-    };
-    const feet = cast(this.feet, rig.feetPos.x, rig.feetPos.y, rig.feetPos.z);
-    const head = cast(this.head, rig.eyePos.x, rig.eyePos.y + 0.12, rig.eyePos.z);
-    this.pilotShadow.position.lerpVectors(feet, head, 0.5);
-    this.pilotShadow.rotation.y = Math.atan2(head.x - feet.x, head.z - feet.z);
-    this.pilotShadow.scale.set(0.5, 1, feet.distanceTo(head) + 0.35);
-    const height = this.pos.y - groundAt(this.pos.x, this.pos.z, this.pos.y);
+    // up to the feet as they come down to the ground. Cast from the middle of
+    // the body, then the feet and the head laid on the slope where it falls.
+    const feet = this.pilotPoint(this.feet, rig.feetPos);
+    const head = this.pilotPoint(this.head, { x: rig.eyePos.x, y: rig.eyePos.y + 0.12, z: rig.eyePos.z });
+    const fall = this.fall;
+    const falls = castShadow(this.middle.lerpVectors(feet, head, 0.5), sun, groundAt, fall);
+    const grazing = falls ? shadowGrazing(sun, fall) : 0;
+    this.pilotShadow.visible = grazing > 0;
+    if (grazing > 0) {
+      onShadowPlane(feet, feet, sun, fall);
+      onShadowPlane(head, head, sun, fall);
+      const n = fall.normal;
+      const along = this.along.subVectors(head, feet);
+      const length = along.length();
+      // Straight under a sun overhead, the body's shadow is a round: any way along the ground will do.
+      if (length > 1e-4) along.divideScalar(length);
+      else along.set(0, 0, 1).addScaledVector(n, -n.z).normalize();
+      const across = this.across.crossVectors(n, along);
+      // A round a metre across: half a metre wide, from beyond the feet to beyond the head.
+      const stretch = length + 0.35;
+      this.pilotShadow.matrix.set(
+        across.x * 0.5, n.x, along.x * stretch, (feet.x + head.x) / 2,
+        across.y * 0.5, n.y, along.y * stretch, (feet.y + head.y) / 2,
+        across.z * 0.5, n.z, along.z * stretch, (feet.z + head.z) / 2,
+        0, 0, 0, 1,
+      );
+      this.pilotShadow.matrixWorldNeedsUpdate = true;
+    }
     // Shadows are faint and washed out from high up, crisp near the ground.
-    this.shadowMaterial.opacity = (0.12 + 0.36 * Math.max(0, 1 - height / 250)) * light.shadow;
+    this.shadowMaterial.opacity = shadowOpacity(fall.drop) * grazing * light.shadow;
     this.shadow.visible = light.shadow > 0.02;
   }
 
   /** The canopy over the pilot, its pilot chute and bag. */
-  private updateCanopy(rig: RigParams, groundAt: (x: number, z: number, y?: number) => number, light: Lighting, frame: RigFrame): void {
+  private updateCanopy(rig: RigParams, groundAt: GroundAt, light: Lighting, frame: RigFrame): void {
     const look = this.look;
     const top = this.top.set(0, rig.canopyPos.y, 0).applyQuaternion(this.att).add(this.pos);
     look.ground = groundAt(top.x, top.z, top.y);
+    look.groundAt = groundAt;
     this.canopy.update(this.pos, this.att, look, light);
 
     // Pilot chute and bag: in the hand, towing, carrying the bag up the line

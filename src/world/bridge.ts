@@ -10,6 +10,7 @@
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { Lip } from '../sim/runUp';
 import type { Bridge, SolidAt } from './dz';
 
 /** The parapets: how tall, how thick, and how far in from the edge of the deck, m. */
@@ -212,6 +213,43 @@ export function bridgeSolid(bridges: Bridge[], groundAt: (x: number, z: number) 
     }
     return top;
   };
+}
+
+/**
+ * The lip a point is on, outside a deck's parapet: followed round the deck's
+ * bend at the same distance from its axis, from one abutment to the other.
+ * Null if the point is on no deck's lip.
+ */
+export function lipOf(bridges: Bridge[], x: number, z: number): Lip | null {
+  for (const b of bridges) {
+    const f = frameOf(b);
+    const { s: s0, u } = onDeck(f, x, z);
+    const half = b.width / 2;
+    if (s0 < 0 || s0 > f.length || Math.abs(u) > half + 0.1 || Math.abs(u) < half - PARAPET_INSET - 0.1) continue;
+    const side = Math.sign(u);
+    const headingOut = (s: number): number => {
+      const [ax, az] = f.world(s, u);
+      const [bx, bz] = f.world(s, u + side);
+      return ((Math.atan2(bx - ax, -(bz - az)) * 180) / Math.PI + 360) % 360;
+    };
+    // Along the axis, or against it: to the right facing out.
+    const o = (headingOut(s0) * Math.PI) / 180;
+    const [px, pz] = f.world(s0, u);
+    const [qx, qz] = f.world(s0 + 1, u);
+    const dir = (qx - px) * Math.cos(o) + (qz - pz) * Math.sin(o) >= 0 ? 1 : -1;
+    const ends = [ABUTMENT - s0, f.length - ABUTMENT - s0].map((d) => d * dir);
+    return {
+      at: (d) => {
+        const s = s0 + dir * d;
+        const [lx, lz] = f.world(s, u);
+        return { x: lx, z: lz, outDeg: headingOut(s) };
+      },
+      along: (px2, pz2) => (f.local(px2, pz2).s - s0) * dir,
+      min: Math.min(...ends),
+      max: Math.max(...ends),
+    };
+  }
+  return null;
 }
 
 /** Whether a point is under or on a deck, within `margin` metres of its edges. */
