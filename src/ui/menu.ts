@@ -93,7 +93,9 @@ import {
   ICON_BACK,
   ICON_BOOK,
   ICON_CANOPY,
+  ICON_CHECK,
   ICON_COG,
+  ICON_COPY,
   ICON_DZ,
   ICON_GLOBE,
   ICON_LOCK,
@@ -170,6 +172,38 @@ function button(cls: string, ...children: Child[]): HTMLButtonElement {
   b.type = 'button';
   return b;
 }
+
+/**
+ * Text to the clipboard; whether it went. Where there is no clipboard API
+ * (plain http, as on a phone trying the dev server), the old way, through a
+ * field out of sight. Either needs a click: a gamepad press will not do.
+ */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Not allowed now: the old way may be.
+  }
+  const field = document.createElement('textarea');
+  field.value = text;
+  field.readOnly = true;
+  field.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+  document.body.append(field);
+  field.select();
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    field.remove();
+  }
+}
+
+/** A link as the invite button shows it: no https://. */
+const shortLink = (link: string): string => link.replace(/^https?:\/\//, '');
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 const options = <V>(values: readonly V[], label: (v: V) => string): Option<V>[] => values.map((value) => ({ value, label: label(value) }));
@@ -311,6 +345,8 @@ const ICON_PEOPLE_EL = (): Element => html(ICON_PEOPLE);
 const SHARED: ReadonlySet<ScreenId> = new Set<ScreenId>(['dz', 'weather', 'jump']);
 /** Time to click again to start without everyone ready, ms. */
 const ARM_MS = 4000;
+/** "Link copied" stays on the invite button this long, ms. */
+const INVITED_MS = 2500;
 /** How often the time to the next load is redrawn, ms. */
 const TICK_MS = 250;
 
@@ -339,8 +375,8 @@ export class Menu {
   onJoinPublic: () => void = () => {};
   onLeaveRoom: () => void = () => {};
   onRename: () => void = () => {};
-  /** A name typed in the menu: the settings are changed by the callee, which resolves once the boards have it too. */
-  onNameChange: (name: string) => Promise<void> = async () => {};
+  /** A name typed in the menu: the settings are changed by the callee, which resolves once the boards have it too; false if another account has it. */
+  onNameChange: (name: string) => Promise<boolean> = async () => true;
   /** Off to Google to sign in (the page goes, and comes back signed in). */
   onSignIn: () => void = () => {};
   onSignOut: () => void = () => {};
@@ -390,6 +426,8 @@ export class Menu {
   private boardPlayers: number | null = null;
   /** The account signed in (null: none yet), whether Google is offered, and the account's places (undefined while asked, null when they could not be). */
   private account: Account | null = null;
+  /** The last name typed that another account has: said under the name fields until another is kept. */
+  private nameTaken: string | null = null;
   private google = false;
   private places: Place[] | null | undefined = undefined;
   /** From the logbook, read again when the menu opens: for the profile. */
@@ -404,6 +442,8 @@ export class Menu {
   /** How many are in the public room of the drop zone on the menu; null when not known. */
   private publicCount: number | null = null;
   private startArmed = 0;
+  /** Said on the invite button after the link was copied, until then (performance.now, ms). */
+  private invitedUntil = 0;
 
   constructor(
     initial: Setup,
@@ -721,8 +761,26 @@ export class Menu {
     });
 
     const hint = h('span', 'stage-hint', T.menu.dragHint);
+    // A friend along: by the jumpers, over the button that goes. Once
+    // there is a room, the button is its link, and a click copies it.
+    const invite = button('invite');
+    invite.dataset.key = 'invite';
+    const inviteText = h('span', 'invite-text');
+    const inviteIcon = h('span', 'invite-icon');
+    invite.append(inviteText, inviteIcon);
+    invite.addEventListener('click', () => void this.invite());
+    this.updaters.push(() => {
+      const t = T.menu.invite;
+      const link = this.room?.link ?? null;
+      const copied = performance.now() < this.invitedUntil;
+      invite.classList.toggle('has-link', link !== null);
+      invite.classList.toggle('done', copied);
+      invite.title = link ? t.linkTitle : t.title;
+      inviteText.textContent = copied ? t.copied : link ? shortLink(link) : t.label;
+      inviteIcon.innerHTML = copied ? ICON_CHECK : ICON_COPY;
+    });
     // The name and the height over the jumpers' heads, in the sky behind them.
-    this.stage = h('div', 'stage', this.crew.el, head, hint, this.map.el);
+    this.stage = h('div', 'stage', this.crew.el, head, hint, this.nav.add(invite), this.map.el);
 
     this.resume = button('resume', T.menu.resume);
     this.jump = button('jump');
@@ -748,8 +806,38 @@ export class Menu {
     };
     this.updaters.push(showJump);
     this.ticking.push(showJump);
-    const go = h('div', 'go', this.nav.add(this.resume), this.nav.add(this.jump));
+    // Leading, with others not ready: everyone goes now, in one click. Over
+    // the jump button, not on it: the click that said ready cannot land on it.
+    const anywaySub = h('span', 'go-sub');
+    const anyway = button('anyway', html(ICON_PLANE), h('span', 'go-label', T.menu.room.goAnyway), anywaySub);
+    anyway.dataset.key = 'anyway';
+    anyway.addEventListener('click', () => {
+      if (this.canGoAnyway()) this.onStartNow();
+    });
+    this.updaters.push(() => {
+      // Names as typed by the others: as text, never as markup.
+      const waiting = this.room?.players.filter((p) => !p.ready && !p.self).map((p) => p.name || '…') ?? [];
+      anyway.hidden = !this.canGoAnyway();
+      anywaySub.textContent = T.menu.room.notReady(waiting);
+    });
+    const go = h('div', 'go', this.nav.add(anyway, { disabled: () => !this.canGoAnyway() }), this.nav.add(this.resume), this.nav.add(this.jump));
     return h('aside', 'side', this.stage, go);
+  }
+
+  /**
+   * Asks a friend along: the room's link to the clipboard, where the browser
+   * lets it (a click does, a gamepad press does not: the button shows the
+   * link anyway). Alone, a room is made first, with this jump's setup:
+   * whoever opens the link comes into it.
+   */
+  private async invite(): Promise<void> {
+    if (!this.room) this.onCreateRoom();
+    const link = this.room?.link;
+    this.refresh();
+    if (!link || !(await copyText(link))) return;
+    this.invitedUntil = performance.now() + INVITED_MS;
+    this.refresh();
+    setTimeout(() => this.refresh(), INVITED_MS + 100);
   }
 
   /** Switches the language and builds the screens again, where they were. */
@@ -1428,6 +1516,11 @@ export class Menu {
     return box;
   }
 
+  /** Leading a room where someone else is not ready: saying ready ourselves would not be enough to go. */
+  private canGoAnyway(): boolean {
+    return this.canStartNow() && !!this.room?.players.some((p) => !p.ready && !p.self);
+  }
+
   /** Leading a room of more than one where not everyone is ready. */
   private canStartNow(): boolean {
     const room = this.room;
@@ -2045,7 +2138,13 @@ export class Menu {
     const keep = (): void => {
       const name = cleanName(input.value);
       if (!name) input.value = this.settings.playerName;
-      else if (name !== this.settings.playerName) void this.onNameChange(name).then(() => this.refreshNames());
+      else if (name !== this.settings.playerName) {
+        void this.onNameChange(name).then((ok) => {
+          // Another account has it: said under the field, which shows the name kept.
+          this.nameTaken = ok ? null : name;
+          this.refreshNames();
+        });
+      }
     };
     input.addEventListener('change', keep);
     let row!: HTMLElement;
@@ -2064,7 +2163,7 @@ export class Menu {
       t.name,
       {
         key,
-        note: () => (madeUpName(this.settings.playerName) ? t.nameMadeUp : t.nameNote),
+        note: () => (this.nameTaken ? t.nameTaken(this.nameTaken) : madeUpName(this.settings.playerName) ? t.nameMadeUp : t.nameNote),
         activate: () => {
           input.focus();
           input.select();

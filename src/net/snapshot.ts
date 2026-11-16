@@ -5,6 +5,7 @@ import type { Stance } from '../render/posture';
 import type { Controls } from '../sim/flightModel';
 import { noBodyInputs, type BodyInputs } from '../sim/freefall';
 import type { JumpPhase } from '../sim/jump';
+import type { AircraftId } from '../sim/plane';
 import { JOINT_COUNT } from '../sim/ragdoll';
 import { quat, vec3, type Quat, type Vec3 } from '../sim/vec';
 
@@ -21,6 +22,20 @@ export interface ReleasedFrame {
   /** How far it has gone down in a heap, 0 to 1; and the way, level. */
   heap: number;
   fallTo: Vec3;
+}
+
+/**
+ * The plane a jumper is in, while in it. Each machine flies the load's plane
+ * by the room's clock, the same for all to a metre or so; but what comes
+ * from the others is a moment old, the plane a few metres back by then: they
+ * are drawn in ours where they are in theirs.
+ */
+export interface PlaneFrame {
+  /** Origin of the plane's frame, world, m. */
+  pos: Vec3;
+  /** Compass heading of its run, degrees. */
+  headingDeg: number;
+  aircraft: AircraftId;
 }
 
 export const makeReleased = (): ReleasedFrame => ({ pos: vec3(), vel: vec3(), att: quat(), crumple: 0, heap: 0, fallTo: vec3(0, 0, 1) });
@@ -43,7 +58,10 @@ export function copyReleased(out: ReleasedFrame, r: ReleasedFrame): ReleasedFram
  * stays their own; only this goes out, 15 times a second.
  */
 export interface Snapshot {
-  /** The sender's clock (performance.now), ms. */
+  /**
+   * When it was true, ms: the room's clock (the server's), which says how old
+   * it is when it comes; from an older sender, their own (performance.now).
+   */
   t: number;
   phase: Phase;
   stance: Stance;
@@ -101,6 +119,12 @@ export interface Snapshot {
   /** The main, once cut away. */
   hasReleased: boolean;
   released: ReleasedFrame;
+  /**
+   * In the plane, and a moment after leaving it: the plane they are in, or
+   * have just left (to go between the last snapshot in it and the first out).
+   */
+  hasPlane: boolean;
+  plane: PlaneFrame;
 }
 
 export const emptySnapshot = (): Snapshot => ({
@@ -139,6 +163,8 @@ export const emptySnapshot = (): Snapshot => ({
   joints: new Float32Array(3 * JOINT_COUNT),
   hasReleased: false,
   released: makeReleased(),
+  hasPlane: false,
+  plane: { pos: vec3(), headingDeg: 0, aircraft: 'pc6' },
 });
 
 /**
@@ -174,6 +200,7 @@ export const STANCE_CODES: Record<Stance, number> = {
 };
 const DEPLOY_CODES: Record<DeployStage, number> = { stowed: 0, hand: 1, tow: 2, bag: 3, canopy: 4, free: 5 };
 const SLIDER_CODES: Record<SliderState, number> = { open: 0, collapsed: 1, stowed: 2 };
+const AIRCRAFT_CODES: Record<AircraftId, number> = { pc6: 0, do28: 1, c130: 2, as350: 3 };
 
 /** Code to value, for reading. */
 function byCode<T extends string>(codes: Record<T, number>): (T | undefined)[] {
@@ -185,6 +212,7 @@ const PHASES = byCode(PHASE_CODES);
 const STANCES = byCode(STANCE_CODES);
 const DEPLOYS = byCode(DEPLOY_CODES);
 const SLIDERS = byCode(SLIDER_CODES);
+const AIRCRAFT = byCode(AIRCRAFT_CODES);
 const CONTROLS = ['brakeL', 'brakeR', 'frontL', 'frontR'] as const;
 
 /** 2: everything as drawn. 1 (the place, the canopy and the stance only) is still read. */
@@ -197,10 +225,18 @@ export const SNAPSHOT_BYTES = V1_BYTES + 4 + 5 * 4 + POSE_VALUES * 2;
 /** And only when there is one: the ragdoll's joints, mm from `pos`, two bytes each; the cut-away main. */
 const JOINTS_BYTES = 3 * JOINT_COUNT * 2;
 const RELEASED_BYTES = 10 * 4 + 2 + 2 * 2;
+/**
+ * And while in the plane, the plane: where it is, its heading, which one.
+ * Still version 2: a reader without it turns these away, and would not have
+ * drawn someone in their plane anyway (but for half a second after the exit).
+ */
+const PLANE_BYTES = 3 * 4 + 2 + 1;
 
 /** The bytes it goes in. */
-export const snapshotBytes = (s: Snapshot): number =>
-  SNAPSHOT_BYTES + (s.hasJoints ? JOINTS_BYTES : 0) + (s.hasReleased ? RELEASED_BYTES : 0);
+export const snapshotBytes = (s: Snapshot): number => SNAPSHOT_BYTES + extraBytes(s.hasJoints, s.hasReleased, s.hasPlane);
+
+const extraBytes = (joints: boolean, released: boolean, plane: boolean): number =>
+  (joints ? JOINTS_BYTES : 0) + (released ? RELEASED_BYTES : 0) + (plane ? PLANE_BYTES : 0);
 
 const enum Flag {
   Reserve = 1,
@@ -218,6 +254,8 @@ const enum More {
   Walker = 2,
   Joints = 4,
   Released = 8,
+  // The slider's code takes 16 and 32.
+  Plane = 64,
 }
 
 const byte = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255);
@@ -264,6 +302,7 @@ export function encodeSnapshot(s: Snapshot): ArrayBuffer {
       (s.walker ? More.Walker : 0) |
       (s.hasJoints ? More.Joints : 0) |
       (s.hasReleased ? More.Released : 0) |
+      (s.hasPlane ? More.Plane : 0) |
       (SLIDER_CODES[s.slider] << 4),
   );
   v.setUint8(14, byte(s.heap));
@@ -302,6 +341,13 @@ export function encodeSnapshot(s: Snapshot): ArrayBuffer {
     v.setUint8(o++, byte(r.heap));
     h(r.fallTo.x, 32767), h(r.fallTo.z, 32767);
   }
+  if (s.hasPlane) {
+    const p = s.plane;
+    f(p.pos.x), f(p.pos.y), f(p.pos.z);
+    v.setUint16(o, Math.round((((p.headingDeg % 360) + 360) % 360) * 100) % 36000, true);
+    o += 2;
+    v.setUint8(o++, AIRCRAFT_CODES[p.aircraft]);
+  }
   return buffer;
 }
 
@@ -311,13 +357,12 @@ export function decodeSnapshot(buffer: ArrayBuffer, out = emptySnapshot()): Snap
   const v = new DataView(buffer);
   const version = v.getUint8(0);
   const more = version === VERSION ? v.getUint8(13) : 0;
-  const size =
-    version === 1 ? V1_BYTES : SNAPSHOT_BYTES + (more & More.Joints ? JOINTS_BYTES : 0) + (more & More.Released ? RELEASED_BYTES : 0);
+  const size = version === 1 ? V1_BYTES : SNAPSHOT_BYTES + extraBytes(!!(more & More.Joints), !!(more & More.Released), !!(more & More.Plane));
   if ((version !== 1 && version !== VERSION) || buffer.byteLength !== size) return null;
   const phase = PHASES[v.getUint8(1)];
   const stance = STANCES[v.getUint8(2)];
   const deploy = DEPLOYS[v.getUint8(3)];
-  const slider = SLIDERS[more >> 4];
+  const slider = SLIDERS[(more >> 4) & 3];
   if (phase === undefined || stance === undefined || deploy === undefined || slider === undefined) return null;
   const flags = v.getUint8(4);
   out.phase = phase;
@@ -339,6 +384,7 @@ export function decodeSnapshot(buffer: ArrayBuffer, out = emptySnapshot()): Snap
   out.walker = (more & More.Walker) !== 0;
   out.hasJoints = (more & More.Joints) !== 0;
   out.hasReleased = (more & More.Released) !== 0;
+  out.hasPlane = (more & More.Plane) !== 0;
   out.heap = version === 1 ? 0 : v.getUint8(14) / 255;
   out.gather = version === 1 ? 0 : v.getUint8(15) / 255;
   out.t = v.getFloat64(16, true);
@@ -389,12 +435,25 @@ export function decodeSnapshot(buffer: ArrayBuffer, out = emptySnapshot()): Snap
     r.heap = v.getUint8(o++) / 255;
     r.fallTo.x = h(32767), r.fallTo.y = 0, r.fallTo.z = h(32767);
   }
+  if (out.hasPlane) {
+    const p = out.plane;
+    p.pos.x = f(), p.pos.y = f(), p.pos.z = f();
+    p.headingDeg = v.getUint16(o, true) / 100;
+    o += 2;
+    const aircraft = AIRCRAFT[v.getUint8(o++)];
+    // A plane this version does not know: not one of ours, so not drawn in it.
+    if (aircraft === undefined) out.hasPlane = false;
+    else p.aircraft = aircraft;
+  }
   return out;
 }
 
 export function copySnapshot(out: Snapshot, s: Snapshot): Snapshot {
-  const { body, controls, hands, pos, vel, att, pilotAtt, pose, heapFrom, fallTo, joints, released } = out;
-  Object.assign(out, s, { body, controls, hands, pos, vel, att, pilotAtt, pose, heapFrom, fallTo, joints, released });
+  const { body, controls, hands, pos, vel, att, pilotAtt, pose, heapFrom, fallTo, joints, released, plane } = out;
+  Object.assign(out, s, { body, controls, hands, pos, vel, att, pilotAtt, pose, heapFrom, fallTo, joints, released, plane });
+  Object.assign(plane.pos, s.plane.pos);
+  plane.headingDeg = s.plane.headingDeg;
+  plane.aircraft = s.plane.aircraft;
   copyPose(pose, s.pose);
   Object.assign(heapFrom, s.heapFrom);
   Object.assign(fallTo, s.fallTo);

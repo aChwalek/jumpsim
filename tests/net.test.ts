@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { INTERP_DELAY_MS, SnapshotBuffer, lerpSnapshot, nlerp } from '../src/net/interp';
+import { TimeTrack, clockApart, compareSeen, readSeen, readTick, spread } from '../src/net/check';
 import { readHello } from '../src/net/multiplayer';
+import { flyOn, leadOf, planeGap, type OurPlane } from '../src/net/remote';
 import { SNAPSHOT_BYTES, copySnapshot, decodeSnapshot, emptySnapshot, encodeSnapshot, type Snapshot } from '../src/net/snapshot';
-import { quat } from '../src/sim/vec';
+import { quat, vec3 } from '../src/sim/vec';
 
 const at = (t: number, x: number): Snapshot => {
   const s = emptySnapshot();
@@ -141,6 +143,30 @@ describe('snapshot', () => {
     expect(lerpSnapshot(emptySnapshot(), crashed, before, 0.5).joints[0]).toBe(2);
   });
 
+  it('carries the plane they are in only while in it', () => {
+    const s = emptySnapshot();
+    Object.assign(s, { phase: 'plane', hasPlane: true, slider: 'stowed' });
+    Object.assign(s.plane.pos, { x: -4123.5, y: 4012.25, z: 2250.75 });
+    Object.assign(s.plane, { headingDeg: 271.3, aircraft: 'c130' });
+    const buffer = encodeSnapshot(s);
+    expect(buffer.byteLength).toBe(SNAPSHOT_BYTES + 15);
+    const b = decodeSnapshot(buffer)!;
+    expect([b.hasPlane, b.plane.aircraft, b.slider]).toEqual([true, 'c130', 'stowed']);
+    expect(b.plane.pos).toEqual(s.plane.pos);
+    expect(b.plane.headingDeg).toBeCloseTo(271.3, 6);
+    // Copied whole, and between two snapshots, the plane goes along.
+    const copy = copySnapshot(emptySnapshot(), b);
+    b.plane.pos.x = 0;
+    expect(copy.plane.pos.x).toBe(-4123.5);
+    const later = copySnapshot(emptySnapshot(), copy);
+    later.plane.pos.x += 10;
+    expect(lerpSnapshot(emptySnapshot(), copy, later, 0.5).plane.pos.x).toBeCloseTo(-4118.5, 6);
+    // Out of it: the packet shrinks back.
+    s.hasPlane = false;
+    expect(encodeSnapshot(s).byteLength).toBe(SNAPSHOT_BYTES);
+    expect(decodeSnapshot(encodeSnapshot(s), copy)!.hasPlane).toBe(false);
+  });
+
   it('keeps a packed canopy packed', () => {
     const s = emptySnapshot();
     s.inflation = null;
@@ -180,6 +206,18 @@ describe('snapshot buffer', () => {
     expect(out.pos.x).toBeCloseTo(25, 6);
   });
 
+  it('carries their plane on with them past the last snapshot: where they are in it stays put', () => {
+    const buffer = new SnapshotBuffer();
+    const s = at(0, 100);
+    s.hasPlane = true;
+    s.plane.pos.x = 90;
+    buffer.push(s, 1000);
+    const out = emptySnapshot();
+    buffer.sample(1000 + INTERP_DELAY_MS + 100, out);
+    expect(out.pos.x).toBeCloseTo(101, 6);
+    expect(out.pos.x - out.plane.pos.x).toBeCloseTo(10, 6);
+  });
+
   it('carries on along the velocity for a while when snapshots stop, then holds', () => {
     const b = new SnapshotBuffer();
     b.push(at(0, 0), local(0));
@@ -193,6 +231,163 @@ describe('snapshot buffer', () => {
 
   it('has nothing to draw before anything came', () => {
     expect(new SnapshotBuffer().sample(0, emptySnapshot())).toBe(false);
+  });
+
+  it('draws them no later than a moment given: ours, when we are behind', () => {
+    const b = new SnapshotBuffer();
+    for (let t = 0; t <= 1000; t += 100) b.push(at(t, t / 10), local(t));
+    expect(b.newest).toBe(1000);
+    const out = emptySnapshot();
+    b.sample(local(1000), out, 600);
+    expect(out.pos.x).toBeCloseTo(60, 6);
+    expect(out.t).toBeCloseTo(600, 6);
+  });
+
+  it("starts again when the sender's clock is set back, rather than wait for it to catch up", () => {
+    const b = new SnapshotBuffer();
+    for (let t = 10_000; t <= 11_000; t += 100) b.push(at(t, t / 10), local(t));
+    // Set back 5 s: what comes next is drawn, not held behind what came before.
+    for (let t = 6100; t <= 6500; t += 100) b.push(at(t, t / 10), local(t + 5000));
+    const out = emptySnapshot();
+    b.sample(local(11_500), out);
+    expect(out.pos.x).toBeCloseTo((6500 - INTERP_DELAY_MS) / 10, 6);
+  });
+});
+
+describe('the others drawn where they are now', () => {
+  it("flies on only what is stamped on the room's clock, by its age, up to half a second", () => {
+    const now = 1.79e12;
+    expect(leadOf(now, now - 180)).toBeCloseTo(0.18, 9);
+    expect(leadOf(now, now - 3000)).toBe(0.5);
+    // A stamp a little ahead of our clock (the two clocks a few ms apart): not flown back.
+    expect(leadOf(now, now + 4)).toBe(0);
+    // An older sender stamps with its own clock; a bot or a replay has no room clock.
+    expect(leadOf(now, 123_456)).toBe(0);
+    expect(leadOf(undefined, now - 180)).toBe(0);
+  });
+
+  it('flies the jumper on along their velocity, and a cut-away main along its own', () => {
+    const s = emptySnapshot();
+    Object.assign(s.pos, { x: 10, y: 3000, z: -5 });
+    Object.assign(s.vel, { x: 2, y: -55, z: 0 });
+    s.hasReleased = true;
+    Object.assign(s.released.pos, { x: 0, y: 3100, z: 0 });
+    Object.assign(s.released.vel, { x: 1, y: -20, z: 0 });
+    flyOn(s, 0.2);
+    expect(s.pos).toEqual({ x: 10.4, y: 2989, z: -5 });
+    expect(s.released.pos.x).toBeCloseTo(0.2, 9);
+    expect(s.released.pos.y).toBeCloseTo(3096, 9);
+  });
+
+  it('sees someone falling level with us level with us, not 10 m above', () => {
+    // On the room's clock: they stamp with it, ours runs 2 s behind it on performance.now.
+    const room0 = 1.79e12;
+    const local = (room: number) => room - room0 + 2000;
+    // Belly at terminal speed, drifting a little, from 4000 m at room0.
+    const truth = (room: number) => ({ x: 3 * ((room - room0) / 1000), y: 4000 - 55 * ((room - room0) / 1000) });
+    const b = new SnapshotBuffer();
+    const out = emptySnapshot();
+    let worstThen = 0;
+    let worstNow = 0;
+    let sent = 0;
+    // 15 a second, 35 to 75 ms through the network; drawn at 60 frames a second.
+    for (let room = room0; room < room0 + 5000; room += 1000 / 60) {
+      while (sent <= room) {
+        const s = emptySnapshot();
+        s.t = sent;
+        s.phase = 'freefall';
+        Object.assign(s.pos, { ...truth(sent), z: 0 });
+        Object.assign(s.vel, { x: 3, y: -55, z: 0 });
+        const delay = 35 + 40 * ((sent / 67) % 1);
+        if (sent > room0) b.push(s, local(sent + delay));
+        sent = sent === 0 ? room0 : sent + 1000 / 15;
+      }
+      if (room < room0 + 1000 || !b.sample(local(room), out)) continue;
+      const there = truth(room);
+      worstThen = Math.max(worstThen, Math.abs(out.pos.y - there.y));
+      flyOn(out, leadOf(room, out.t));
+      worstNow = Math.max(worstNow, Math.hypot(out.pos.x - there.x, out.pos.y - there.y));
+    }
+    // As it was drawn before: the network and the snapshots kept to go between, at 55 m/s.
+    expect(worstThen).toBeGreaterThan(8);
+    expect(worstNow).toBeLessThan(0.05);
+  });
+});
+
+describe('their plane and ours', () => {
+  // On jump run west at 60 m/s.
+  const ours: OurPlane = { pos: vec3(1000, 4000, -500), vel: vec3(-60, 0, 0), headingDeg: 270, type: { id: 'c130' } };
+  const theirs = (x: number, y = 4000, headingDeg = 270, aircraft: 'c130' | 'pc6' = 'c130') => ({ pos: vec3(x, y, -500), headingDeg, aircraft });
+
+  it('are the same load a moment apart: the gap from theirs to ours', () => {
+    expect(planeGap(ours, theirs(1030), vec3())).toEqual({ x: -30, y: 0, z: 0 });
+    // Headings either side of north are near each other.
+    const north = { ...ours, headingDeg: 359.5 };
+    expect(planeGap(north, theirs(1000, 4000, 0.5), vec3())).not.toBeNull();
+  });
+
+  it('are the same plane on the same clock, once theirs is flown on to now as they are', () => {
+    // What they sent half a second ago: their plane 30 m back then, where ours was.
+    const gap = planeGap(ours, theirs(1030), vec3(), 0.5)!;
+    expect(Math.hypot(gap.x, gap.y, gap.z)).toBeCloseTo(0, 9);
+  });
+
+  it('are not when another aircraft, another height or another run, or the next load', () => {
+    expect(planeGap(ours, theirs(1000, 4000, 270, 'pc6'), vec3())).toBeNull();
+    expect(planeGap(ours, theirs(1000, 3500), vec3())).toBeNull();
+    expect(planeGap(ours, theirs(1000, 4000, 90), vec3())).toBeNull();
+    // 30 s behind at jump run speed.
+    expect(planeGap(ours, theirs(1000 + 30 * 60), vec3())).toBeNull();
+  });
+});
+
+describe('how the others see us', () => {
+  it('keeps where something was, and finds it between two moments', () => {
+    const track = new TimeTrack();
+    for (let t = 1000; t <= 5000; t += 10) track.push(t, t / 100, -t / 10, 0);
+    const out = vec3();
+    expect(track.at(4505, out)).toEqual({ x: 45.05, y: -450.5, z: 0 });
+    // Only the last few seconds.
+    expect(track.at(1500, out)).toBeNull();
+    expect(track.at(5001, out)).toBeNull();
+  });
+
+  it('tells a clock off on one side, which moves both views alike, from views that disagree', () => {
+    // Level, 4 m apart east-west, falling at 60 m/s. B's clock 100 ms behind A's: A draws B 6 m high,
+    // B draws A 6 m low. Each is off by 6 m, but they agree on where the other is.
+    const a = vec3(0, 2000, 0);
+    const b = vec3(4, 2000, 0);
+    const told = readSeen(JSON.parse(JSON.stringify({ type: 'seen', at: 1, self: [a.x, a.y, a.z], seen: [b.x, b.y + 6, b.z] })))!;
+    const shifted = compareSeen(told, b, vec3(a.x, a.y - 6, a.z));
+    expect(shifted.off).toBeCloseTo(6, 9);
+    expect(shifted.apart).toBeCloseTo(0, 9);
+    // A sees B where B is, but B sees A 5 m to the side: the views disagree.
+    const told2 = { ...told, seen: [b.x, b.y, b.z] as [number, number, number] };
+    const apart = compareSeen(told2, b, vec3(a.x, a.y, a.z + 5));
+    expect(apart.off).toBeCloseTo(0, 9);
+    expect(apart.apart).toBeCloseTo(5, 9);
+  });
+
+  it('forgets what it kept when the thing jumps somewhere else: a new jump, not a move', () => {
+    const track = new TimeTrack();
+    track.push(1000, 0, 4000, 0);
+    track.push(1010, 0.6, 4000, 0);
+    track.push(1020, 500, 300, 0);
+    expect(track.at(1005, vec3())).toBeNull();
+    expect(track.newest).toBe(1020);
+  });
+
+  it('compares two clocks peer to peer: the other one 100 ms ahead, over a 20 ms trip', () => {
+    const tock = readTick({ type: 'tock', a: 5000, b: 5110 });
+    expect(tock).toEqual({ type: 'tock', a: 5000, b: 5110 });
+    expect(clockApart(tock as { type: 'tock'; a: number; b: number }, 5020)).toEqual({ trip: 20, apart: 100 });
+    expect(readTick({ type: 'tick', a: 'x' })).toBeNull();
+  });
+
+  it('turns away what is not a measure', () => {
+    expect(readSeen({ type: 'seen', at: 1, self: [0, 0], seen: [0, 0, 0] })).toBeNull();
+    expect(readSeen({ type: 'hello' })).toBeNull();
+    expect(spread([3, 1, 2])).toEqual({ mid: 2, worst: 3 });
   });
 });
 

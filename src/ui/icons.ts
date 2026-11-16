@@ -45,5 +45,9 @@ export const LOGO =
 export const ICON_PEOPLE = icon(
   '<circle cx="9" cy="8" r="3.2"/><path d="M3 19.5c.6-3.4 3-5.3 6-5.3s5.4 1.9 6 5.3"/><path d="M15.5 4.9a3.2 3.2 0 0 1 0 6.2M17.6 14.6c1.8.7 3 2.4 3.4 4.9"/>',
 );
+/** Two sheets, one over the other: copied to paste elsewhere. */
+export const ICON_COPY = icon('<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>');
+/** A tick: done. */
+export const ICON_CHECK = icon('<path d="M5 12.5l4.5 4.5L19 7.5"/>');
 /** A lock, on what someone else sets. */
 export const ICON_LOCK = icon('<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/>');

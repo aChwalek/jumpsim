@@ -191,7 +191,11 @@ export const fr = {
     atImpact: 'à l\'impact',
     freefallOnly: 'de chute libre',
     again: (k: K) =>
-      `${k('KeyR')} ou Y pour recommencer · flèches ou croix puis Espace ou A pour les boutons · 1 circuit · 2 finale · 3 avion · 4 BASE · ${k('KeyV')}, Échap ou Start pour le menu`,
+      `${k('KeyR')} ou Y pour recommencer · flèches ou croix puis Espace ou A pour les boutons · 1 circuit · 2 finale · 3 avion · 4 BASE · ${k('KeyV')} ou Start pour le menu · Échap ou B pour masquer`,
+    /** The card at the end of the jump, put out of the way and back. */
+    hideCard: 'Masquer (Échap)',
+    showCard: 'Afficher le résultat',
+    escKey: 'Échap',
     fps: (fps: string, scale: string) => `${fps} i/s · rendu ${scale} %`,
     muted: 'son coupé',
     wind: (hdg: string, from: string, kmh: string, gust: string | null) =>
@@ -271,6 +275,7 @@ export const fr = {
     noTarget: 'PAS DE CIBLE',
     noPlayer: 'PERSONNE EN VUE',
     targetGone: 'CIBLE PERDUE',
+    noPause: 'PAS DE PAUSE À PLUSIEURS',
     lockHint: (k: string) => `${k} pour verrouiller la caméra dessus`,
     pickHint: (k: string) => `${k} : cibler ce qui est au centre de l'écran`,
     locked: 'CAMÉRA VERROUILLÉE SUR LA CIBLE',
@@ -316,6 +321,10 @@ export const fr = {
     starts: 'circuit / finale / avion',
     run: 'courir / reculer',
     sidestep: 'pas de côté',
+    shuffle: 'se décaler le long du bord',
+    turnRound: 'se retourner',
+    stepOff: 'vers le vide : sauter',
+    shufflePad: 'se décaler · vers le vide : sauter',
     leap: 'sauter',
     menu: 'menu',
     esc: 'Échap',
@@ -391,6 +400,13 @@ export const fr = {
     /** On the lines of the home screen. */
     lines: { dz: 'DROPZONE', gear: 'GEAR', jump: 'JUMP', team: 'TEAM', weather: 'MÉTÉO' },
     dragHint: 'Glisse pour tourner autour',
+    /** The button over the jumpers that asks a friend along. */
+    invite: {
+      label: 'Inviter un ami',
+      title: 'Copie le lien de ce saut : ton ami arrive dans ta salle, avec les mêmes réglages.',
+      linkTitle: 'Copier le lien de ta salle, à envoyer à ton ami',
+      copied: 'Lien copié',
+    },
     back: 'Retour',
     resume: 'Reprendre le saut',
     jumpButton: 'Sauter',
@@ -430,6 +446,8 @@ export const fr = {
       imReady: 'Je suis prêt',
       waiting: 'Prêt · en attente',
       readyCount: (n: number, total: number) => `${n}/${total} prêts`,
+      goAnyway: 'Lancer quand même',
+      notReady: (names: string[]) => (names.length === 1 ? `${names[0]} pas prêt` : `${names.length} pas prêts`),
       startNow: 'Lancer sans attendre',
       startNowWarn: (names: string) => `Pas encore prêts : ${names}. Clique encore pour lancer quand même.`,
     },
@@ -903,6 +921,7 @@ export const fr = {
       namePlaceholder: 'Ton nom',
       nameNote: 'Affiché au classement et dans les rooms.',
       nameMadeUp: 'Ce nom-là, c\'est le jeu qui l\'a choisi : mets le tien, c\'est lui qu\'on verra au classement.',
+      nameTaken: (name: string) => `« ${name} » est déjà pris par un autre joueur : choisis-en un autre.`,
       dz: 'DZ',
       previous: 'DZ précédente',
       next: 'DZ suivante',

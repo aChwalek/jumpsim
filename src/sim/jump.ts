@@ -13,7 +13,7 @@ import { BASE_OPENING, MAIN_OPENING, Opening, RESERVE_HANDLE_OPENING, RESERVE_OP
 import { EXIT_SPOTS, Plane, type ExitSpot, type JumpRun } from './plane';
 import { ReleasedCanopy } from './released';
 import type { RigParams } from './rig';
-import { RunUp } from './runUp';
+import { RunUp, straightLip, type Lip } from './runUp';
 import { hasWings, suitFit, type Suit } from './suit';
 import { DEG, copy, quat, quatFromYaw, quatMultiply, rotate, set, vec3, type Vec3 } from './vec';
 
@@ -38,6 +38,11 @@ export interface Ledge {
   height?: number;
   /** No run: standing on the lip of a bridge, the jumper jumps out from there. */
   standing?: boolean;
+  /**
+   * Standing, the lip the jumper can shuffle along: a straight one square to
+   * the heading if not given.
+   */
+  lip?: Lip;
 }
 
 export const isLedge = (from: JumpRun | Ledge): from is Ledge => (from as Ledge).kind === 'ledge';
@@ -70,6 +75,8 @@ export interface JumpOptions {
    * and off the end of the ramp, rather than waiting at a place on it.
    */
   onFoot?: boolean;
+  /** Which of the load the jumper is, 0 the first: where they start in a hold (see `holdSeat`). */
+  seat?: number;
   /** What the jumper wears: a plain jumpsuit if not given. */
   suit?: Suit;
 }
@@ -121,6 +128,24 @@ const BODY_HALF_WIDTH = 0.3;
 const LEAP_FROM_RAMP = 0.5;
 /** Where one starts in a hold: this far behind its front bulkhead, facing the ramp, m. */
 const HOLD_START = 1.5;
+/** The others of a load start behind, a row every this far, m, either side of the middle by `SEAT_ACROSS`. */
+const SEAT_PITCH = 1.1;
+const SEAT_ACROSS = 0.75;
+/** That many places down the hold, well short of the ramp; past that, the first ones again. */
+const HOLD_SEATS = 12;
+
+/**
+ * Where the one at `seat` of a load starts in a hold, so that nobody starts
+ * in someone else: the first in the middle, the next two behind either side
+ * of them, the next behind in the middle, and so on down the hold. Plane
+ * frame: across from its middle, and behind its front bulkhead, m.
+ */
+export function holdSeat(seat: number): { x: number; back: number } {
+  const k = ((Math.round(seat) % HOLD_SEATS) + HOLD_SEATS) % HOLD_SEATS;
+  const side = k % 3;
+  const row = 2 * Math.floor(k / 3) + (side === 0 ? 0 : 1);
+  return { x: side === 0 ? 0 : side === 1 ? -SEAT_ACROSS : SEAT_ACROSS, back: HOLD_START + row * SEAT_PITCH };
+}
 
 /**
  * The floor of a hold, plane frame: flat from the front bulkhead to the end
@@ -177,8 +202,18 @@ export class Jump {
   readonly walk: RunUp | null;
   /** A BASE jump, off an object: the AAD is off, as for any BASE jump. */
   readonly base: boolean;
-  /** The ledge's own height, when it has one. */
+  /**
+   * The ledge's own height, when it has one. Not a bridge's: along its lip,
+   * the ledge's height changes as the ground under the edge does.
+   */
   private readonly exitHeight: number | undefined;
+  /** On a bridge's lip: the ledge's height over what the ground under the start says, m. */
+  private lipHeightOff = 0;
+  /**
+   * The exit position was asked for. On a bridge's lip until it is, the
+   * jumper goes out the way they face the void: belly to it, or the back.
+   */
+  private exitPicked = false;
   /** One canopy and nothing else: a BASE container. */
   readonly single: boolean;
   readonly body: Freefall;
@@ -250,22 +285,24 @@ export class Jump {
     this.body = new Freefall(freefallParams(model.rig.gravMass, suitFit(options.suit)));
     this.wings = hasWings(options.suit);
     this.base = isLedge(from);
-    this.exitHeight = isLedge(from) ? from.height : undefined;
+    this.exitHeight = isLedge(from) && !from.standing ? from.height : undefined;
     this.single = options.container === 'base';
     this.spot = options.spot ?? 'low';
     if (isLedge(from)) {
       this.phase = 'standing';
       this.plane = null;
-      this.runUp = new RunUp(this.solidAt, from.x, from.z, from.headingDeg, undefined, from.standing);
+      const lip = from.standing ? (from.lip ?? straightLip(from.x, from.z, from.headingDeg)) : null;
+      this.runUp = new RunUp(this.solidAt, from.x, from.z, from.headingDeg, undefined, lip);
       this.walk = null;
     } else {
       this.phase = 'plane';
       this.plane = new Plane(from, env.wind, groundAt(from.x, from.z));
       this.runUp = null;
       const ramp = this.plane.type.ramp;
-      // At the front of the hold, facing the ramp: all of it to run down.
+      // At the front of the hold, facing the ramp: all of it to run down. The others of the load behind.
+      const seat = holdSeat(options.seat ?? 0);
       this.walk =
-        ramp && options.onFoot ? new RunUp(holdFloor(ramp, this.plane.type.cabin.halfWidth), 0, ramp.front + HOLD_START, 180) : null;
+        ramp && options.onFoot ? new RunUp(holdFloor(ramp, this.plane.type.cabin.halfWidth), seat.x, ramp.front + seat.back, 180) : null;
       this.fromYaw = this.place(this.fromEye);
     }
     this.log = {
@@ -284,6 +321,7 @@ export class Jump {
     };
     if (this.runUp) this.stand();
     else this.ride();
+    if (isLedge(from) && from.standing && from.height !== undefined) this.lipHeightOff = from.height - this.height();
   }
 
   /**
@@ -344,6 +382,7 @@ export class Jump {
   fly(position: BodyPosition, roll = 1): void {
     if (this.pullWhenFlat || this.stunned || (this.wings && !flat(position))) return;
     if (this.phase === 'plane' || this.phase === 'standing' || this.phase === 'freefall') this.body.setPosition(position, roll);
+    if (this.phase === 'standing') this.exitPicked = true;
   }
 
   /**
@@ -364,6 +403,7 @@ export class Jump {
     if (this.pullWhenFlat || this.stunned) return;
     if (this.phase === 'plane' || this.phase === 'standing') this.body.setPosition(dir < 0 ? 'belly' : 'back');
     else if (this.phase === 'freefall') this.body.rollOver(dir);
+    if (this.phase === 'standing') this.exitPicked = true;
   }
 
   /**
@@ -378,6 +418,13 @@ export class Jump {
     this.fromYaw = this.place(this.fromEye);
     this.spot = next;
     this.spotMove = 0;
+  }
+
+  /** The plane straight to where it is after `flown` s on its run, with the jumper in it if still aboard. */
+  flyPlane(flown: number): void {
+    if (!this.plane) return;
+    this.plane.fly(flown);
+    if (this.phase === 'plane') this.ride();
   }
 
   /** On the feet, walking: on top of the object, or in the hold of the plane. */
@@ -480,7 +527,11 @@ export class Jump {
       return;
     }
     if (this.phase === 'standing') {
-      if (this.runUp!.step(dt, input)) this.exit();
+      const r = this.runUp!;
+      const out = r.step(dt, input);
+      // Facing the deck, the back to the void: a back exit, unless asked otherwise.
+      if (r.standing && !this.exitPicked) this.body.setPosition(r.facingOut ? 'belly' : 'back');
+      if (out) this.exit();
       else this.stand();
       return;
     }
@@ -737,7 +788,7 @@ export class Jump {
     b.yawRate = 0;
     this.phase = 'freefall';
     this.time = 0;
-    this.log.exitHeight = this.exitHeight ?? this.height();
+    this.log.exitHeight = this.exitHeight ?? this.height() + this.lipHeightOff;
   }
 
   /**

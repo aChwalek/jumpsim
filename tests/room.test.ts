@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { ROOM_NAME } from '../src/net/protocol';
-import { LOAD_EVERY_MS, RoomState, cleanName, nextLoad, publicDz, publicRoom, readRoomMessage, sameShared, sharedPart } from '../src/net/room';
+import {
+  LOAD_EVERY_MS,
+  RoomState,
+  bestOffset,
+  clockSample,
+  cleanName,
+  nextLoad,
+  publicDz,
+  publicRoom,
+  readRoomMessage,
+  sameShared,
+  sharedPart,
+} from '../src/net/room';
 import { defaultSetup } from '../src/setup';
 import { DZS } from '../src/world/dzs';
 
@@ -24,6 +36,15 @@ describe('room state', () => {
     const r = new RoomState();
     r.welcome({ id: 'z', joined: 100 }, [{ id: 'y', joined: 100 }], 'Zoe', false);
     expect(r.host?.id).toBe('y');
+  });
+
+  it('gives each a seat in the plane by the order they came, whoever is ready', () => {
+    const r = room();
+    expect(r.seat).toBe(1);
+    r.hello('a', 'Ana', true);
+    expect(r.seat).toBe(1);
+    r.leave('a');
+    expect(r.seat).toBe(0);
   });
 
   it('lists the players in the order they came', () => {
@@ -81,6 +102,25 @@ describe('room messages', () => {
     expect(readRoomMessage({ kind: 'start', start: 'plane', setup: {} })?.kind).toBe('start');
     expect(readRoomMessage({ kind: 'kick' })).toBeNull();
     expect(readRoomMessage(null)).toBeNull();
+  });
+
+  it('carries when the load left, if it says', () => {
+    expect(readRoomMessage({ kind: 'start', start: 'plane', setup: {}, at: 1_700_000_000_123 })).toMatchObject({ at: 1_700_000_000_123 });
+    for (const at of [undefined, 'soon', Number.NaN]) expect(readRoomMessage({ kind: 'start', start: 'plane', setup: {}, at })).not.toHaveProperty('at');
+  });
+});
+
+describe('the room clock', () => {
+  it('takes the server to have answered halfway through the trip', () => {
+    // Ours says 1000 when asked, 1100 when answered; the server said 50 400 in between.
+    expect(clockSample(1000, 50_400, 1100)).toEqual({ trip: 100, offset: 49_350 });
+  });
+
+  it('goes by the quickest trip, the least thrown off by a slow way one way', () => {
+    // The truth: the server 49 350 ahead. A trip slow on the way back alone throws the slow one off by 100.
+    const samples = [clockSample(0, 49_350 + 30, 60), clockSample(1000, 50_350 + 30, 1260), clockSample(2000, 51_350 + 10, 2020)];
+    expect(bestOffset(samples)).toBe(49_350);
+    expect(bestOffset([])).toBeNull();
   });
 });
 

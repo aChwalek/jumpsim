@@ -61,7 +61,7 @@ import { MAIN_MALFUNCTIONS } from './sim/opening';
 import { SLIDE_FROM, detectTouchdown, feetHeight, rateLanding, worst, type Touchdown } from './sim/landing';
 import { Skim, slidesOn, type LegAngles, type SkimEnd } from './sim/skim';
 import { SwoopTracker } from './sim/swoop';
-import { engineHubs } from './sim/plane';
+import { engineHubs, seatSpot } from './sim/plane';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import type { RunUp } from './sim/runUp';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry, warmTrims } from './sim/telemetry';
@@ -82,8 +82,10 @@ import type { Lead } from './sim/bot';
 import { Multiplayer, newRoomName, playersIn, roomFromUrl, roomLink, setRoomInUrl } from './net/multiplayer';
 import { cleanName, publicDz, publicRoom, sameShared, sharedPart } from './net/room';
 import { madeUpName, sendScore } from './net/leaderboard';
+import { UNNAMED } from './net/scores';
 import { ensureAccount, googleOffered, loadAccount, renameAccount, signInWithGoogle, signOut, type Account } from './net/account';
 import { buildWorld, type World } from './world/build';
+import { lipOf } from './world/bridge';
 import { isWet, landingHeading, solidOf, spawnsFor, type DzPack } from './world/dz';
 import { dzInfo } from './world/dzs';
 import { MAP_HALF } from './ui/dzMap';
@@ -395,6 +397,8 @@ const perf = new PerfMeter(
   }),
   handheld(),
 );
+// With others: how they see us, in the same reports.
+perf.netReport = () => net?.report() ?? '';
 /** A bench is running (?bench): the resolution stays where it puts it. */
 let benching = false;
 
@@ -434,6 +438,8 @@ function dropBots(): void {
 function joinRoom(name: string): void {
   leaveRoom(false);
   dropBots();
+  // With others there is no pause.
+  paused = false;
   // A public room is at its drop zone, whoever leads it.
   const pinned = publicDz(name);
   if (pinned) menu.chooseDz(pinned);
@@ -446,7 +452,10 @@ function joinRoom(name: string): void {
       if (!net?.isPublic) net?.setReady(false);
       menu.applyShared(shared);
     },
-    start: (start, shared) => menu.startShared(shared, start),
+    start: (start, shared, at) => {
+      boarding = at;
+      menu.startShared(shared, start);
+    },
     changed: showRoom,
     exited: showExit,
   });
@@ -523,16 +532,17 @@ menu.onSetupChange = (chosen) => {
 };
 /** The account signed in, once known; null for none (yet), or when the server cannot be reached. */
 let account: Account | null = null;
-/** What anonymous accounts are called until the browser names them (worker/auth.ts). */
-const UNNAMED = 'Skydiver';
 
 /** The account as it now stands: its name is the player's, chosen here or on another device. */
 function showAccount(next: Account | null): void {
   account = next;
   if (next && next.name === UNNAMED) {
-    // Named right after being made, and that did not go through: again.
-    void renameAccount(playerName());
+    // Named right after being made, and that did not go through: again
+    // (under another number, or "Bob 2", if another account has the name since).
     next.name = playerName();
+    void renameAccount(next.name).then((named) => {
+      if (named.ok && named.name !== next.name && account?.id === next.id) showAccount({ ...next, name: named.name });
+    });
   } else if (next && next.name !== settings.playerName) {
     settings.playerName = next.name;
     saveSettings(settings);
@@ -543,21 +553,37 @@ function showAccount(next: Account | null): void {
 void loadAccount().then(showAccount);
 void googleOffered().then((offered) => menu.setGoogle(offered));
 
-/** The player's new name: in the room, and on the account (and so the boards) if there is one. */
-async function rename(name: string): Promise<void> {
+/**
+ * The player's new name, if no other account has it: false if one does. The
+ * account (and so the boards) takes it first, made for it if there is none
+ * yet, under the name used until then; then the room. Offline, it is kept
+ * here, and the account has the last word next time.
+ */
+async function rename(name: string): Promise<boolean> {
   const clean = cleanName(name);
-  if (!clean || clean === settings.playerName) return;
-  settings.playerName = clean;
-  saveSettings(settings);
-  net?.setName(clean);
-  if (account) {
-    account.name = clean;
-    await renameAccount(clean);
+  if (!clean || clean === settings.playerName) return true;
+  const had = account;
+  const owner = had ?? (await ensureAccount(playerName()));
+  let given = clean;
+  if (owner) {
+    const named = await renameAccount(clean);
+    if (!had) showAccount(named.ok ? { ...owner, name: named.name } : owner);
+    if (!named.ok && named.taken) return false;
+    if (named.ok) given = named.name;
   }
+  if (account) account.name = given;
+  settings.playerName = given;
+  saveSettings(settings);
+  net?.setName(given);
+  return true;
 }
 menu.onRename = () => {
   const name = prompt(T.menu.room.renamePrompt, playerName());
-  if (name !== null) void rename(name).then(() => menu.refreshNames());
+  if (name === null) return;
+  void rename(name).then((ok) => {
+    if (!ok) alert(T.menu.leaderboardScreen.nameTaken(cleanName(name)));
+    menu.refreshNames();
+  });
 };
 menu.onNameChange = rename;
 menu.onSignIn = () => void signInWithGoogle(playerName());
@@ -788,7 +814,9 @@ function postScore(score: AccuracyScore | null): void {
       }
     }
     if (send !== boardSends) return;
-    hud.setBoard(standing ? { kind: 'standing', standing, dzName, asName: madeUpName(name) ? name : null } : { kind: 'offline' });
+    // Under the account's name: a made-up one can have come back with another number.
+    const shown = account?.name ?? name;
+    hud.setBoard(standing ? { kind: 'standing', standing, dzName, asName: madeUpName(shown) ? shown : null } : { kind: 'offline' });
   })();
 }
 
@@ -826,6 +854,33 @@ function startBots(from: BotsSpec['from']): void {
   });
 }
 
+/**
+ * When the load we are on left, by the room's clock (server ms): its plane
+ * flies by it, so that everyone aboard is in the same plane at the same
+ * moment. Null on a jump alone, or not from a plane.
+ */
+let loadLeft: number | null = null;
+/** Set by the room's start, for the jump it starts to take. */
+let boarding: number | null = null;
+/** A start older than this is not the one of the jump being started, s. */
+const BOARDING_STALE = 60;
+/** The plane off the room's clock by this much is put back on it, s: a frame cut short, a pause, the menu. */
+const PLANE_SLIP = 0.005;
+
+/**
+ * Our plane where the room's clock puts it, `ahead` s before `at` (the room's
+ * clock now, ms, by default): the sim then flies it on from there.
+ */
+function keepPlaneOnClock(ahead: number, at?: number): void {
+  const plane = jump?.plane;
+  if (!jump || !plane || loadLeft === null || !net) return;
+  const flown = Math.max(0, ((at ?? net.serverNow()) - loadLeft) / 1000 - ahead);
+  if (Math.abs(flown - plane.flown) < PLANE_SLIP) return;
+  jump.flyPlane(flown);
+  // The replay flies it on from there (once out, a slip is too small to show).
+  if (jump.phase === 'plane') trackRecorder.setPlane(plane.type.id, plane.pos, plane.vel, plane.att);
+}
+
 /** One canopy and no reserve: a BASE container. */
 const singleCanopy = (): boolean => (jump ? jump.single : setup.gear.container === 'base');
 
@@ -833,6 +888,10 @@ function spawn(kind: Start): void {
   // No BASE object here: from the plane instead.
   if (kind === 'base' && !dz.base) kind = 'plane';
   scenario = kind;
+  // Started by the room: its load's plane, by its clock.
+  const left = boarding;
+  boarding = null;
+  loadLeft = kind === 'plane' && net && left !== null && (net.serverNow() - left) / 1000 < BOARDING_STALE ? left : null;
   // A jump over but not yet at rest still goes in the logbook whole.
   if (trackRecorder.isLogged) finishTrack();
   lastTrack = null;
@@ -852,10 +911,13 @@ function spawn(kind: Start): void {
     windAt(env.wind, setup.weather, spots.plane.height, airTime);
     // Any of what can go wrong with a main, as likely as each other.
     const malfunction = unlucky ? MAIN_MALFUNCTIONS[Math.floor(Math.random() * MAIN_MALFUNCTIONS.length)]! : null;
+    // With others, each in a place of their own: the first at the place chosen, the others round them.
+    const seat = net?.seat ?? 0;
     jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, {
       ...rigOptions(),
       malfunction,
-      spot: setup.jump.exitSpot,
+      spot: seatSpot(seat, setup.jump.exitSpot),
+      seat,
       onFoot: true,
     });
     // Company on a jump alone: out of the same plane, right after us, in a suit like ours.
@@ -863,8 +925,10 @@ function spawn(kind: Start): void {
   } else if (kind === 'base') {
     const b = dz.base!;
     windAt(env.wind, setup.weather, b.height, airTime);
-    // Off a bridge, no run: from the lip of the deck.
-    const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg: b.headingDeg, height: b.height, standing: b.runUp === 0 } as const;
+    // Off a bridge, no run: from the lip of the deck, which the jumper can shuffle along.
+    const standing = b.runUp === 0;
+    const lip = standing && dz.bridges ? (lipOf(dz.bridges, b.x, b.z) ?? undefined) : undefined;
+    const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg: b.headingDeg, height: b.height, standing, lip } as const;
     jump = new Jump(model, ledge, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction: unlucky ? 'offHeading' : null });
     // Company on top: beside us, each going in turn, before or after us.
     startBots({ top: b });
@@ -882,6 +946,7 @@ function spawn(kind: Start): void {
     if (!jump.single) warmTrims(reserveRig);
   }
   planeView.object.visible = jump?.plane != null;
+  keepPlaneOnClock(0);
   if (jump?.plane) trackRecorder.setPlane(jump.plane.type.id, jump.plane.pos, jump.plane.vel, jump.plane.att);
   impact = false;
   Object.assign(ramped, neutralControls());
@@ -949,15 +1014,15 @@ function takePosition(position: BodyPosition): void {
  * On foot, free to walk and turn: on top of the object before the run-up,
  * or on the ground once at rest after the landing. Then the mouse and the
  * right stick turn the body, as in any first-person game; locked on a
- * target, the body faces where the camera looks (see faceTheView). Not on
- * the lip of a bridge, where nobody turns round, nor while gathering the
- * canopy up.
+ * target, the body faces where the camera looks (see faceTheView). On the
+ * lip of a bridge too, to turn round and go off backwards. Not while
+ * gathering the canopy up.
  */
 function onFoot(): boolean {
   if (replay || ragdoll) return false;
   if (arrival) return arrival.canWalk && !(gather !== null && gather < 1);
   if (jump?.phase === 'plane') return jump.walk !== null;
-  return jump?.phase === 'standing' && jump.runUp !== null && !jump.runUp.standing;
+  return jump?.phase === 'standing' && jump.runUp !== null;
 }
 
 const viewDir = new THREE.Vector3();
@@ -1008,7 +1073,7 @@ function say(text: string, small = '', ms = 1800): void {
   flash = { text: small ? `${text}<small>${small}</small>` : text, until: performance.now() + ms };
 }
 
-/** Where the target is now, if it can be seen: a player is not while in their plane. */
+/** Where the target is now, if it can be seen: a player is not while in a plane other than ours. */
 function targetPos(): THREE.Vector3 | null {
   if (!target) return null;
   if (target.kind === 'point') return targetAt.copy(target.pos);
@@ -1067,7 +1132,8 @@ const actions: Record<Action, () => void> = {
   flyUp: () => flyStep(1),
   flyDown: () => flyStep(-1),
   toggleHud: () => hud.toggle(),
-  togglePause: () => (paused = !paused),
+  // With others, time does not wait: no pause.
+  togglePause: () => (net ? say(T.cue.noPause) : (paused = !paused)),
   replay: () => {
     if (replay) stopReplay();
     else if (canReplay()) playReplay();
@@ -1139,6 +1205,9 @@ const actions: Record<Action, () => void> = {
   },
   padMenu: () => {
     if (!menu.isOpen) actions.openMenu();
+  },
+  card: () => {
+    if (!replay) hud.toggleCard();
   },
 };
 hud.onCard = (action) => {
@@ -1236,9 +1305,12 @@ menu.onPreview = async (chosen) => {
 menu.onCancel = fly;
 menu.onSettings = applySettings;
 // Escape opens the menu too; in the menu it goes back, and may close it:
-// that press is spent (the menu takes it first and marks it).
+// that press is spent (the menu takes it first and marks it). Once down, it
+// puts the card of the jump out of the way, and brings it back.
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Escape' && !e.repeat && !e.defaultPrevented && !menu.isOpen) actions.openMenu();
+  if (e.code === 'Escape' && !e.repeat && !e.defaultPrevented && !menu.isOpen) {
+    if (replay || watching || !hud.toggleCard()) actions.openMenu();
+  }
   // Tab picks the next player: not the next thing on the page.
   if (e.code === 'Tab' && !menu.isOpen) e.preventDefault();
 });
@@ -1258,7 +1330,8 @@ function simulate(seconds: number): void {
   // Under line twists, every press of a toggle is a kick round that way.
   const taps = devices.takeTaps();
   // Out cold, the hands do nothing: the canopy flies on its stowed brakes, or as it was left.
-  const cold = blow.cold;
+  // Nor do they in the menu with others, the jump going on.
+  const cold = blow.cold || away;
   const pulls = cold ? NO_PULLS : devices.pulls;
   const analogL = cold ? 0 : devices.analogBrakeL;
   const analogR = cold ? 0 : devices.analogBrakeR;
@@ -2363,7 +2436,7 @@ function keysPhase(): KeysPhase | null {
   if (watching) return watching.free ? 'replayFree' : 'replay';
   if (touchdown || arrival || impact) return 'ground';
   if (!jump || jump.phase === 'canopy' || jump.phase === 'opening') return singleCanopy() ? 'baseCanopy' : 'canopy';
-  if (jump.afoot) return 'ledge';
+  if (jump.afoot) return jump.runUp?.standing && jump.phase === 'standing' ? 'lip' : 'ledge';
   if (jump.phase === 'plane') return 'plane';
   if (jump.wings && jump.cutawayAt === null) return 'wingsuit';
   return jump.body.progressive ? 'freefallProgressive' : 'freefall';
@@ -2392,6 +2465,7 @@ function touchLayout(): TouchLayout | null {
       return { ...none, mode: 'canopy', cutaway: phase === 'canopy' && jump !== null, slider };
     }
     case 'ledge':
+    case 'lip':
     case 'plane':
       return { ...none, mode: 'walk', main: t.exit, cross: true };
     case 'freefall':
@@ -2490,8 +2564,11 @@ function cue(): string {
   }
   if (jump.phase === 'standing') {
     const exit = c.exitIn[jump.body.position];
-    const standing = jump.runUp?.standing;
-    const go = fingers ? (standing ? T.touch.jumpOut : T.touch.runAndJump) : standing ? c.jumpOut(keyLabel('KeyW')) : c.runAndJump(keyLabel('KeyW'));
+    const r = jump.runUp;
+    const standing = r?.standing;
+    // On the lip, the key that steps out over the edge: back, facing the deck.
+    const step = keyLabel(r && !r.facingOut ? 'KeyS' : 'KeyW');
+    const go = fingers ? (standing ? T.touch.jumpOut : T.touch.runAndJump) : standing ? c.jumpOut(step) : c.runAndJump(keyLabel('KeyW'));
     return `${c.onTop}<small>${exit ? `${exit} · ` : ''}${go}</small>`;
   }
   if (jump.phase === 'freefall' && jump.base) {
@@ -2648,12 +2725,15 @@ function drawMap(now: number): void {
   menu.map.pictureDrawn(setup.dz);
 }
 
+/** Out of the plane, it still goes to the others this long, s: a few snapshots, should one be lost. */
+const PLANE_SENT_AFTER = 0.5;
+
 /** The body as drawn at the last frame flown, and the heap of the canopy: what the others see of us. */
 const drawnPose = makePose();
 let drawnHeap = 0;
 
 /** Our jumper as the others will draw it: all of it, as we draw it. */
-function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation: number | null, elapsed: number): void {
+function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation: number | null, elapsed: number, at: number): void {
   const o = net.out;
   const s = model.state;
   o.phase = jump ? jump.phase : 'none';
@@ -2699,7 +2779,16 @@ function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation
     r.heap = free.heap;
     Object.assign(r.fallTo, free.fallTo);
   }
-  net.send(elapsed);
+  // In the plane, and a moment after leaving it: which one, and where, for the others to draw us in
+  // theirs. The moment after is for them to go from the last snapshot in it to the first out of it.
+  const plane = jump?.phase === 'plane' || (jump?.phase === 'freefall' && jump.time < PLANE_SENT_AFTER) ? jump.plane : null;
+  o.hasPlane = plane !== null;
+  if (plane) {
+    Object.assign(o.plane.pos, plane.pos);
+    o.plane.headingDeg = plane.headingDeg;
+    o.plane.aircraft = plane.type.id;
+  }
+  net.send(elapsed, at);
 }
 
 /** How the altimeter warns in freefall: from 1500 m, then 1000 m; off a BASE object, the last 150 m. */
@@ -2731,6 +2820,22 @@ function magnify(dt: number): void {
 let last = performance.now();
 let frameAverage = 1 / 60;
 
+/**
+ * The sim goes by the time the frames take, not by the frames: a frame that
+ * took long is made up for over the next ones, each going on by STEP_MAX at
+ * most, so that what a step is given stays what it was made for. Behind real
+ * time by this much at most, s: past it, the time is given up (a tab left
+ * hidden, a long stall). Alone, little is owed; with others, our time is
+ * theirs, and what we send says how far behind it we are.
+ */
+const STEP_MAX = 0.1;
+const BEHIND_ALONE = 0.5;
+const BEHIND_TOGETHER = 2;
+/** Real time the sim has still to go on by, s. */
+let behind = 0;
+/** With others, gone to the menu: the jump goes on, the hands off the keys. */
+let away = false;
+
 function frame(now: number): void {
   requestAnimationFrame(frame);
   perf.begin();
@@ -2752,7 +2857,15 @@ function frame(now: number): void {
   /** The title screen: the drop zone seen from a circle round it, without our jumper. */
   const titled = menu.titleShown && !watching && !replay;
   perf.mark(0);
-  const live = !waiting && !paused;
+  // With others the jump under way goes on, under the menu too: their time does not wait for us.
+  const together = net !== null && !watching && (!menu.isOpen || menu.resumable);
+  const live = together || (!waiting && !paused);
+  // Gone to the menu, with others: the hands off the keys, the jump flies on as it was left.
+  away = together && (waiting || paused || menu.isOpen);
+  /** The room's clock at this frame, ms: what our state is true at, less what we are behind by. */
+  const roomNow = net?.roomTime(now) ?? 0;
+  /** How much the sim went on by, s. */
+  let stepped = 0;
   /** How far the replay of the whole jump went on this frame, s of its own clock. */
   let watched = 0;
   // Paused or not before, the replay has its own pause.
@@ -2767,7 +2880,12 @@ function frame(now: number): void {
     replay.advance(Math.min(elapsed, 0.1), (kind, level, rate) => sound.ouch(kind, level, rate));
     if (replay.done) stopReplay();
   } else if (live) {
-    const seconds = Math.min(elapsed, 0.1);
+    // What the frame took, and what earlier ones could not: no more than STEP_MAX at once.
+    behind = Math.min(behind + elapsed, net ? BEHIND_TOGETHER : BEHIND_ALONE);
+    const seconds = Math.min(behind, STEP_MAX);
+    const before = behind;
+    behind -= seconds;
+    stepped = seconds;
     if (bots) {
       // Before our own step, so that they see us where we are at the same moment as they are.
       us.pos = model.state.pos;
@@ -2791,11 +2909,14 @@ function frame(now: number): void {
         faceTheView(feet, fromDeg);
       }
     }
+    // With others, the load's plane where the room's clock has it: the step flies it on to where we
+    // will be, `behind` short of now. On the ground nothing flies it: straight there.
+    keepPlaneOnClock(arrival ? behind : before, roomNow);
     if (arrival) {
       airTime += seconds;
-      // On the feet again: walking, but not while gathering the canopy up.
+      // On the feet again: walking, but not while gathering the canopy up, nor with our hands off the keys.
       const gathering = gather !== null && gather < 1;
-      arrival.update(seconds, ragdoll || gathering ? null : letGoFeet(devices.feet));
+      arrival.update(seconds, ragdoll || gathering || away ? null : letGoFeet(devices.feet));
       if (gather !== null) gather = Math.min(1, gather + seconds / GATHER_TIME);
     } else {
       simulate(seconds);
@@ -2818,10 +2939,15 @@ function frame(now: number): void {
         verdict = null;
       }
     }
+  } else if (!watching && !replay) {
+    // Paused or in the menu: the others' plane does not wait, nor does ours, with us in it.
+    keepPlaneOnClock(0, roomNow);
   }
+  // Not stepping: time stands still, nothing is owed.
+  if (stepped === 0) behind = 0;
 
   perf.mark(1);
-  const moving = live && !replay && !watching ? Math.min(elapsed, 0.1) : 0;
+  const moving = stepped;
   const pose = stance();
   const inflation = replay ? replay.frame.inflation : jump ? jump.inflation : 1;
   // The hands are on the risers from line stretch until they let go on the
@@ -2845,7 +2971,7 @@ function frame(now: number): void {
     const run = jump?.afoot ? jumpFeet().feet : null;
     const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : run ? [run.legL, run.legR] : undefined;
     updateLegs(moving, pose === 'hanging' && !touchdown && !skim);
-    const held = posture.update(moving, pose, FREEFALL_STANCES.has(pose) && !blow.cold ? bodyControls() : still, legs, legCues);
+    const held = posture.update(moving, pose, FREEFALL_STANCES.has(pose) && !blow.cold && !away ? bodyControls() : still, legs, legCues);
     plantFeet(held, moving);
     // Limp from a blow, the arms and legs go where the wind takes them.
     const limp = jump?.stunned ? Math.min(1, jump.body.stunned / 0.6) : 0;
@@ -2869,7 +2995,7 @@ function frame(now: number): void {
     drawnHeap = heap;
     rigView.body.group.visible = !ragdoll;
     ragdollView.update(ragdoll ? jointArray(ragdoll, liveJoints) : null);
-    hud.setCard(canReplay(), !!arrival?.walker, lastTrack !== null);
+    hud.setCard(canReplay(), !!arrival?.walkedOff, lastTrack !== null);
     rigFrame.time = airTime;
     rigFrame.dt = moving;
     rigFrame.wind.set(env.wind.x, env.wind.y, env.wind.z);
@@ -2893,11 +3019,16 @@ function frame(now: number): void {
     sparks.light!.intensity = 0;
   }
   if (net) {
+    // When what we are now is true on the room's clock: for them to draw us where we are by the time
+    // it comes, and for us to draw them where they are at the same moment as we are.
+    const roomTime = roomNow - behind * 1000;
     // Watching our replay, the pilot is drawn from it: the others go on seeing us as we are, still.
-    if (replay) net.send(elapsed);
-    else sendJumper(net, pose, onRisers, inflation, elapsed);
+    if (replay) net.send(elapsed, roomTime);
+    else sendJumper(net, pose, onRisers, inflation, elapsed, roomTime);
     // While a jump is watched again, the others of now are not in it.
-    net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, setup.dz, !watching);
+    // Those on our load in our plane, where they are in theirs.
+    const plane = jump?.plane;
+    net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid, plane, roomTime }, setup.dz, !watching, replay ? undefined : model.state.pos);
     if (net.players !== playersShown) showGear();
   } else if (bots) {
     bots.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, light, !watching);

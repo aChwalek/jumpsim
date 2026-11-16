@@ -10,10 +10,10 @@ import { noBodyInputs, type BodyInputs } from '../src/sim/freefall';
 import { Jump } from '../src/sim/jump';
 import { detectTouchdown, feetHeight } from '../src/sim/landing';
 import { DEFAULT_RIG, deriveRig, reserveConfig } from '../src/sim/rig';
-import { STAND_OUT } from '../src/sim/runUp';
+import { STAND_OUT, type Lip } from '../src/sim/runUp';
 import { SIM_DT, initTrimmed } from '../src/sim/telemetry';
 import { vec3 } from '../src/sim/vec';
-import { frameOf } from '../src/world/bridge';
+import { frameOf, lipOf } from '../src/world/bridge';
 import { DATA } from '../src/world/data/millau';
 import { inRect, solidOf, spawnsFor } from '../src/world/dz';
 import { dzInfo } from '../src/world/dzs';
@@ -145,10 +145,10 @@ describe('what is solid', () => {
 });
 
 describe('off the viaduct', () => {
-  function jumpOff(headingDeg = b.headingDeg) {
+  function jumpOff(headingDeg = b.headingDeg, lip: Lip | null = lipOf(dz.bridges!, b.x, b.z)) {
     const model = new FlightModel(deriveRig({ ...DEFAULT_RIG, canopyAreaFt2: 230 }));
     const env: Environment = { wind: vec3(), airDensity: airDensityAt(620) };
-    const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg, height: b.height, standing: true } as const;
+    const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg, height: b.height, standing: true, lip: lip ?? undefined } as const;
     const jump = new Jump(model, ledge, env, dz.groundAt, () => 0.5, {
       solidAt: solid,
       container: 'base',
@@ -185,12 +185,102 @@ describe('off the viaduct', () => {
     expect(jump.height()).toBeGreaterThan(150);
   });
 
-  test('turned to face the road, the jump goes into the wind screen', () => {
-    const { jump, until } = jumpOff((b.headingDeg + 180) % 360);
+  test('a ledge whose way out is the road: the jump goes into the wind screen', () => {
+    const { jump, until } = jumpOff((b.headingDeg + 180) % 360, null);
     until(() => jump.phase !== 'standing', 1, jumpKey);
     until(() => jump.impact || jump.phase === 'standing', 2);
     expect(jump.impact).toBe(true);
     expect(jump.struck).toBe(true);
+  });
+
+  test('the lip: outside the wind screen, from one abutment to the other, out square to the deck', () => {
+    const lip = lipOf(dz.bridges!, b.x, b.z)!;
+    expect(lip).not.toBeNull();
+    // To the right facing out (west) is north, where the deck starts: 700 m that way, 1700 the other.
+    expect(lip.max).toBeGreaterThan(690);
+    expect(lip.max).toBeLessThan(712);
+    expect(lip.min).toBeLessThan(-1700);
+    const start = lip.at(0);
+    expect(Math.hypot(start.x - b.x, start.z - b.z)).toBeLessThan(1e-6);
+    expect(Math.abs(start.outDeg - b.headingDeg)).toBeLessThan(1);
+    // Round the bend the way out turns with the deck, a little over a degree every 400 m.
+    for (const d of [-1500, -600, -200, 300, 650]) {
+      const p = lip.at(d);
+      expect(Math.abs(f.local(p.x, p.z).u)).toBeCloseTo(Math.abs(f.local(b.x, b.z).u), 6);
+      expect(lip.along(p.x, p.z)).toBeCloseTo(d, 6);
+      expect(solid(p.x, p.z, f.road(EXIT) + 50)).toBeCloseTo(f.road(f.local(p.x, p.z).s), 6);
+    }
+    expect(Math.abs(lip.at(-1500).outDeg - start.outDeg)).toBeGreaterThan(3.5);
+  });
+
+  test('shuffling along the lip: a metre a second, on it all the way, still facing out', () => {
+    const { jump, until } = jumpOff();
+    const r = jump.runUp!;
+    const u0 = Math.abs(f.local(b.x, b.z).u);
+    until(() => jump.phase !== 'standing', 30, { ...noBodyInputs(), slide: 1 });
+    expect(jump.phase).toBe('standing');
+    expect(r.along).toBeGreaterThan(28);
+    expect(r.along).toBeLessThan(30);
+    expect(Math.abs(f.local(r.x, r.z).u)).toBeCloseTo(u0, 6);
+    expect(jump.clearance()).toBeCloseTo(0, 1);
+    expect(r.facingOut).toBe(true);
+    // To the right facing out: north, down the 3 % grade.
+    expect(r.y - solid(b.x, b.z)).toBeLessThan(-0.8);
+    // Then back the other way, past the start.
+    until(() => jump.phase !== 'standing', 40, { ...noBodyInputs(), slide: -1 });
+    expect(jump.phase).toBe('standing');
+    expect(r.along).toBeLessThan(-8);
+  });
+
+  test('moved along the lip, the jump is logged as high as it is there', () => {
+    const { jump, until } = jumpOff();
+    // Some 300 m north, over P2's slope rather than the Tarn.
+    until(() => false, 300, { ...noBodyInputs(), slide: 1 });
+    const ground = jump.height();
+    until(() => jump.phase !== 'standing', 1, jumpKey);
+    expect(jump.log.exitHeight).toBeLessThan(b.height - 40);
+    expect(jump.log.exitHeight - ground).toBeCloseTo(b.height - (solid(b.x, b.z) - dz.groundAt(b.x, b.z)), 3);
+  });
+
+  test('turned round, forward meets the wind screen; backwards goes off on the back, away from the deck', () => {
+    const { jump, model, until } = jumpOff();
+    const r = jump.runUp!;
+    // A half turn on the spot, by the keys.
+    until(() => !r.facingOut && Math.cos((r.headingDeg - b.headingDeg) * DEG) < -0.999, 3, { ...noBodyInputs(), turn: 1 });
+    expect(r.facingOut).toBe(false);
+    expect(jump.body.position).toBe('back');
+    until(() => jump.phase !== 'standing', 1, jumpKey);
+    expect(jump.phase).toBe('standing');
+    expect(Math.hypot(r.x - b.x, r.z - b.z)).toBeLessThan(1e-6);
+    until(() => jump.phase !== 'standing', 1, { ...noBodyInputs(), forward: -1 });
+    expect(jump.phase).toBe('freefall');
+    const v = jump.body.state.vel;
+    expect(out(b.x + v.x, b.z + v.z)).toBeCloseTo(STAND_OUT, 1);
+    expect(jump.body.position).toBe('back');
+    // A second and a half on the back, a half roll onto the belly, the pull at three: clear of the deck, open high.
+    until(() => false, 1.5);
+    expect(jump.body.position).toBe('back');
+    jump.roll(1);
+    until(() => false, 1.5);
+    expect(jump.body.position).toBe('belly');
+    jump.act();
+    until(() => jump.phase === 'canopy' || jump.impact, 12);
+    expect(jump.impact).toBe(false);
+    expect(jump.phase).toBe('canopy');
+    expect(out(model.state.pos.x, model.state.pos.z)).toBeGreaterThan(5);
+    expect(jump.height()).toBeGreaterThan(120);
+  });
+
+  test('turned round, a belly exit asked for stays a belly exit', () => {
+    const { jump, until } = jumpOff();
+    jump.roll(-1);
+    until(() => !jump.runUp!.facingOut, 3, { ...noBodyInputs(), turn: -1 });
+    until(() => false, 0.5);
+    expect(jump.body.position).toBe('belly');
+    jump.act();
+    expect(jump.phase).toBe('freefall');
+    const v = jump.body.state.vel;
+    expect(out(b.x + v.x, b.z + v.z)).toBeCloseTo(STAND_OUT, 1);
   });
 });
 

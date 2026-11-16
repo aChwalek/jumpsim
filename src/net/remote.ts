@@ -14,11 +14,12 @@ import { hasWings } from '../sim/suit';
 import { FlightModel } from '../sim/flightModel';
 import { noBodyInputs } from '../sim/freefall';
 import { feetHeight } from '../sim/landing';
+import type { AircraftId } from '../sim/plane';
 import { J } from '../sim/ragdoll';
 import { Stride } from '../sim/runUp';
 import { vec3, type Vec3 } from '../sim/vec';
 import { SnapshotBuffer } from './interp';
-import { copySnapshot, emptySnapshot, type Snapshot } from './snapshot';
+import { copySnapshot, emptySnapshot, type PlaneFrame, type Snapshot } from './snapshot';
 
 /** What the frame gives every other jumper: the ground, the light, the air. */
 export interface RemoteFrame {
@@ -30,7 +31,115 @@ export interface RemoteFrame {
   airDensity: number;
   groundAt: (x: number, z: number, y?: number) => number;
   light: Lighting;
+  /** Our plane, on a jump from one: those in theirs, on the same load, are drawn in it. */
+  plane?: OurPlane | null;
+  /**
+   * When what we draw of ourselves is true, on the room's clock (ms), which
+   * the others stamp what they send with: they are drawn as they are at that
+   * same moment. Absent for a bot or a replay.
+   */
+  roomTime?: number;
 }
+
+/** What of our plane the others are drawn in. */
+export interface OurPlane {
+  pos: Vec3;
+  vel: Vec3;
+  headingDeg: number;
+  type: { id: AircraftId };
+}
+
+/**
+ * Flown on to now by at most this, ms. What comes is drawn about 150 to
+ * 250 ms late (the network, and the snapshots kept to go between): 8 to 14 m
+ * of a fall at 55 m/s, enough to see a jumper level with us well above.
+ * Past this, they are no longer heard from, and wait where they were.
+ */
+const MAX_LEAD_MS = 500;
+/** A stamp further than this from the room's clock is not on it: a sender of an older version, ms. */
+const ON_THE_CLOCK_MS = 10_000;
+
+/** Whether a stamp `t` is on the room's clock, read at `roomTime`: not from a sender of an older version. */
+export const onTheClock = (roomTime: number | undefined, t: number): roomTime is number =>
+  roomTime !== undefined && Math.abs(roomTime - t) < ON_THE_CLOCK_MS;
+
+/**
+ * How long before `roomTime`, s, a snapshot stamped `t` on the room's clock
+ * was true: what they are to be flown on by. Zero when the stamp is not on
+ * the room's clock.
+ */
+export function leadOf(roomTime: number | undefined, t: number): number {
+  if (!onTheClock(roomTime, t)) return 0;
+  return Math.min(Math.max(roomTime - t, 0), MAX_LEAD_MS) / 1000;
+}
+
+/**
+ * Where they are `lead` s later, going on as they went: what was true when
+ * they sent it is drawn where it is now. A cut-away main goes on its own way.
+ */
+export function flyOn(s: Snapshot, lead: number): Snapshot {
+  s.pos.x += s.vel.x * lead;
+  s.pos.y += s.vel.y * lead;
+  s.pos.z += s.vel.z * lead;
+  if (s.hasReleased) {
+    const r = s.released;
+    r.pos.x += r.vel.x * lead;
+    r.pos.y += r.vel.y * lead;
+    r.pos.z += r.vel.z * lead;
+  }
+  return s;
+}
+
+/** Out of their plane, the gap between it and ours closes over this long, ms: they come to where they are. */
+const GAP_CLOSES_MS = 6000;
+/** Two planes this near on the same heading are the same load, m: one leaving a moment after the other. */
+const SAME_LOAD_ALONG = 400;
+const SAME_LOAD_UP = 30;
+const SAME_LOAD_DEG = 2;
+
+/**
+ * From their plane to ours, world frame, m, into `out`: where they are in
+ * theirs is then where they are in ours. Null when theirs is not on the same
+ * load as ours: another aircraft, another height or run, a load before or
+ * after, or a jump alone in a public room. `lead`: how long ago, s, what they
+ * sent was true, and they have been flown on by since: theirs is flown on by
+ * as much, and what is left is the two clocks' disagreement, a few cm. Without
+ * it, mostly how far the plane has gone since.
+ */
+export function planeGap(ours: OurPlane, theirs: PlaneFrame, out: Vec3, lead = 0): Vec3 | null {
+  if (ours.type.id !== theirs.aircraft) return null;
+  const turn = Math.abs(((((ours.headingDeg - theirs.headingDeg) % 360) + 540) % 360) - 180);
+  out.x = ours.pos.x - theirs.pos.x;
+  out.y = ours.pos.y - theirs.pos.y;
+  out.z = ours.pos.z - theirs.pos.z;
+  if (turn >= SAME_LOAD_DEG || Math.abs(out.y) >= SAME_LOAD_UP || Math.hypot(out.x, out.z) >= SAME_LOAD_ALONG) return null;
+  out.x -= ours.vel.x * lead;
+  out.y -= ours.vel.y * lead;
+  out.z -= ours.vel.z * lead;
+  return out;
+}
+
+/** Everything of theirs that is somewhere, moved by `d` times `k`. */
+function shiftSnapshot(s: Snapshot, d: Vec3, k: number): void {
+  const [x, y, z] = [d.x * k, d.y * k, d.z * k];
+  s.pos.x += x;
+  s.pos.y += y;
+  s.pos.z += z;
+  if (s.hasJoints) {
+    for (let i = 0; i < s.joints.length; i += 3) {
+      s.joints[i]! += x;
+      s.joints[i + 1]! += y;
+      s.joints[i + 2]! += z;
+    }
+  }
+  if (s.hasReleased) {
+    s.released.pos.x += x;
+    s.released.pos.y += y;
+    s.released.pos.z += z;
+  }
+}
+
+const ease = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
 const still = noBodyInputs();
 /** Where a canopy gathered up off the ground is held, pilot frame: against the belly. */
@@ -58,6 +167,14 @@ export class RemoteJumper {
   private phase: string | null = null;
   /** They left their plane at this frame. */
   exited = false;
+  /** How far on they were flown at the last frame, s: how old what came was. */
+  lead = 0;
+  /** On the same load as us: drawn in our plane, then out of it. */
+  private aboard = false;
+  /** From their plane to ours, world frame, m: what they are moved by while in it. */
+  private readonly gap = vec3();
+  /** Out of our plane since then (local clock, ms): the gap closes. */
+  private leftAt: number | null = null;
   private readonly att = new THREE.Quaternion();
   private readonly at = new THREE.Vector3();
   private gear: Gear | null = null;
@@ -111,14 +228,23 @@ export class RemoteJumper {
     const view = this.view;
     const s = this.now;
     if (!view || !this.main || !this.reserve) return;
-    const sampled = visible && (this.live ? (copySnapshot(s, this.live), true) : this.buffer.sample(f.now, s));
+    // Stamped on the room's clock: never later than the moment we are at, should we be behind it.
+    const notAfter = onTheClock(f.roomTime, this.buffer.newest) ? f.roomTime : Number.POSITIVE_INFINITY;
+    const sampled = visible && (this.live ? (copySnapshot(s, this.live), true) : this.buffer.sample(f.now, s, notAfter));
     // Into freefall from anything but freefall, and not by a cutaway: out of the plane,
     // even if the snapshots from the door were missed.
     this.exited = sampled && this.phase !== null && this.phase !== 'freefall' && s.phase === 'freefall' && !s.cutaway;
     if (sampled) this.phase = s.phase;
-    // In their plane, which is not drawn here yet: not shown either. A bot is in ours, which is:
-    // there in the door with us, to be seen and picked as a target before the exit.
-    view.object.visible = sampled && (s.phase !== 'plane' || this.live !== null);
+    // What came is a moment old: flown on to now, where they are on their own screen. Not on the
+    // ground, nor thrown about by a crash: they stay where they are. A bot is drawn as it is now.
+    const lead = sampled && this.live === null && !s.landed && !s.hasJoints ? leadOf(f.roomTime, s.t) : 0;
+    this.lead = lead;
+    if (lead > 0) flyOn(s, lead);
+    // In their plane, drawn in ours if it is the same load: in the hold or at the door with us, to be
+    // seen and picked as a target before the exit. Another plane is not drawn here: nor are they. A bot
+    // is in ours already.
+    const inOurs = sampled && this.live === null && this.board(s, f, lead);
+    view.object.visible = sampled && (s.phase !== 'plane' || this.live !== null || inOurs);
     if (!view.object.visible) {
       // Back in their plane: a new canister for the next jump. The smoke left drifts on.
       if (sampled) this.smokeLitAt = null;
@@ -158,6 +284,14 @@ export class RemoteJumper {
     st.twist = s.twist;
     model.deflationL = s.deflationL;
     model.deflationR = s.deflationR;
+    if (lead > 0) {
+      // Flown on, not into the ground: on their screen they touch down before going under it.
+      const under = feetHeight(model, f.groundAt);
+      if (under < 0) {
+        st.pos.y -= under;
+        s.pos.y -= under;
+      }
+    }
 
     view.setInflation(s.inflation);
     view.setArms(s.onRisers && !s.hasJoints);
@@ -204,6 +338,27 @@ export class RemoteJumper {
     this.drawSmoke(f, view);
   }
 
+  /**
+   * In their plane, on the same load: moved into ours, to where they are in
+   * theirs. Out of it, moved by the gap between the two planes, less and less
+   * until they are where they are. True while in a plane and drawn in ours.
+   * `lead`: they have been flown on by this, s, from what they sent.
+   */
+  private board(s: Snapshot, f: RemoteFrame, lead: number): boolean {
+    if (s.phase === 'plane') {
+      this.leftAt = null;
+      this.aboard = s.hasPlane && f.plane != null && planeGap(f.plane, s.plane, this.gap, lead) !== null;
+      if (this.aboard) shiftSnapshot(s, this.gap, 1);
+      return this.aboard;
+    }
+    if (!this.aboard) return false;
+    this.leftAt ??= f.now;
+    const k = 1 - ease((f.now - this.leftAt) / GAP_CLOSES_MS);
+    if (k > 0) shiftSnapshot(s, this.gap, k);
+    else this.aboard = false;
+    return false;
+  }
+
   /** What they were drawn from at the last frame, if drawn. */
   get drawn(): Snapshot | null {
     return this.view?.object.visible ? this.now : null;
@@ -220,6 +375,8 @@ export class RemoteJumper {
     this.smokeLitAt = null;
     this.wasLanded = false;
     this.phase = null;
+    this.aboard = false;
+    this.leftAt = null;
     this.posture.reset();
     this.smoke?.clear();
   }

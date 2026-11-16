@@ -216,5 +216,14 @@ describe('walking off once down', () => {
     const still = { forward: 0, turn: 0, slide: 0, fall: 0 };
     for (let i = 0; i < 1 / FRAME; i++) arrival.update(FRAME, still);
     expect((((ahead() - before) % 360) + 360) % 360).toBeCloseTo(90, 0);
+    // Turned on the spot, not walked off: the card at the end stays whole.
+    expect(arrival.walkedOff).toBe(false);
+  });
+
+  test('walked off once the feet have gone a step from where they got up', () => {
+    const { arrival } = walkAfter(1, 1);
+    expect(arrival.walkedOff).toBe(false);
+    for (let i = 0; i < 2 / FRAME; i++) arrival.update(FRAME, { forward: 1, turn: 0, slide: 0, fall: 0 });
+    expect(arrival.walkedOff).toBe(true);
   });
 });

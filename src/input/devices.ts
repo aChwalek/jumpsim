@@ -54,6 +54,8 @@ export type Action =
   | 'posHeadDown'
   /** Collapse or take off the slider. */
   | 'slider'
+  /** Gamepad B, once down: the card at the end of the jump out of the way, or back. */
+  | 'card'
   /** Eyes, or outside. */
   | 'camera'
   /** The end of the jump again, in slow motion; or back from it. */
@@ -102,6 +104,7 @@ const ACTIONS: Record<string, Action> = {
  * poll). The cross does the same as the arrows: up, down, left, right.
  */
 const PAD_ACTIONS: Partial<Record<number, Action>> = {
+  1: 'card', // B (held under canopy: the cutaway handle)
   2: 'slider', // X
   3: 'reset', // Y
   8: 'camera', // View / Back / Share

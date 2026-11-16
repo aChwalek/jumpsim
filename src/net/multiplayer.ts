@@ -10,11 +10,25 @@ import { Markers, type MarkerTarget } from './markers';
 import { Mesh } from './mesh';
 import { ROOM_NAME } from './protocol';
 import { RemoteJumper, type RemoteFrame } from './remote';
-import { RoomState, cleanName, nextLoad, publicDz, readRoomMessage, sharedPart, type RoomMessage, type SharedSetup } from './room';
+import {
+  LOAD_EVERY_MS,
+  RoomState,
+  bestOffset,
+  clockSample,
+  cleanName,
+  nextLoad,
+  publicDz,
+  readRoomMessage,
+  sharedPart,
+  type ClockSample,
+  type RoomMessage,
+  type SharedSetup,
+} from './room';
 import { decodeSnapshot, emptySnapshot, encodeSnapshot, type Snapshot } from './snapshot';
 import type { OtherBody } from '../bots';
 import type { OtherJumper } from '../replay/track';
-import { vec3 } from '../sim/vec';
+import { vec3, type Vec3 } from '../sim/vec';
+import { TimeTrack, clockApart, compareSeen, readSeen, readTick, spread, type Seen, type Tick, type Tock } from './check';
 
 /** Snapshots sent a second. */
 const SEND_RATE = 15;
@@ -24,13 +38,33 @@ const SILENT_MS = 3000;
 const START_SETTLE_MS = 3000;
 /** How often a public room looks whether its load has left, ms. */
 const LOAD_CHECK_MS = 250;
+/**
+ * The server is asked the time a few times in a row on coming in, this far
+ * apart; then every second for a while, then now and again, ms. An answer read
+ * late, the page busy (the drop zone loading as we come in), puts the clock off
+ * by half the wait: 200 ms busy is 100 ms off, 6 m of a fall. Asked often at
+ * first, a quick answer soon comes through, and sets it right.
+ */
+const TIME_BURST = 5;
+const TIME_BURST_GAP_MS = 300;
+const TIME_FIRST_MS = 1000;
+const TIME_FIRST_ASKS = 30;
+const TIME_EVERY_MS = 10_000;
+/** The last answers kept: the quickest one sets the clock. A trip longer than this is not one, ms. */
+const TIME_KEPT = 16;
+const TIME_TRIP_MAX_MS = 5000;
+/** Each tells the others where they draw them this often, ms; and compares clocks with them. */
+const SEEN_EVERY_MS = 500;
+const TICK_EVERY_MS = 2000;
+/** The last comparisons of clocks kept with each: the quickest one counts. */
+const TICKS_KEPT = 8;
 
 /** What the room tells the sim. */
 export interface RoomEvents {
   /** What everyone jumps with, from whoever leads. Not called on the one who leads. */
   setup(shared: SharedSetup): void;
-  /** Everyone goes, now. */
-  start(start: Start, shared: SharedSetup): void;
+  /** Everyone goes, now. `at`: when the load left, server clock (ms): its plane flies by it. */
+  start(start: Start, shared: SharedSetup, at: number): void;
   /** Who is in, who leads, who is ready: something changed. */
   changed(): void;
   /** Someone at our drop zone left their plane. */
@@ -111,11 +145,35 @@ export class Multiplayer {
   readonly isPublic: boolean;
   /** A public room whose loads leave on the clock; at a BASE site there is no plane: each goes when ready. */
   readonly onClock: boolean;
-  /** The server's clock minus ours, ms: what the loads go by. */
+  /** The server's clock minus ours (Date.now), ms: what the loads go by, and their planes. */
   private clockOffset = 0;
-  /** When the load we wait for leaves (our clock, ms). */
-  private loadAt = 0;
+  private readonly clockSamples: ClockSample[] = [];
+  private timeAsked = 0;
+  private timeBurst: number[] = [];
+  /** Asked since coming in: often at first. */
+  private asks = 0;
+  /** Where we were, by the room's clock; and where we drew each of the others. */
+  private readonly selfTrack = new TimeTrack();
+  private readonly seenTracks = new Map<string, TimeTrack>();
+  private seenSentAt = Number.NEGATIVE_INFINITY;
+  /** How far off the others draw us, and how far apart their view and ours are, m: for the reports, then for the overlay. */
+  private offs: number[] = [];
+  private aparts: number[] = [];
+  private leads: number[] = [];
+  private readonly lastSeen = new Map<string, { off: number; apart: number | null }>();
+  /** What the others told us before our clock got there: looked at once it has. */
+  private pendingSeen: { id: string; told: Seen }[] = [];
+  /** Each one's clock against ours, peer to peer: the last answers (ms). */
+  private readonly ticks = new Map<string, { trip: number; apart: number }[]>();
+  private tickSentAt = Number.NEGATIVE_INFINITY;
+  /** With `?net` in the address: how each one sees us, and the clock, over the picture. */
+  private readonly overlay: HTMLElement | null = new URLSearchParams(location.search).has('net') ? netOverlay() : null;
+  private overlayAt = 0;
+  /** When the load we wait for leaves, server clock, ms. */
+  private loadSlot = 0;
   private loadTimer = 0;
+  /** Which of the last load to leave we are, 0 the first: each has a place of their own in the plane. */
+  seat = 0;
 
   constructor(
     readonly room: string,
@@ -129,15 +187,17 @@ export class Multiplayer {
     this.isPublic = pinned !== null;
     this.onClock = pinned !== null && !dzInfo(pinned).base;
     if (this.onClock) {
-      this.loadAt = this.nextLoadAt;
+      this.loadSlot = nextLoad(this.serverNow());
       this.loadTimer = window.setInterval(() => this.rotate(), LOAD_CHECK_MS);
     }
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
     this.mesh = new Mesh(`${scheme}://${location.host}/signal/${room}`, '/turn', {
       welcome: (you, peers) => {
-        // Told when we came in by the server's clock: near enough, the trip there and back is short.
-        this.clockOffset = you.joined - Date.now();
-        this.loadAt = this.nextLoadAt;
+        // Told when we came in by the server's clock, a one-way trip ago: until it has answered the time.
+        if (this.clockSamples.length === 0) this.clockOffset = you.joined - Date.now();
+        this.loadSlot = nextLoad(this.serverNow());
+        this.asks = 0;
+        this.askTime();
         this.state.welcome(you, peers, this.name, this.ready);
         this.sayHello();
         this.leading();
@@ -165,6 +225,9 @@ export class Multiplayer {
       close: (id) => {
         this.remotes.get(id)?.jumper.dispose();
         this.remotes.delete(id);
+        this.seenTracks.delete(id);
+        this.lastSeen.delete(id);
+        this.ticks.delete(id);
         this.markers.remove(id);
       },
       state: (id, data) => {
@@ -172,7 +235,19 @@ export class Multiplayer {
         if (s) this.remote(id).jumper.buffer.push(s, performance.now());
       },
       control: (id, data) => this.onControl(id, data),
+      time: (sent, now) => this.onTime(sent, now),
     });
+    this.askLater();
+  }
+
+  /** The server's clock now, ms: the same for everyone in the room, to a few ms. */
+  serverNow(): number {
+    return Date.now() + this.clockOffset;
+  }
+
+  /** The server's clock at a moment of ours (performance.now, ms): a frame's, say. */
+  roomTime(local: number): number {
+    return this.serverNow() - (performance.now() - local);
   }
 
   /** Players in the room, us included. */
@@ -194,7 +269,7 @@ export class Multiplayer {
     if (ready === this.ready) return;
     this.ready = ready;
     // A public BASE site: no rotation, up there straight away.
-    if (ready && this.isPublic && !this.onClock && this.shared) return this.started(this.shared.jump.start, this.shared);
+    if (ready && this.isPublic && !this.onClock && this.shared) return this.started(this.shared.jump.start, this.shared, this.serverNow());
     this.sayHello();
     this.maybeStart();
     this.events.changed();
@@ -215,9 +290,10 @@ export class Multiplayer {
   /** Leading: everyone goes now, ready or not. A public room goes by the clock only. */
   startNow(): void {
     if (this.isPublic || !this.state.isHost || !this.shared) return;
-    const message: RoomMessage = { kind: 'start', start: this.shared.jump.start, setup: this.shared };
+    const at = this.serverNow();
+    const message: RoomMessage = { kind: 'start', start: this.shared.jump.start, setup: this.shared, at };
     this.mesh.broadcastRoom(message);
-    this.started(message.start, this.shared);
+    this.started(message.start, this.shared, at);
   }
 
   /** Tells the others who we are now. */
@@ -226,17 +302,24 @@ export class Multiplayer {
     this.mesh.broadcastControl(JSON.stringify(this.hello));
   }
 
-  /** Sends `out` if it is time to: call every frame once `out` is filled. */
-  send(elapsed: number): void {
+  /**
+   * Sends `out` if it is time to: call every frame once `out` is filled. `at`:
+   * when it is true, on the room's clock (ms): the others can tell how old it
+   * is when it comes, and draw us where we are by then.
+   */
+  send(elapsed: number, at = this.serverNow()): void {
     this.sinceSent += elapsed;
     if (this.sinceSent < 1 / SEND_RATE) return;
     this.sinceSent = 0;
-    this.out.t = performance.now();
+    this.out.t = at;
     this.mesh.broadcastState(encodeSnapshot(this.out));
   }
 
-  /** Draws the others: only those at our drop zone; `shown` false hides them all. */
-  update(f: Omit<RemoteFrame, 'now' | 'light'>, dz: DzId, shown = true): void {
+  /**
+   * Draws the others: only those at our drop zone; `shown` false hides them
+   * all. `self`: where we are, as we send it, to check how they see us.
+   */
+  update(f: Omit<RemoteFrame, 'now' | 'light'>, dz: DzId, shown = true, self?: Vec3): void {
     const now = performance.now();
     const frame: RemoteFrame = { ...f, now, light: this.light() };
     for (const { jumper, hello } of this.remotes.values()) {
@@ -246,6 +329,119 @@ export class Multiplayer {
     for (const [id, { jumper }] of this.remotes) {
       if (jumper.exited) this.events.exited(this.state.players.get(id)?.name || '…');
     }
+    if (f.roomTime !== undefined && self) this.check(f.roomTime, self);
+    if (this.overlay && now - this.overlayAt > SEEN_EVERY_MS) {
+      this.overlayAt = now;
+      this.showOverlay();
+    }
+  }
+
+  /**
+   * What the reports of how the picture runs say of the room, since the last
+   * one: how many measures, how far off the others draw us and how far apart
+   * the views are (middle/worst, m), how far on we draw them (ms), the
+   * quickest trip to the server (ms). Empty alone.
+   */
+  report(): string {
+    const [offs, aparts, leads] = [this.offs, this.aparts, this.leads];
+    const clocks = [...this.ticks.keys()].map((id) => this.clockAgainst(id)).filter((c) => c !== null);
+    const skew = clocks.reduce((m, c) => (Math.abs(c.apart) > Math.abs(m) ? c.apart : m), 0);
+    const skewTrip = clocks.reduce((m, c) => Math.max(m, c.trip), 0);
+    this.offs = [];
+    this.aparts = [];
+    this.leads = [];
+    if (this.remotes.size === 0) return '';
+    const off = spread(offs);
+    const apart = spread(aparts);
+    const best = this.clockSamples.reduce((m, s) => Math.min(m, s.trip), Number.POSITIVE_INFINITY);
+    const m = (x: number) => x.toFixed(2);
+    return `peers=${this.remotes.size} n=${offs.length} off=${m(off.mid)}/${m(off.worst)} apart=${m(apart.mid)}/${m(apart.worst)} lead=${Math.round(spread(leads).mid)} trip=${Number.isFinite(best) ? Math.round(best) : -1} skew=${Math.round(skew)}/${Math.round(skewTrip)}`;
+  }
+
+  /** Where we are and where we draw the others, kept; and now and then, told to each of them. */
+  private check(roomTime: number, self: Vec3): void {
+    this.selfTrack.push(roomTime, self.x, self.y, self.z);
+    // What came before our clock got there, now that it has; what is too old to look at, gone.
+    if (this.pendingSeen.length > 0) {
+      const waiting = this.pendingSeen;
+      this.pendingSeen = [];
+      for (const p of waiting) {
+        if (p.told.at <= roomTime) this.onSeen(p.id, p.told);
+        else if (p.told.at < roomTime + SEEN_EVERY_MS * 4) this.pendingSeen.push(p);
+      }
+    }
+    if (roomTime - this.tickSentAt >= TICK_EVERY_MS) {
+      this.tickSentAt = roomTime;
+      const tick: Tick = { type: 'tick', a: this.serverNow() };
+      this.mesh.broadcastControl(JSON.stringify(tick));
+    }
+    const tell = roomTime - this.seenSentAt >= SEEN_EVERY_MS;
+    if (tell) this.seenSentAt = roomTime;
+    for (const [id, { jumper }] of this.remotes) {
+      const drawn = jumper.drawn;
+      if (!drawn) continue;
+      let track = this.seenTracks.get(id);
+      if (!track) this.seenTracks.set(id, (track = new TimeTrack()));
+      const p = drawn.pos;
+      track.push(roomTime, p.x, p.y, p.z);
+      if (jumper.lead > 0) this.leads.push(jumper.lead * 1000);
+      if (!tell) continue;
+      const seen: Seen = { type: 'seen', at: roomTime, self: [self.x, self.y, self.z], seen: [p.x, p.y, p.z] };
+      this.mesh.sendControlTo(id, JSON.stringify(seen));
+    }
+  }
+
+  /** Someone says where they drew us: against where we were then, and where we drew them. */
+  private onSeen(id: string, told: Seen): void {
+    // Their clock ahead of ours: looked at once ours gets there.
+    if (told.at > this.selfTrack.newest) {
+      if (this.pendingSeen.length < 32) this.pendingSeen.push({ id, told });
+      return;
+    }
+    const us = this.selfTrack.at(told.at, vec3());
+    if (!us) return;
+    const them = this.seenTracks.get(id)?.at(told.at, vec3()) ?? null;
+    const measured = compareSeen(told, us, them);
+    this.offs.push(measured.off);
+    if (measured.apart !== null) this.aparts.push(measured.apart);
+    this.lastSeen.set(id, measured);
+  }
+
+  /** Their clock against ours, ms, from the quickest of the last answers; null before any. */
+  private clockAgainst(id: string): { trip: number; apart: number } | null {
+    const kept = this.ticks.get(id);
+    if (!kept || kept.length === 0) return null;
+    return kept.reduce((q, t) => (t.trip < q.trip ? t : q));
+  }
+
+  /** Someone compares clocks: answered at once; or their answer, kept. */
+  private onTick(id: string, m: Tick | Tock): void {
+    if (m.type === 'tick') {
+      const tock: Tock = { type: 'tock', a: m.a, b: this.serverNow() };
+      return this.mesh.sendControlTo(id, JSON.stringify(tock));
+    }
+    const measured = clockApart(m, this.serverNow());
+    if (measured.trip < 0 || measured.trip > TIME_TRIP_MAX_MS) return;
+    const kept = this.ticks.get(id) ?? [];
+    kept.push(measured);
+    if (kept.length > TICKS_KEPT) kept.shift();
+    this.ticks.set(id, kept);
+  }
+
+  private showOverlay(): void {
+    const overlay = this.overlay!;
+    const best = this.clockSamples.reduce((m, s) => Math.min(m, s.trip), Number.POSITIVE_INFINITY);
+    const lines = [`clock ±${Number.isFinite(best) ? Math.round(best / 2) : '?'} ms (trip ${Number.isFinite(best) ? Math.round(best) : '?'} ms)`];
+    for (const [id, { jumper }] of this.remotes) {
+      const seen = this.lastSeen.get(id);
+      const name = (this.state.players.get(id)?.name || '…').replace(/[<>&"]/g, '');
+      const off = seen ? `${seen.off.toFixed(2)} m` : '–';
+      const apart = seen?.apart != null ? `${seen.apart.toFixed(2)} m` : '–';
+      const clock = this.clockAgainst(id);
+      const skew = clock ? `${clock.apart >= 0 ? '+' : ''}${Math.round(clock.apart)} ms (trip ${Math.round(clock.trip)})` : '–';
+      lines.push(`${name}: clock ${skew}, sees us off by ${off}, views apart ${apart}, drawn on ${Math.round(jumper.lead * 1000)} ms`);
+    }
+    overlay.textContent = lines.join('\n');
   }
 
   /** Whether this player is still in the room and heard from. */
@@ -311,6 +507,9 @@ export class Multiplayer {
 
   dispose(): void {
     window.clearInterval(this.loadTimer);
+    window.clearTimeout(this.timeAsked);
+    for (const t of this.timeBurst) window.clearTimeout(t);
+    this.overlay?.remove();
     this.markers.dispose();
     this.mesh.dispose();
     for (const { jumper } of this.remotes.values()) jumper.dispose();
@@ -342,21 +541,51 @@ export class Multiplayer {
     if (!this.isPublic && this.state.isHost && this.state.allReady && performance.now() - this.startedAt > START_SETTLE_MS) this.startNow();
   }
 
-  /** A public room's load left: those aboard go, each on their own, the others wait for the next. */
+  /**
+   * A public room's load left: those aboard go, each on their own, the others
+   * wait for the next. Only ever on to a later one: the clock set again a few
+   * ms back does not make a load leave twice.
+   */
   private rotate(): void {
-    const next = this.nextLoadAt;
-    if (next === this.loadAt) return;
-    this.loadAt = next;
-    if (this.ready && this.shared) return this.started(this.shared.jump.start, this.shared);
+    const next = nextLoad(this.serverNow());
+    if (next <= this.loadSlot) return;
+    this.loadSlot = next;
+    // The one that just left, even if this page was asleep past others.
+    if (this.ready && this.shared) return this.started(this.shared.jump.start, this.shared, next - LOAD_EVERY_MS);
     this.state.started();
     this.events.changed();
   }
 
-  private started(start: Start, shared: SharedSetup): void {
+  /** The server's time again in a while: soon at first, then now and again. */
+  private askLater(): void {
+    const wait = this.asks < TIME_FIRST_ASKS ? TIME_FIRST_MS : TIME_EVERY_MS;
+    this.timeAsked = window.setTimeout(() => {
+      this.asks++;
+      this.mesh.askTime();
+      this.askLater();
+    }, wait);
+  }
+
+  /** The server's time, a few times now and then now and again: the quickest answer sets the clock. */
+  private askTime(): void {
+    for (const t of this.timeBurst) window.clearTimeout(t);
+    this.timeBurst = Array.from({ length: TIME_BURST }, (_, i) => window.setTimeout(() => this.mesh.askTime(), i * TIME_BURST_GAP_MS));
+  }
+
+  private onTime(sent: number, now: number): void {
+    const sample = clockSample(sent, now, Date.now());
+    if (!Number.isFinite(sample.offset) || sample.trip < 0 || sample.trip > TIME_TRIP_MAX_MS) return;
+    this.clockSamples.push(sample);
+    if (this.clockSamples.length > TIME_KEPT) this.clockSamples.shift();
+    this.clockOffset = bestOffset(this.clockSamples) ?? this.clockOffset;
+  }
+
+  private started(start: Start, shared: SharedSetup, at: number): void {
     this.startedAt = performance.now();
+    this.seat = this.state.seat;
     this.state.started();
     this.ready = false;
-    this.events.start(start, shared);
+    this.events.start(start, shared, at);
     this.sayHello();
     this.events.changed();
   }
@@ -374,7 +603,8 @@ export class Multiplayer {
       this.events.setup(m.setup);
     } else if (m.kind === 'start' && fromHost && !this.isPublic) {
       this.shared = m.setup;
-      this.started(m.start, m.setup);
+      // From an older version, no time: about now.
+      this.started(m.start, m.setup, m.at ?? this.serverNow());
     }
   }
 
@@ -395,6 +625,10 @@ export class Multiplayer {
     } catch {
       return;
     }
+    const seen = readSeen(message);
+    if (seen) return this.onSeen(id, seen);
+    const tick = readTick(message);
+    if (tick) return this.onTick(id, tick);
     const hello = readHello(message);
     if (!hello) return;
     const remote = this.remote(id);
@@ -432,4 +666,13 @@ export function readHello(m: unknown): Hello | null {
       exitWeightKg: validWeight(exitWeightKg),
     },
   };
+}
+
+/** The measures of `?net`, top left over the picture. */
+function netOverlay(): HTMLElement {
+  const el = document.createElement('pre');
+  el.style.cssText =
+    'position:fixed;top:8px;left:8px;z-index:50;margin:0;padding:6px 8px;font:12px/1.4 ui-monospace,monospace;color:#fff;background:rgba(0,0,0,.55);border-radius:4px;pointer-events:none;white-space:pre';
+  document.body.appendChild(el);
+  return el;
 }

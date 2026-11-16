@@ -47,6 +47,8 @@ const SEAT = 0.12;
 const TORSO = 0.55;
 /** How deep the pond is, m. */
 const WADING = 0.65;
+/** Walked this far from where they got up, m, the pilot has walked off: a step or so. */
+const WALKED_OFF = 0.5;
 
 /** 0 before 0, 1 after 1, smooth in between. */
 const ease = (x: number): number => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
@@ -78,6 +80,11 @@ export class Arrival {
   done = false;
   /** Once at rest, on their feet again and walking about; null until then. */
   walker: RunUp | null = null;
+  /**
+   * Walked away from where they got up. Getting up or turning on the spot
+   * (the mouse, or the head left turned from the flight) is not walking off.
+   */
+  walkedOff = false;
   /** Seconds since the pilot started walking. */
   private walked = 0;
   /** Shoulders above the ground when the walk started, m. */
@@ -106,6 +113,8 @@ export class Arrival {
   private readonly target = quat();
   private readonly turn = quat();
   private readonly tmp = vec3();
+  /** Where the pilot got up, to tell walking off from turning on the spot. */
+  private readonly getUpAt = vec3();
 
   constructor(
     private readonly model: FlightModel,
@@ -269,6 +278,7 @@ export class Arrival {
     const heading = Math.atan2(ahead.x, -ahead.z) / (Math.PI / 180);
     this.walker = new RunUp((x, z, y) => this.setting.groundAt(x, z, y), s.pos.x, s.pos.z, heading, s.pos.y);
     this.walkFrom = s.pos.y - this.walker.y;
+    set(this.getUpAt, s.pos.x, 0, s.pos.z);
     this.attitude0.x = s.pilotAtt.x;
     this.attitude0.y = s.pilotAtt.y;
     this.attitude0.z = s.pilotAtt.z;
@@ -289,6 +299,7 @@ export class Arrival {
       // Down a step, a kerb, the side of a dyke: walked down, not fallen off.
       // With nothing asked (hands full), the feet come to a stop.
       if (w.step(dt, feet ?? STAND_STILL)) w.y = this.setting.groundAt(w.x, w.z, w.y);
+      if (Math.hypot(w.x - this.getUpAt.x, w.z - this.getUpAt.z) > WALKED_OFF) this.walkedOff = true;
     }
     // Wading, the pond stops the feet short.
     const stand = this.stand - (this.kind === 'splash' ? WADING : 0);

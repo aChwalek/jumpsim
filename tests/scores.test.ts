@@ -3,7 +3,7 @@ import { accuracyPoints } from '../src/accuracy';
 import { en } from '../src/i18n/en';
 import { fr } from '../src/i18n/fr';
 import { madeUpName } from '../src/net/leaderboard';
-import { BOARD_DZS, BOARD_STARTS, NAME_MAX, cleanName, parseSubmission, submissionPoints } from '../src/net/scores';
+import { BOARD_DZS, BOARD_STARTS, NAME_MAX, UNNAMED, cleanName, nameKey, otherNames, parseSubmission, submissionPoints } from '../src/net/scores';
 import { STARTS } from '../src/setup';
 import { DZS } from '../src/world/dzs';
 
@@ -76,7 +76,44 @@ test('a name the game made up is told apart from one chosen', () => {
   // As the game makes them up, in either language (main.ts: defaultName and two digits).
   expect(madeUpName(`${fr.menu.room.defaultName} 42`)).toBe(true);
   expect(madeUpName(`${en.menu.room.defaultName} 17`)).toBe(true);
+  // With more digits as the server hands them out, once the two-digit ones are taken (worker/names.ts).
+  expect(madeUpName('Parachutiste 427')).toBe(true);
   expect(madeUpName('Antoine')).toBe(false);
-  expect(madeUpName('Parachutiste 427')).toBe(false);
+  expect(madeUpName('Parachutiste')).toBe(false);
+  expect(madeUpName('Parachutiste 4')).toBe(false);
   expect(madeUpName('Mon Parachutiste 42')).toBe(false);
+});
+
+test('two names are the same name without case, accents, spaces or punctuation', () => {
+  const same = ['Jean-Marc', 'jean marc', 'JEAN MARC', 'Jéan Marc', '  Jean.Marc ', 'jeanmarc', 'Ｊｅａｎ Ｍａｒｃ'];
+  expect(new Set(same.map(nameKey))).toEqual(new Set(['jeanmarc']));
+  expect(nameKey('Élodie')).toBe(nameKey('Elodie'));
+  expect(nameKey('Bob')).not.toBe(nameKey('Bob 2'));
+  expect(nameKey('Antoine')).not.toBe(nameKey('Antoinette'));
+  // Nothing but symbols: compared as they are.
+  expect(nameKey('🪂')).toBe('🪂');
+  expect(nameKey('🪂')).not.toBe(nameKey('🎯'));
+  // The placeholder of an account not named yet, which nobody can take, is one key.
+  expect(nameKey(UNNAMED)).toBe(nameKey('sky-diver'));
+});
+
+test('a taken name gets another number, or one after it, and stays short enough', () => {
+  const take = (name: string, n: number, random?: () => number): string[] => {
+    const out: string[] = [];
+    for (const other of otherNames(name, random)) {
+      out.push(other);
+      if (out.length === n) break;
+    }
+    return out;
+  };
+  expect(take('Bob', 3)).toEqual(['Bob 2', 'Bob 3', 'Bob 4']);
+  const long = take('x'.repeat(NAME_MAX), 1)[0]!;
+  expect(long).toHaveLength(NAME_MAX);
+  expect(long.endsWith(' 2')).toBe(true);
+  // A made-up name stays made up, in its language: two digits first, then more.
+  const made = [...otherNames('Parachutiste 42', () => 0.5)];
+  expect(made.every((n) => madeUpName(n) && n.startsWith('Parachutiste '))).toBe(true);
+  expect(made[0]).toBe('Parachutiste 55');
+  expect(made[10]).toBe('Parachutiste 550');
+  expect([...otherNames('Skydiver 17', () => 0.999)].every((n) => madeUpName(n) && n.startsWith('Skydiver '))).toBe(true);
 });

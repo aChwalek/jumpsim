@@ -6,9 +6,9 @@ import { describe, expect, test } from 'vitest';
 import { airDensityAt } from '../src/sim/atmosphere';
 import { FlightModel, neutralControls, type Controls, type Environment } from '../src/sim/flightModel';
 import { Freefall, freefallParams, noBodyInputs, type BodyInputs } from '../src/sim/freefall';
-import { AAD_HEIGHT, AAD_SPEED, Jump, type JumpOptions } from '../src/sim/jump';
+import { AAD_HEIGHT, AAD_SPEED, Jump, holdSeat, type JumpOptions } from '../src/sim/jump';
 import { MAIN_OPENING, Opening, SLIDER_PUMPS, STOWED_BRAKE } from '../src/sim/opening';
-import { AIRCRAFT, EXIT_SPOTS, type AircraftId, type ExitSpot } from '../src/sim/plane';
+import { AIRCRAFT, EXIT_SPOTS, seatSpot, type AircraftId, type ExitSpot } from '../src/sim/plane';
 import { DEFAULT_RIG, deriveRig, reserveConfig } from '../src/sim/rig';
 import { SIM_DT } from '../src/sim/telemetry';
 import { rotate, rotateInv, set, vec3 } from '../src/sim/vec';
@@ -404,6 +404,46 @@ describe('the hold of a C-130', () => {
     jump.act();
     expect(jump.phase).toBe('freefall');
     expect(jump.body.state.vel.y - jump.plane!.vel.y).toBeGreaterThan(1);
+  });
+
+  test('each of a load starts in a place of their own, down the hold and short of the ramp', () => {
+    const seats = Array.from({ length: 12 }, (_, i) => holdSeat(i));
+    expect(seats[0]).toEqual({ x: 0, back: 1.5 });
+    for (const [i, a] of seats.entries()) {
+      expect(Math.abs(a.x)).toBeLessThan(AIRCRAFT.c130.cabin.halfWidth - 0.6);
+      expect(ramp.front + a.back).toBeLessThan(ramp.hinge - 2);
+      for (const b of seats.slice(i + 1)) expect(Math.hypot(a.x - b.x, a.back - b.back)).toBeGreaterThan(1);
+    }
+    // Past them, the first places again.
+    expect(holdSeat(12)).toEqual(seats[0]);
+    // And the jumper does start there.
+    const model = new FlightModel(deriveRig(DEFAULT_RIG));
+    const run = { x: 0, z: 0, height: 4000, headingDeg: 0, indicatedAirspeed: 40, aircraft: 'c130' as const };
+    const jump = new Jump(model, run, calm(), flat, () => 0.5, { onFoot: true, seat: 2 });
+    expect([jump.walk!.x, jump.walk!.z]).toEqual([seats[2]!.x, ramp.front + seats[2]!.back]);
+  });
+
+  test('at a door, the first of a load takes the place chosen, the next waits inside, then the rest of the door', () => {
+    expect([0, 1, 2, 3, 4].map((i) => seatSpot(i, 'low'))).toEqual(['low', 'inside', 'step', 'high', 'inside']);
+    expect([0, 1, 2, 3, 4].map((i) => seatSpot(i, 'inside'))).toEqual(['inside', 'step', 'high', 'low', 'inside']);
+  });
+
+  test("flown to where the load's clock puts the plane, the jumper goes with it, and so does a step after", () => {
+    const model = new FlightModel(deriveRig(DEFAULT_RIG));
+    const run = { x: 0, z: 0, height: 4000, headingDeg: 90, indicatedAirspeed: 40, aircraft: 'c130' as const };
+    const env = calm();
+    const jump = new Jump(model, run, env, flat, () => 0.5, { onFoot: true });
+    const plane = jump.plane!;
+    const [x0, feet0] = [plane.pos.x, model.state.pos.x];
+    jump.flyPlane(2);
+    expect(plane.flown).toBe(2);
+    expect(plane.pos.x - x0).toBeCloseTo(2 * plane.vel.x, 6);
+    expect(model.state.pos.x - feet0).toBeCloseTo(2 * plane.vel.x, 6);
+    // Stepped on, then put back on the clock a little earlier: back by that much, not from the start.
+    jump.step(0.5, noBodyInputs(), env);
+    expect(plane.flown).toBeCloseTo(2.5, 9);
+    jump.flyPlane(2.25);
+    expect(plane.pos.x - x0).toBeCloseTo(2.25 * plane.vel.x, 6);
   });
 
   test('without being on foot, a jumper waits on the ramp and steps off its end', () => {

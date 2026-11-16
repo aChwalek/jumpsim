@@ -220,6 +220,59 @@ describe('bots', () => {
     expect(facing).toBeLessThan(30);
   });
 
+  test('upright at the break-off: onto the back, a back track head first away from the others, then over onto the belly for the pull', () => {
+    const { pull, breakOff } = botHeights(run.height);
+    const bearingOf = (x: number, z: number) => (Math.atan2(x, -z) * 180) / Math.PI;
+    const off = (a: number, b: number) => Math.abs(((((a - b) % 360) + 540) % 360) - 180);
+    // Head down, first turned round, its back to the others, then over onto the back.
+    const expected = {
+      sit: ['sit', 'back', 'back track', 'belly track', 'belly'],
+      back: ['back', 'back track', 'belly track', 'belly'],
+      headDown: ['headDown', 'back', 'back track', 'belly track', 'belly'],
+    };
+    for (const position of ['sit', 'back', 'headDown'] as const) {
+      // What each does from the break-off on, each change once.
+      const ways: string[][] = [[], [], []];
+      let middle: { x: number; z: number } | null = null;
+      // Head first in the back track, and so away from the others: the worst, degrees.
+      let backTrack = 0;
+      const at: { x: number; z: number }[] = [];
+      const bots = fly('vertical', 3, (t, us, all, jump) => {
+        if (jump.phase === 'plane') jump.fly('sit');
+        if (t > 20 && jump.phase === 'freefall' && jump.body.position !== position) jump.fly(position);
+        for (const [i, b] of all.entries()) {
+          const body = b.jump.body;
+          const p = b.model.state.pos;
+          const v = b.model.state.vel;
+          if (b.jump.phase === 'opening' && !at[i]) at[i] = { x: p.x, z: p.z };
+          if (b.jump.phase !== 'freefall' || b.jump.height() > breakOff + 5) continue;
+          middle ??= {
+            x: (us.state.pos.x + all.reduce((a, o) => a + o.model.state.pos.x, 0)) / 4,
+            z: (us.state.pos.z + all.reduce((a, o) => a + o.model.state.pos.z, 0)) / 4,
+          };
+          const way = `${body.position}${body.tracking ? ' track' : ''}`;
+          if (ways[i]!.at(-1) !== way) ways[i]!.push(way);
+          if (body.position === 'back' && body.track > 0.9 && Math.hypot(v.x, v.z) > 5) {
+            backTrack = Math.max(backTrack, off(bearingOf(v.x, v.z), body.headingDeg() + 180));
+          }
+        }
+      });
+      // Nobody knocked about on the way out.
+      expect(knocks).toBe(0);
+      expect(backTrack, position).toBeLessThan(30);
+      for (const [i, b] of bots.entries()) {
+        expect(ways[i], `${position} ${i}`).toEqual(expected[position]);
+        // The pull waits for the way out: a little lower, never on the AAD.
+        expect(b.jump.log.aad).toBe(false);
+        expect(b.jump.log.pullHeight!, `${position} ${i}`).toBeGreaterThan(pull - 250);
+        expect(b.jump.log.pullHeight!).toBeLessThan(pull + 60 * i + 60);
+        // Well away from where the round was, and from each other.
+        expect(Math.hypot(at[i]!.x - middle!.x, at[i]!.z - middle!.z), `${position} ${i}`).toBeGreaterThan(80);
+        for (const o of at.slice(i + 1)) expect(Math.hypot(at[i]!.x - o.x, at[i]!.z - o.z), `${position} ${i}`).toBeGreaterThan(100);
+      }
+    }
+  });
+
   test('upright behind a bot: it goes from sitting to head down as it likes, the others round it and as it is', () => {
     let worst = 0;
     let level = 0;
