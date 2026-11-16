@@ -25,8 +25,7 @@ THREE.ShaderChunk.tonemapping_pars_fragment = THREE.ShaderChunk.tonemapping_pars
 );
 
 export function createRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
-  // A stencil, so that the trees' shadows do not pile up into black (src/world/forest.ts).
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', stencil: true });
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.CustomToneMapping;
   return renderer;

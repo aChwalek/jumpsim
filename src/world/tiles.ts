@@ -180,6 +180,8 @@ export function buildTerrainTiles(
     object: tiles.group,
     update() {
       resolution();
+      // Where the camera is this frame, not where the last one drew from: squares coming into sight are not missed.
+      camera.updateMatrixWorld();
       tiles.update();
       updated = true;
     },

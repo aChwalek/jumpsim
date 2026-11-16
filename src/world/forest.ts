@@ -11,6 +11,14 @@
 // their crowns a little wider to keep the forest's cover: no edge of a
 // square shows in the forest.
 //
+// Which squares' trees are drawn: those the tiles show and every coarser
+// square above them, as long as the distance leaves any of their trees to
+// draw; near the eye, every square come in, shown or not. The tiles show a
+// square only while it is in sight and the right size for its distance:
+// near the eye, a turn of the head, the canopy's swing or a square giving
+// way to finer ones would take whole squares of trees away and bring them
+// back. There, only the distance decides, tree by tree.
+//
 // The squares near the eye put their trees in both a whole and a plain mesh,
 // and the graphics card draws each tree in one of them by its distance; the
 // others only in plain meshes. The meshes are filled again only when the
@@ -23,7 +31,7 @@ import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferG
 export const TREES_ALL_WITHIN = 500;
 /** Nearer than this, m, a tree is drawn whole; farther, plainly; over BAND either side, the one dissolves into the other. */
 const WHOLE = 350;
-const BAND = 30;
+const BAND = 12;
 /** How long a square's trees take to come in or go, s: when a square is split into four finer ones, the one set dissolves into the other. */
 const FADE = 0.5;
 /** A square this close, m, has its trees in the whole meshes too. */
@@ -32,6 +40,8 @@ const NEAR_SQUARE = WHOLE + BAND + 200;
 const SHADOWS = 1600;
 /** How far the eye goes before the squares are sorted near and far again, m. */
 const RESORT = 40;
+/** Nearer than this, m, a square's trees are drawn whether the tiles show the square or not. */
+const KEEP = 700;
 
 /**
  * x, y, z, height | radius, slope x, slope z, rank (+1 for a conifer) | r, g,
@@ -152,7 +162,7 @@ const SHAPES = {
   broadleafWhole: () => mergeGeometries([partOf(trunk(0.45), 0), partOf(blob(new THREE.IcosahedronGeometry(1, 1)), 1)]),
   coniferPlain: () => partOf(cone(1, 0.1, 1, 5, true), 1),
   broadleafPlain: () => partOf(blob(new THREE.OctahedronGeometry(1, 0)), 1),
-  shadow: () => partOf(new THREE.CircleGeometry(1, 8).rotateX(-Math.PI / 2), 1),
+  shadow: () => partOf(new THREE.CircleGeometry(1, 12).rotateX(-Math.PI / 2), 1),
 };
 
 const TREE_GLSL = /* glsl */ `
@@ -170,7 +180,7 @@ const TREE_GLSL = /* glsl */ `
     float since = clamp((forestTime - abs(fade)) / ${FADE.toFixed(2)}, 0.0, 1.0);
     return fade < 0.0 ? 1.0 - since : since;
   }
-  // The share of trees drawn this far off: all within ${TREES_ALL_WITHIN} m, then falling.
+  // The share of trees drawn this far off: all within ${TREES_ALL_WITHIN} m, then falling (treeShare below).
   float treeShare(float far) { return min(1.0, pow(${TREES_ALL_WITHIN.toFixed(1)} / max(far, 1.0), 2.0)); }
   // Whether a tree of this rank is drawn at this share, dissolving in over a little rank: all of them, whole, when all are drawn.
   float treeByRank(float share) { return clamp((share * 1.08 - fract(crown.w)) / 0.08, 0.0, 1.0); }
@@ -186,6 +196,9 @@ const DITHER_GLSL = /* glsl */ `
     return (m[q.x + q.y * 4] + 0.5) / 16.0;
   }
 `;
+
+/** The share of trees drawn this far off, m: the shaders' treeShare. */
+const treeShare = (far: number): number => Math.min(1, (TREES_ALL_WITHIN / Math.max(far, 1)) ** 2);
 
 /**
  * Lambert, flat, each tree in its own place, size and colour; the trunk
@@ -236,25 +249,23 @@ function bodyMaterial(split: 0 | 1 | 2, time: { value: number }): THREE.MeshLamb
 }
 
 /**
- * A dark pool on the ground, stretched away from the sun, lying on the slope
- * under the tree. A pixel takes one shadow only (the stencil): in a forest
- * they would pile up into black. Drawn a little nearer the eye along its
- * line of sight, as far again as the coarser ground off in the distance may
- * stand above the true one: the picture is the same, the shadow stays on top.
+ * A soft dark pool on the ground under the crown, a little away from the
+ * sun, lying on the slope: it sets the tree on the ground. Not the long
+ * shadow the sun casts: the aerial photo has the trees' own, cast at the
+ * hour it was taken, and two would cross. Drawn a little nearer the eye
+ * along its line of sight, as far again as the coarser ground off in the
+ * distance may stand above the true one: the picture is the same, the pool
+ * stays on top.
  */
 function shadowMaterial(sun: { away: THREE.Vector2; stretch: { value: number } }, time: { value: number }): THREE.MeshBasicMaterial {
   const material = new THREE.MeshBasicMaterial({
     color: 0x0c1a08,
     transparent: true,
-    opacity: 0.38,
+    opacity: 0.45,
     depthWrite: false,
     polygonOffset: true,
     polygonOffsetFactor: -20,
     polygonOffsetUnits: -20,
-    stencilWrite: true,
-    stencilRef: 1,
-    stencilFunc: THREE.NotEqualStencilFunc,
-    stencilZPass: THREE.ReplaceStencilOp,
   });
   material.userData.castShadow = true;
   material.onBeforeCompile = (shader) => {
@@ -262,14 +273,14 @@ function shadowMaterial(sun: { away: THREE.Vector2; stretch: { value: number } }
     shader.uniforms.sunStretch = sun.stretch;
     shader.uniforms.forestTime = time;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\n${TREE_GLSL}\nuniform vec2 sunAway;\nuniform float sunStretch;`)
+      .replace('#include <common>', `#include <common>\n${TREE_GLSL}\nuniform vec2 sunAway;\nuniform float sunStretch;\nvarying float vOut;`)
       .replace(
         '#include <begin_vertex>',
         `float share = treeShare(distance(cameraPosition, tree.xyz));
-        float wide = crown.x * treeWider(share);
-        float reach = tree.w * 0.55 * sunStretch;
-        vec2 side = vec2(-sunAway.y, sunAway.x);
-        vec2 d = sunAway * (position.x * (wide + reach) + reach) + side * (position.z * wide * 1.05);
+        float wide = crown.x * treeWider(share) * 1.2;
+        // Off a little away from the sun, never past the crown's own width.
+        vec2 d = sunAway * min(tree.w * 0.2 * sunStretch, wide * 0.6) + position.xz * wide;
+        vOut = length(position.xz);
         vec3 transformed = vec3(tree.x + d.x, tree.y + crown.y * d.x + crown.z * d.y + 0.05, tree.z + d.y);
         vShow = treeShown() * treeByRank(share) * (1.0 - smoothstep(${(SHADOWS * 0.75).toFixed(1)}, ${SHADOWS.toFixed(1)}, distance(cameraPosition, tree.xyz)));`,
       )
@@ -282,8 +293,9 @@ function shadowMaterial(sun: { away: THREE.Vector2; stretch: { value: number } }
         if (vShow <= 0.0) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);`,
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vShow;')
-      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= vShow;');
+      .replace('#include <common>', '#include <common>\nvarying float vShow;\nvarying float vOut;')
+      // Dark in the middle, fading out to the rim.
+      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.a *= vShow * (1.0 - smoothstep(0.3, 1.0, vOut));');
   };
   material.customProgramCacheKey = () => 'forest-shadow';
   return material;
@@ -321,8 +333,18 @@ export function buildForest(): Forest {
   shapes.shadow.mesh.renderOrder = 6;
   for (const s of Object.values(shapes)) object.add(s.mesh);
 
-  // Each square's trees split by kind, so that a mesh of one shape takes them whole.
-  const groves = new Map<object, { conifers: Grove; broadleaves: Grove }>();
+  // Each square's trees split by kind, so that a mesh of one shape takes them
+  // whole; the box round them all; the lowest rank among them (the first
+  // drawn as the eye comes near); gone: the tiles have thrown the square away,
+  // its trees go once dissolved.
+  interface Square {
+    conifers: Grove;
+    broadleaves: Grove;
+    box: THREE.Box3;
+    lowest: number;
+    gone: boolean;
+  }
+  const groves = new Map<object, Square>();
   // The squares the tiles show; the trees of those and of every coarser square above them are drawn.
   const visible = new Set<object>();
   let regroup = false;
@@ -347,6 +369,12 @@ export function buildForest(): Forest {
     const mark = Math.max(1e-3, time.value) * (coming ? 1 : -1);
     for (let k = 0; k < g.count; k++) g.data[k * STRIDE + 11] = mark;
   };
+
+  /**
+   * Whether any of a square's trees are drawn at its distance (treeByRank),
+   * or will be before the squares are looked at again, the eye RESORT nearer.
+   */
+  const anyDrawn = (q: Square, far: number): boolean => treeShare(Math.max(1, far - RESORT)) * 1.08 > q.lowest;
 
   const fill = (): void => {
     for (const s of Object.values(shapes)) s.begin();
@@ -401,6 +429,7 @@ export function buildForest(): Forest {
       const count = position.count;
       const conifers = grove(count);
       const broadleaves = grove(count);
+      let lowest = 1;
       for (let k = 0; k < count; k++) {
         v.fromBufferAttribute(position, k).applyMatrix4(m);
         const conifer = shape.getZ(k) > 0.5;
@@ -417,7 +446,9 @@ export function buildForest(): Forest {
         d[o + 4] = shape.getY(k);
         d[o + 5] = slope.getX(k);
         d[o + 6] = slope.getY(k);
-        d[o + 7] = Math.min(0.999, shape.getW(k)) + (conifer ? 1 : 0);
+        const rank = Math.min(0.999, shape.getW(k));
+        lowest = Math.min(lowest, rank);
+        d[o + 7] = rank + (conifer ? 1 : 0);
         d[o + 8] = base[0]! * 0.45 + color.r * 0.55;
         d[o + 9] = base[1]! * 0.45 + color.g * 0.55;
         d[o + 10] = base[2]! * 0.45 + color.b * 0.5;
@@ -429,15 +460,15 @@ export function buildForest(): Forest {
       for (const g of [conifers, broadleaves]) g.box.max.y += 50;
       points.removeFromParent();
       geometry.dispose();
-      groves.set(tile, { conifers, broadleaves });
+      const box = conifers.box.clone().union(broadleaves.box);
+      groves.set(tile, { conifers, broadleaves, box, lowest, gone: false });
       regroup = true;
     },
     remove(tile) {
       visible.delete(tile);
-      const g = groves.get(tile);
-      if (!g) return;
-      groves.delete(tile);
-      if (drawn(g.conifers)) dirty = true;
+      const q = groves.get(tile);
+      if (!q) return;
+      q.gone = true;
       regroup = true;
     },
     show(tile, shown) {
@@ -447,7 +478,8 @@ export function buildForest(): Forest {
     },
     update(eye, seconds) {
       time.value = seconds;
-      if (regroup) {
+      const moved = eye.distanceTo(sortedAt) > RESORT;
+      if (regroup || moved) {
         regroup = false;
         // The squares shown and every coarser one above them.
         const wanted = new Set<object>();
@@ -456,10 +488,11 @@ export function buildForest(): Forest {
             wanted.add(t);
           }
         }
-        for (const [tile, g] of groves) {
-          const shown = wanted.has(tile);
-          if (g.conifers.shown === shown) continue;
-          for (const grove of [g.conifers, g.broadleaves]) {
+        for (const [tile, q] of groves) {
+          const far = q.box.distanceToPoint(eye);
+          const shown = !q.gone && anyDrawn(q, far) && (far < KEEP || wanted.has(tile));
+          if (q.conifers.shown === shown) continue;
+          for (const grove of [q.conifers, q.broadleaves]) {
             grove.shown = shown;
             // Going: kept a moment longer, dissolving.
             grove.goingUntil = shown ? 0 : seconds + FADE;
@@ -469,7 +502,7 @@ export function buildForest(): Forest {
         }
       }
       // The squares near and far again, once the eye has gone some way: refill only if one has crossed over.
-      if (dirty || eye.distanceTo(sortedAt) > RESORT) {
+      if (dirty || moved) {
         for (const { conifers, broadleaves } of groves.values()) {
           if (!drawn(conifers)) continue;
           if (place(conifers, eye)) dirty = true;
@@ -477,12 +510,13 @@ export function buildForest(): Forest {
         }
         sortedAt.copy(eye);
       }
-      // A square gone by now leaves the meshes.
-      for (const { conifers } of groves.values()) {
+      // A square gone by now leaves the meshes; one the tiles have thrown away, the forest.
+      for (const [tile, { conifers, gone }] of groves) {
         if (!conifers.shown && conifers.goingUntil > 0 && conifers.goingUntil <= seconds) {
           conifers.goingUntil = 0;
           dirty = true;
         }
+        if (gone && !drawn(conifers)) groves.delete(tile);
       }
       if (!dirty) return;
       fill();
@@ -490,10 +524,10 @@ export function buildForest(): Forest {
     },
     setSun(direction, strength) {
       const flat = Math.max(1e-3, Math.hypot(direction.x, direction.z));
-      // A low sun's shadows long, but not past twice the tree's own reach.
+      // A low sun sets the pool further off the trunk.
       sun.stretch.value = Math.min(2, flat / Math.max(0.2, direction.y));
       sun.away.set(-direction.x / flat, -direction.z / flat);
-      shadowMat.opacity = 0.38 * strength;
+      shadowMat.opacity = 0.45 * strength;
       const on = strength > 0.02;
       if (on !== shadows) {
         shadows = on;
