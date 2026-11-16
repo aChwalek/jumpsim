@@ -339,8 +339,8 @@ export class Menu {
   onJoinPublic: () => void = () => {};
   onLeaveRoom: () => void = () => {};
   onRename: () => void = () => {};
-  /** A name typed in the menu: the settings are changed by the callee, which resolves once the boards have it too. */
-  onNameChange: (name: string) => Promise<void> = async () => {};
+  /** A name typed in the menu: the settings are changed by the callee, which resolves once the boards have it too; false if another account has it. */
+  onNameChange: (name: string) => Promise<boolean> = async () => true;
   /** Off to Google to sign in (the page goes, and comes back signed in). */
   onSignIn: () => void = () => {};
   onSignOut: () => void = () => {};
@@ -390,6 +390,8 @@ export class Menu {
   private boardPlayers: number | null = null;
   /** The account signed in (null: none yet), whether Google is offered, and the account's places (undefined while asked, null when they could not be). */
   private account: Account | null = null;
+  /** The last name typed that another account has: said under the name fields until another is kept. */
+  private nameTaken: string | null = null;
   private google = false;
   private places: Place[] | null | undefined = undefined;
   /** From the logbook, read again when the menu opens: for the profile. */
@@ -2045,7 +2047,13 @@ export class Menu {
     const keep = (): void => {
       const name = cleanName(input.value);
       if (!name) input.value = this.settings.playerName;
-      else if (name !== this.settings.playerName) void this.onNameChange(name).then(() => this.refreshNames());
+      else if (name !== this.settings.playerName) {
+        void this.onNameChange(name).then((ok) => {
+          // Another account has it: said under the field, which shows the name kept.
+          this.nameTaken = ok ? null : name;
+          this.refreshNames();
+        });
+      }
     };
     input.addEventListener('change', keep);
     let row!: HTMLElement;
@@ -2064,7 +2072,7 @@ export class Menu {
       t.name,
       {
         key,
-        note: () => (madeUpName(this.settings.playerName) ? t.nameMadeUp : t.nameNote),
+        note: () => (this.nameTaken ? t.nameTaken(this.nameTaken) : madeUpName(this.settings.playerName) ? t.nameMadeUp : t.nameNote),
         activate: () => {
           input.focus();
           input.select();

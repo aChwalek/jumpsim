@@ -82,6 +82,7 @@ import type { Lead } from './sim/bot';
 import { Multiplayer, newRoomName, playersIn, roomFromUrl, roomLink, setRoomInUrl } from './net/multiplayer';
 import { cleanName, publicDz, publicRoom, sameShared, sharedPart } from './net/room';
 import { madeUpName, sendScore } from './net/leaderboard';
+import { UNNAMED } from './net/scores';
 import { ensureAccount, googleOffered, loadAccount, renameAccount, signInWithGoogle, signOut, type Account } from './net/account';
 import { buildWorld, type World } from './world/build';
 import { isWet, landingHeading, solidOf, spawnsFor, type DzPack } from './world/dz';
@@ -523,16 +524,17 @@ menu.onSetupChange = (chosen) => {
 };
 /** The account signed in, once known; null for none (yet), or when the server cannot be reached. */
 let account: Account | null = null;
-/** What anonymous accounts are called until the browser names them (worker/auth.ts). */
-const UNNAMED = 'Skydiver';
 
 /** The account as it now stands: its name is the player's, chosen here or on another device. */
 function showAccount(next: Account | null): void {
   account = next;
   if (next && next.name === UNNAMED) {
-    // Named right after being made, and that did not go through: again.
-    void renameAccount(playerName());
+    // Named right after being made, and that did not go through: again
+    // (under another number, or "Bob 2", if another account has the name since).
     next.name = playerName();
+    void renameAccount(next.name).then((named) => {
+      if (named.ok && named.name !== next.name && account?.id === next.id) showAccount({ ...next, name: named.name });
+    });
   } else if (next && next.name !== settings.playerName) {
     settings.playerName = next.name;
     saveSettings(settings);
@@ -543,21 +545,37 @@ function showAccount(next: Account | null): void {
 void loadAccount().then(showAccount);
 void googleOffered().then((offered) => menu.setGoogle(offered));
 
-/** The player's new name: in the room, and on the account (and so the boards) if there is one. */
-async function rename(name: string): Promise<void> {
+/**
+ * The player's new name, if no other account has it: false if one does. The
+ * account (and so the boards) takes it first, made for it if there is none
+ * yet, under the name used until then; then the room. Offline, it is kept
+ * here, and the account has the last word next time.
+ */
+async function rename(name: string): Promise<boolean> {
   const clean = cleanName(name);
-  if (!clean || clean === settings.playerName) return;
-  settings.playerName = clean;
-  saveSettings(settings);
-  net?.setName(clean);
-  if (account) {
-    account.name = clean;
-    await renameAccount(clean);
+  if (!clean || clean === settings.playerName) return true;
+  const had = account;
+  const owner = had ?? (await ensureAccount(playerName()));
+  let given = clean;
+  if (owner) {
+    const named = await renameAccount(clean);
+    if (!had) showAccount(named.ok ? { ...owner, name: named.name } : owner);
+    if (!named.ok && named.taken) return false;
+    if (named.ok) given = named.name;
   }
+  if (account) account.name = given;
+  settings.playerName = given;
+  saveSettings(settings);
+  net?.setName(given);
+  return true;
 }
 menu.onRename = () => {
   const name = prompt(T.menu.room.renamePrompt, playerName());
-  if (name !== null) void rename(name).then(() => menu.refreshNames());
+  if (name === null) return;
+  void rename(name).then((ok) => {
+    if (!ok) alert(T.menu.leaderboardScreen.nameTaken(cleanName(name)));
+    menu.refreshNames();
+  });
 };
 menu.onNameChange = rename;
 menu.onSignIn = () => void signInWithGoogle(playerName());
@@ -788,7 +806,9 @@ function postScore(score: AccuracyScore | null): void {
       }
     }
     if (send !== boardSends) return;
-    hud.setBoard(standing ? { kind: 'standing', standing, dzName, asName: madeUpName(name) ? name : null } : { kind: 'offline' });
+    // Under the account's name: a made-up one can have come back with another number.
+    const shown = account?.name ?? name;
+    hud.setBoard(standing ? { kind: 'standing', standing, dzName, asName: madeUpName(shown) ? shown : null } : { kind: 'offline' });
   })();
 }
 
