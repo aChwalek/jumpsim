@@ -416,18 +416,16 @@ export const fr = {
       createNote: 'Un lien à partager : ceux qui l\'ouvrent sautent avec toi, avec les mêmes réglages.',
       name: (room: string) => `Salle ${room}`,
       publicJoin: (dz: string) => `Salle publique · ${dz}`,
-      publicNote: (dz: string, players: number | null, max: number) =>
+      publicNote: (dz: string, players: number | null) =>
         players === null
           ? `Saute avec ceux qui sont à ${dz} en ce moment.`
           : players === 0
             ? `Personne à ${dz} en ce moment : sois le premier.`
-            : players >= max
-              ? `Complète : ${players} à ${dz}.`
-              : `${players} à ${dz} en ce moment.`,
-      publicName: (dz: string) => `Publique · ${dz}`,
+            : `${players} à ${dz} en ce moment.`,
+      publicName: (dz: string, n: number) => (n > 1 ? `Publique · ${dz} · salle ${n}` : `Publique · ${dz}`),
       publicHostSets: (name: string) => `Météo et saut réglés par ${name}. Une autre DZ t'emmène dans sa salle publique.`,
       publicYouSet: 'Tu règles la météo et le saut pour tout le monde. Une autre DZ t\'emmène dans sa salle publique.',
-      hudPublic: 'publique',
+      hudPublic: (n: number) => (n > 1 ? `publique ${n}` : 'publique'),
       board: 'Monter à bord',
       aboard: 'À bord',
       loadSub: (time: string) => `départ dans ${time}`,
@@ -441,6 +439,7 @@ export const fr = {
       you: 'toi',
       host: 'hôte',
       connecting: 'Connexion à la salle…',
+      full: (max: number) => `Salle pleine (${max} max) : on réessaie…`,
       hostSets: (name: string) => `DZ, météo et saut réglés par ${name}.`,
       youSet: 'Tu règles la DZ, la météo et le saut pour tout le monde.',
       imReady: 'Je suis prêt',

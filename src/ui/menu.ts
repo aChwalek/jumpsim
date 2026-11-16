@@ -109,7 +109,7 @@ import {
 } from './icons';
 import { Nav } from './nav';
 import { MAX_PEERS } from '../net/protocol';
-import { NAME_MAX, cleanName, type SharedSetup } from '../net/room';
+import { NAME_MAX, cleanName, publicNumber, type SharedSetup } from '../net/room';
 import { loadBoard, loadPlaces, madeUpName } from '../net/leaderboard';
 import type { Account } from '../net/account';
 import type { Board, BoardRow, Place } from '../net/scores';
@@ -329,6 +329,8 @@ export interface RoomView {
   link: string;
   /** In the room: the server has said who is there. */
   online: boolean;
+  /** Refused: the room has its MAX_PEERS. Called back now and then. */
+  full: boolean;
   isHost: boolean;
   hostName: string;
   ready: boolean;
@@ -1422,11 +1424,9 @@ export class Menu {
     const pubLabel = h('span', 'label');
     const pubNote = h('span', 'note');
     pub.append(html(ICON_DZ), pubLabel, pubNote);
-    const full = (): boolean => (this.publicCount ?? 0) >= MAX_PEERS;
-    pub.addEventListener('click', () => {
-      if (!full()) this.onJoinPublic();
-    });
-    const choices = h('div', 'room-choices', this.nav.add(create), this.nav.add(pub, { disabled: full }));
+    // Never full: past MAX_PEERS, the server seats whoever comes in another public room of the drop zone.
+    pub.addEventListener('click', () => this.onJoinPublic());
+    const choices = h('div', 'room-choices', this.nav.add(create), this.nav.add(pub));
 
     const title = h('b', 'room-name');
     const copy = button('room-btn', r.copy);
@@ -1483,10 +1483,10 @@ export class Menu {
       if (!room) {
         const dz = dzInfo(this.setup.dz).name;
         pubLabel.textContent = r.publicJoin(dz);
-        pubNote.textContent = r.publicNote(dz, this.publicCount, MAX_PEERS);
+        pubNote.textContent = r.publicNote(dz, this.publicCount);
         return;
       }
-      title.textContent = room.publicDz ? r.publicName(dzInfo(room.publicDz).name) : r.name(room.room);
+      title.textContent = room.publicDz ? r.publicName(dzInfo(room.publicDz).name, publicNumber(room.room)) : r.name(room.room);
       link.textContent = room.link;
       copy.textContent = performance.now() < copiedUntil ? r.copied : r.copy;
       players.replaceChildren(
@@ -1500,7 +1500,9 @@ export class Menu {
       );
       const host = room.hostName || '…';
       note.textContent = !room.online
-        ? r.connecting
+        ? room.full
+          ? r.full(MAX_PEERS)
+          : r.connecting
         : room.publicDz
           ? room.isHost
             ? r.publicYouSet
@@ -1575,8 +1577,8 @@ export class Menu {
           const ready = room.players.filter((p) => p.ready).length;
           const players = Math.max(1, room.players.length);
           return line(
-            room.publicDz ? r.publicName(dzInfo(room.publicDz).name) : r.name(room.room),
-            room.online ? `${t.players(players)} · ${r.readyCount(ready, players)}` : r.connecting,
+            room.publicDz ? r.publicName(dzInfo(room.publicDz).name, publicNumber(room.room)) : r.name(room.room),
+            room.online ? `${t.players(players)} · ${r.readyCount(ready, players)}` : room.full ? r.full(MAX_PEERS) : r.connecting,
           );
         }
         if (jump.start !== 'plane' && jump.start !== 'base') return line(t.solo, bots.count ? t.planeOnly : t.soloNote);

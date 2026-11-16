@@ -413,18 +413,16 @@ export const en: Strings = {
       createNote: 'A link to share: whoever opens it jumps with you, with the same setup.',
       name: (room: string) => `Room ${room}`,
       publicJoin: (dz: string) => `Public room · ${dz}`,
-      publicNote: (dz: string, players: number | null, max: number) =>
+      publicNote: (dz: string, players: number | null) =>
         players === null
           ? `Jump with whoever is at ${dz} right now.`
           : players === 0
             ? `Nobody at ${dz} right now: be the first.`
-            : players >= max
-              ? `Full: ${players} at ${dz}.`
-              : `${players} at ${dz} right now.`,
-      publicName: (dz: string) => `Public · ${dz}`,
+            : `${players} at ${dz} right now.`,
+      publicName: (dz: string, n: number) => (n > 1 ? `Public · ${dz} · room ${n}` : `Public · ${dz}`),
       publicHostSets: (name: string) => `Weather and jump set by ${name}. Another DZ takes you to its public room.`,
       publicYouSet: 'You set the weather and jump for everyone. Another DZ takes you to its public room.',
-      hudPublic: 'public',
+      hudPublic: (n: number) => (n > 1 ? `public ${n}` : 'public'),
       board: 'Board',
       aboard: 'Aboard',
       loadSub: (time: string) => `leaves in ${time}`,
@@ -438,6 +436,7 @@ export const en: Strings = {
       you: 'you',
       host: 'host',
       connecting: 'Joining the room…',
+      full: (max: number) => `Room full (${max} max): trying again…`,
       hostSets: (name: string) => `DZ, weather and jump set by ${name}.`,
       youSet: 'You set the DZ, weather and jump for everyone.',
       imReady: "I'm ready",

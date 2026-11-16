@@ -2,16 +2,21 @@ import { STARTS, validSetup, type Setup, type Start } from '../setup';
 import { DZS, type DzId } from '../world/dzs';
 import { PUBLIC_PREFIX, type Member } from './protocol';
 import { cleanName } from './scores';
+import { publicShard } from './shards';
 
 export { NAME_MAX, cleanName } from './scores';
 
 /** A drop zone's public room: the one anyone there can join. */
 export const publicRoom = (dz: DzId): string => `${PUBLIC_PREFIX}${dz}`;
 
-/** The drop zone a room is the public room of; null for a room of one's own. */
+/** The drop zone a room is a public room of (the first, or one opened past it when full); null for a room of one's own. */
 export function publicDz(room: string): DzId | null {
-  return DZS.find((d) => publicRoom(d.id) === room)?.id ?? null;
+  const shard = publicShard(room);
+  return (shard && DZS.find((d) => publicRoom(d.id) === shard.base)?.id) ?? null;
 }
+
+/** Which of its drop zone's public rooms a room is, from 1; 1 for a room of one's own. */
+export const publicNumber = (room: string): number => publicShard(room)?.n ?? 1;
 
 /**
  * A public room does not wait for anyone: a load leaves every this often, ms,

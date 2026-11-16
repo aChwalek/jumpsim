@@ -80,7 +80,7 @@ import { Markers, type MarkerTarget } from './net/markers';
 import { Bots, type BotsSpec, type Others } from './bots';
 import type { Lead } from './sim/bot';
 import { Multiplayer, newRoomName, playersIn, roomFromUrl, roomLink, setRoomInUrl } from './net/multiplayer';
-import { cleanName, publicDz, publicRoom, sameShared, sharedPart } from './net/room';
+import { cleanName, publicDz, publicNumber, publicRoom, sameShared, sharedPart } from './net/room';
 import { madeUpName, sendScore } from './net/leaderboard';
 import { UNNAMED } from './net/scores';
 import { ensureAccount, googleOffered, loadAccount, renameAccount, signInWithGoogle, signOut, type Account } from './net/account';
@@ -356,7 +356,7 @@ function gearText(gear: Setup['gear'], wingLoading: number): string {
 }
 
 function showGear(): void {
-  const together = net ? ` · ${publicDz(net.room) ? T.menu.room.hudPublic : net.room} (${net.players})` : '';
+  const together = net ? ` · ${publicDz(net.room) ? T.menu.room.hudPublic(publicNumber(net.room)) : net.room} (${net.players})` : '';
   // Watching a jump again: what that one was flown with.
   if (watching) hud.setGear(gearText(watching.view.setup.gear, rigFor(watching.view.setup.gear).wingLoading));
   else hud.setGear(`${gearText(setup.gear, rig.wingLoading)}${together}`);
@@ -458,6 +458,8 @@ function joinRoom(name: string): void {
     },
     changed: showRoom,
     exited: showExit,
+    // The link to give is the room we are in.
+    moved: (room) => setRoomInUrl(room),
   });
   net.setShared(sharedPart(menu.current));
   showRoom();
@@ -502,6 +504,7 @@ function showRoom(): void {
     room: net.room,
     link: roomLink(net.room),
     online: state.selfId !== null,
+    full: net.isFull,
     isHost: state.isHost,
     hostName: host?.name ?? '',
     ready: net.isReady,
