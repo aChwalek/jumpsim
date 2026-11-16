@@ -704,7 +704,14 @@ const watchWind = new THREE.Vector3();
 const watchEnv: Environment = { wind: vec3(), airDensity: AIR_DENSITY_SEA_LEVEL };
 
 /** Writes the jump that just ended in the logbook. */
-function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distance?: number, wet?: boolean, accuracy?: number): PersonalRecord[] {
+function logThisJump(
+  outcome: Outcome,
+  sink: number,
+  groundSpeed: number,
+  distance?: number,
+  wet?: boolean,
+  accuracy?: number,
+): { logged: LogEntry; records: PersonalRecord[] } {
   const { gear, weather } = setup;
   const log = jump?.log;
   const previous = loadLogbook();
@@ -746,7 +753,7 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
     accuracy,
   });
   trackRecorder.logged(logged.n, logged.time);
-  return brokenRecords(previous, logged);
+  return { logged, records: brokenRecords(previous, logged) };
 }
 
 /** Each landing sent to the leaderboard gets the next number: the answer for an older one is not shown. */
@@ -1443,10 +1450,9 @@ function settle(ended: Touchdown, wet: boolean, vines: boolean, left: number): v
   const legsFrom = skimPose > 0 ? skimLegs.hip : undefined;
   arrival = new Arrival(model, ended, { groundAt: solid, wet, wind: vec3(env.wind.x, env.wind.y, env.wind.z), legsFrom });
   heldSinceLanding.forward = heldSinceLanding.turn = heldSinceLanding.slide = true;
-  const records = logThisJump(landed.rating, landed.sink, landed.groundSpeed, distance, wet, scored?.score.points);
-  const slid = skidded;
+  const { logged, records } = logThisJump(landed.rating, landed.sink, landed.groundSpeed, distance, wet, scored?.score.points);
   verdict = () => {
-    hud.showResult(landed, distance, wet, log, vines, scored, records, slid);
+    hud.showResult(landed, distance, wet, log, vines, scored, records, logged);
     // The mouse, for the card's buttons.
     devices.release();
   };
@@ -3059,7 +3065,7 @@ if (benchDz !== null) void bench(benchDz);
 
 if (import.meta.env.DEV) {
   // The rig can change between jumps: these always give the current one.
-  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, fly, light, apply, resolution, settings };
+  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, fly, light, apply, resolution, settings, hud };
   Object.defineProperties(sim, {
     model: { get: () => model },
     rig: { get: () => rig },
