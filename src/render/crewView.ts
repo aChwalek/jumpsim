@@ -107,7 +107,7 @@ class Member {
   }
 
   set(gear: Gear, pose: Pose): void {
-    const look = [gear.helmetColor, gear.suitColor, gear.glowColor, gear.suit, gear.suitLevel, gear.color, gear.smoke, gear.container].join();
+    const look = JSON.stringify(gear);
     if (look === this.look) return;
     this.look = look;
     const body = this.body;

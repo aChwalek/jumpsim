@@ -6,7 +6,7 @@ import { T } from './i18n';
 import { HOUR_MAX, HOUR_MIN } from './render/daylight';
 import { CANOPY_COLORS, isCanopyColor, type CanopyColorId } from './render/canopyColors';
 import { isSmoke, type SmokeKind } from './render/smoke';
-import { DEFAULT_GLOW, DEFAULT_HELMET, DEFAULT_SUIT, GLOW_COLORS, OUTFIT_COLORS, isGlowColor, isOutfitColor, type GlowColor, type Outfit, type OutfitColor } from './render/outfit';
+import { HELMET_KINDS, SUIT_PATTERNS, SKIN_COLORS, isSkinColor, type HelmetKind, type SuitPattern, type SkinColor, DEFAULT_GLOW, DEFAULT_HELMET, DEFAULT_SUIT, GLOW_COLORS, OUTFIT_COLORS, isGlowColor, isOutfitColor, type GlowColor, type Outfit, type OutfitColor } from './render/outfit';
 import { BOTS_MAX, BOT_LEADS, BOT_MODES, type BotLead, type BotMode } from './sim/bot';
 import type { Container } from './sim/jump';
 import { AIRCRAFT_IDS, EXIT_SPOTS, type AircraftId, type ExitSpot } from './sim/plane';
@@ -69,6 +69,15 @@ export interface Gear {
   glowColor: GlowColor;
   /** The colour of the jumpsuit (a suit's wings keep the canopy's). */
   suitColor: OutfitColor;
+  pantsColor: OutfitColor;
+  shoesColor: OutfitColor;
+  face: boolean;
+  helmetKind: HelmetKind;
+  visorRaised: boolean;
+  goggles: boolean;
+  skinColor: SkinColor;
+  pattern: SuitPattern;
+  accentColor: OutfitColor;
 }
 
 /** The suit as the jump flies it. */
@@ -83,8 +92,11 @@ export const wingColor = (color: CanopyColorId): number => CANOPY_COLORS[color].
 
 /** What the jumper wears, as drawn. */
 export const outfitOf = (gear: Gear): Outfit => ({
-  helmet: OUTFIT_COLORS[gear.helmetColor],
-  suit: OUTFIT_COLORS[gear.suitColor],
+  helmet: OUTFIT_COLORS[gear.helmetColor], suit: OUTFIT_COLORS[gear.suitColor],
+  pants: OUTFIT_COLORS[gear.pantsColor], shoes: OUTFIT_COLORS[gear.shoesColor], face: false,
+  // Open helmets and faces are on hold, including for saved outfits and peers.
+  helmetKind: 'full', visorRaised: false, goggles: false,
+  skin: SKIN_COLORS[gear.skinColor], pattern: gear.pattern, accent: OUTFIT_COLORS[gear.accentColor],
   // Someone on an older version chose none.
   glow: GLOW_COLORS[gear.glowColor] ?? GLOW_COLORS[DEFAULT_GLOW],
 });
@@ -199,6 +211,15 @@ export function defaultSetup(): Setup {
       helmetColor: DEFAULT_HELMET,
       glowColor: DEFAULT_GLOW,
       suitColor: DEFAULT_SUIT,
+      pantsColor: DEFAULT_SUIT,
+      shoesColor: 'white',
+      face: false,
+      helmetKind: 'full',
+      visorRaised: false,
+      goggles: true,
+      skinColor: 'tan',
+      pattern: 'plain',
+      accentColor: 'white',
     },
     jump: { start: 'plane', exitHeight: 4000, runDeg: null, malfunction: 'sometimes', exitSpot: 'low', aircraft: null, challenges: true },
     bots: { count: 0, mode: 'formation', lead: 'us' },
@@ -248,6 +269,16 @@ export function validSetup(saved: unknown): Setup {
   if (isOutfitColor(g.helmetColor)) gear.helmetColor = g.helmetColor;
   if (isGlowColor(g.glowColor)) gear.glowColor = g.glowColor;
   if (isOutfitColor(g.suitColor)) gear.suitColor = g.suitColor;
+  // Old saves used one colour for both halves of the suit.
+  gear.pantsColor = isOutfitColor(g.pantsColor) ? g.pantsColor : gear.suitColor;
+  if (isOutfitColor(g.shoesColor)) gear.shoesColor = g.shoesColor;
+  if (typeof g.face === 'boolean') gear.face = g.face;
+  if (oneOf(g.helmetKind, HELMET_KINDS)) gear.helmetKind = g.helmetKind;
+  if (typeof g.visorRaised === 'boolean') gear.visorRaised = g.visorRaised;
+  if (typeof g.goggles === 'boolean') gear.goggles = g.goggles;
+  if (isSkinColor(g.skinColor)) gear.skinColor = g.skinColor;
+  if (oneOf(g.pattern, SUIT_PATTERNS)) gear.pattern = g.pattern;
+  if (isOutfitColor(g.accentColor)) gear.accentColor = g.accentColor;
   const j = (s.jump ?? {}) as Partial<Record<keyof JumpPlan, unknown>>;
   if (oneOf(j.start, startsAt(setup.dz))) setup.jump.start = j.start;
   if (finite(j.exitHeight)) setup.jump.exitHeight = validExitHeight(j.exitHeight);

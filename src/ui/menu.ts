@@ -24,7 +24,7 @@ import { HOUR_MAX, HOUR_MIN, formatHour, moonPosition, sunPosition } from '../re
 import { CANOPY_COLORS, type CanopyColorId } from '../render/canopyColors';
 import { CrewView, type CrewLook, type CrewMember } from '../render/crewView';
 import { SMOKE_BURN, SMOKE_COLORS, SMOKE_KINDS, type SmokeColor, type SmokeKind } from '../render/smoke';
-import { GLOW_COLORS, GLOW_COLOR_IDS, OUTFIT_COLORS, OUTFIT_COLOR_IDS, type GlowColor, type OutfitColor } from '../render/outfit';
+import { SUIT_PATTERNS, type SuitPattern, GLOW_COLORS, GLOW_COLOR_IDS, OUTFIT_COLORS, OUTFIT_COLOR_IDS, type GlowColor, type OutfitColor } from '../render/outfit';
 import { bestScore } from '../challenge';
 import { JUMP_DISCIPLINES, OUTCOME_GROUPS, clearLogbook, filterLogbook, jumpDiscipline, loadLogbook, logStats, type LogEntry, type LogbookFilter } from '../logbook';
 import { clearTracks, storedTracks, trackId } from '../replay/store';
@@ -1448,9 +1448,21 @@ export class Menu {
         note: () => (hasWings(suitOf(gear())) ? g.suitColorNote : ''),
         cls: 'outfits',
       }),
+      this.choice<OutfitColor>(g.pantsColor, outfitChoices, () => gear().pantsColor, (pantsColor) => this.setGear({ pantsColor }), {
+        value: () => g.outfitColors[gear().pantsColor],
+        cls: 'outfits',
+      }),
+      this.choice<OutfitColor>(g.shoesColor, outfitChoices, () => gear().shoesColor, (shoesColor) => this.setGear({ shoesColor }), {
+        value: () => g.outfitColors[gear().shoesColor],
+        cls: 'outfits',
+      }),
       this.choice<OutfitColor>(g.helmet, outfitChoices, () => gear().helmetColor, (helmetColor) => this.setGear({ helmetColor }), {
         value: () => g.outfitColors[gear().helmetColor],
         cls: 'outfits',
+      }),
+      this.choice<SuitPattern>(g.pattern, options(SUIT_PATTERNS, (id) => g.patterns[id]), () => gear().pattern, (pattern) => this.setGear({ pattern })),
+      this.choice<OutfitColor>(g.accentColor, outfitChoices, () => gear().accentColor, (accentColor) => this.setGear({ accentColor }), {
+        value: () => g.outfitColors[gear().accentColor], cls: 'outfits', disabled: () => gear().pattern === 'plain',
       }),
       this.choice<GlowColor>(
         g.glow,

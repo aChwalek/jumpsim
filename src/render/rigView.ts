@@ -119,14 +119,14 @@ export class RigView {
     this.canopy = view;
     this.detached = false;
     this.adopt(view);
-    view.setSuitColor(this.outfit.suit);
+    view.setOutfit(this.outfit);
   }
 
   /** The colours of the jumpsuit and of the helmet, on the body and on the arms up on the toggles. */
   setOutfit(outfit: Outfit): void {
     this.outfit = { ...outfit };
     this.body.setOutfit(outfit);
-    if (!this.detached) this.canopy.setSuitColor(outfit.suit);
+    if (!this.detached) this.canopy.setOutfit(outfit);
   }
 
   /** How far the canopy is out: null while packed, from 0 at line stretch to 1 open. */
