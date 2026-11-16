@@ -1,8 +1,9 @@
 // Uploads a map's tiles from public/tiles/<map>/ to the R2 bucket the
 // Worker serves /tiles/ from (wrangler.jsonc, binding TILES):
 //
-//   node tools/tiles/upload.mjs chamonix
+//   node tools/tiles/upload.mjs chamonix [--from n]
 //
+// `--from n` starts at the n-th square, to finish an upload cut short.
 // The tileset goes last, once every square it names is there.
 
 import { execFileSync } from 'node:child_process';
@@ -27,7 +28,11 @@ const walk = (d) => {
 };
 walk(dir);
 const entry = (file) => ({ key: `${map}/${path.relative(dir, file).split(path.sep).join('/')}`, file });
-const squares = files.filter((f) => f.endsWith('.glb')).map(entry);
+const from = process.argv.includes('--from') ? Number(process.argv[process.argv.indexOf('--from') + 1]) : 0;
+const squares = files
+  .filter((f) => f.endsWith('.glb'))
+  .map(entry)
+  .slice(from);
 const tileset = files.filter((f) => f.endsWith('tileset.json')).map(entry);
 
 const put = (entries, type) => {
