@@ -40,9 +40,26 @@ export const cleanName = (name: string): string =>
 
 /**
  * A name the game made up ("Parachutiste 42": T.menu.room.defaultName and two
- * digits, in either language), not one the player chose.
+ * digits, in either language), not one the player chose. The server gives
+ * more digits once the two-digit ones are taken (worker/names.ts).
  */
-export const madeUpName = (name: string): boolean => /^(Parachutiste|Skydiver) \d{2}$/.test(name);
+export const madeUpName = (name: string): boolean => /^(Parachutiste|Skydiver) \d{2,6}$/.test(name);
+
+/**
+ * What two names are compared by: one account per name, and "Jean-Marc" is
+ * "jean marc" is "Jéan Marc" (no case, accents, spaces nor punctuation). A
+ * name of nothing but symbols is compared as it is, without case.
+ */
+export function nameKey(name: string): string {
+  const plain = cleanName(name).normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
+  return plain.replace(/[^\p{L}\p{N}]/gu, '') || plain;
+}
+
+/** What anonymous accounts are called until the browser names them (worker/auth.ts): nobody can take it. */
+export const UNNAMED = 'Skydiver';
+
+/** The error code of a name another account has, when renaming (worker/auth.ts). */
+export const NAME_TAKEN = 'NAME_TAKEN';
 
 /**
  * One scored landing, as sent. Who sent it is the session's account, and the

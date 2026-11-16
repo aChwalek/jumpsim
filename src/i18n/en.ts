@@ -899,6 +899,7 @@ export const en: Strings = {
       namePlaceholder: 'Your name',
       nameNote: 'Shown on the leaderboard and in rooms.',
       nameMadeUp: 'The game picked that name: put your own, it is the one the leaderboard will show.',
+      nameTaken: (name: string) => `"${name}" is already taken by another player: pick another one.`,
       dz: 'DZ',
       previous: 'Previous DZ',
       next: 'Next DZ',

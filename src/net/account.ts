@@ -7,6 +7,7 @@
 
 import { createAuthClient } from 'better-auth/client';
 import { anonymousClient } from 'better-auth/client/plugins';
+import { NAME_TAKEN } from './scores';
 
 const client = createAuthClient({ basePath: '/api/auth', plugins: [anonymousClient()] });
 
@@ -35,26 +36,41 @@ export async function loadAccount(): Promise<Account | null> {
   }
 }
 
-/** The account, made anonymous under `name` if there is none yet; null if the server cannot be reached. */
+/**
+ * The account, made anonymous under `name` if there is none yet; null if the
+ * server cannot be reached. If another account has that name, it gets a
+ * number ("Bob 2"): the account says which.
+ */
 export async function ensureAccount(name: string): Promise<Account | null> {
   const have = await loadAccount();
   if (have) return have;
   try {
     const { data, error } = await client.signIn.anonymous();
     if (error || !data) return null;
-    await client.updateUser({ name });
-    return { ...toAccount(data.user as SessionUser), name };
+    const made = toAccount(data.user as SessionUser);
+    const named = await renameAccount(name);
+    return named.ok ? { ...made, name: named.name } : made;
   } catch {
     return null;
   }
 }
 
-/** The account's new name: the boards take it at once. */
-export async function renameAccount(name: string): Promise<void> {
+/**
+ * How a new name went: the name the account now has (a name the game made up
+ * can come back with another number), or why not: another account has it, or
+ * it did not go through (offline).
+ */
+export type Renamed = { ok: true; name: string } | { ok: false; taken: boolean };
+
+/** The account's new name, if no other account has it: the boards take it at once. */
+export async function renameAccount(name: string): Promise<Renamed> {
   try {
-    await client.updateUser({ name });
+    const { error } = await client.updateUser({ name });
+    if (error) return { ok: false, taken: error.code === NAME_TAKEN };
+    const now = await loadAccount();
+    return now ? { ok: true, name: now.name } : { ok: false, taken: false };
   } catch {
-    // Offline: the name stays on this browser, and goes up with the next one.
+    return { ok: false, taken: false };
   }
 }
 

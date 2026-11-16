@@ -903,6 +903,7 @@ export const fr = {
       namePlaceholder: 'Ton nom',
       nameNote: 'Affiché au classement et dans les rooms.',
       nameMadeUp: 'Ce nom-là, c\'est le jeu qui l\'a choisi : mets le tien, c\'est lui qu\'on verra au classement.',
+      nameTaken: (name: string) => `« ${name} » est déjà pris par un autre joueur : choisis-en un autre.`,
       dz: 'DZ',
       previous: 'DZ précédente',
       next: 'DZ suivante',
