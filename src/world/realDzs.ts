@@ -40,6 +40,8 @@ export const LOOKS = {
     final: { downwind: 260, height: 90 },
     // Into the wind, in the club's Dornier Do 28 G92.
     jumpRun: { downwind: 500, offset: 60, height: 4000, indicatedAirspeed: 40, aircraft: 'do28' },
+    // The terrain as tiles, the LiDAR's trees in them (tools/tiles).
+    tiles: TILESETS.pujaut,
   },
   // Savoie Parachutisme on Chambéry-Savoie airport (LFLB), at the south end
   // of the Lac du Bourget, between the Mont du Chat and the Revard.
@@ -70,6 +72,8 @@ export const LOOKS = {
     final: { downwind: 220, height: 80 },
     // Pilatus PC-6, 4000 m above the ground.
     jumpRun: { downwind: 500, offset: 60, height: 4000, indicatedAirspeed: 39 },
+    // The terrain as tiles, the LiDAR's trees in them (tools/tiles).
+    tiles: TILESETS.chambery,
   },
   // Skydive Empuriabrava (LEAP), between the canal town and the wetlands of
   // the Aiguamolls de l'Empordà.
@@ -248,6 +252,8 @@ export const LOOKS = {
     final: { downwind: 110, height: 40 },
     // Nobody jumps here from a plane: a start from the air only so that one exists.
     jumpRun: { downwind: 400, offset: 60, height: 1500, indicatedAirspeed: 39 },
+    // The terrain as tiles, the LiDAR's trees in them (tools/tiles).
+    tiles: TILESETS.millau,
   },
   // Monte Brento: no drop zone, a BASE site, the most jumped exit in the
   // world. The Becco dell'Aquila on the rim of the wall over the Sarca valley,

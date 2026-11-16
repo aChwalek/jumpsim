@@ -402,5 +402,13 @@
   "OpenStreetMap, fetched with tools/dz/osm_api.py: no Overpass server could be reached when this was built"
  ],
  "imagery": "ign",
- "inland": true
+ "inland": true,
+ "tiles": {
+  "detail": {
+   "x": 0,
+   "z": 0,
+   "size_m": 8000
+  },
+  "why": "The relief is the near grid's, every 100 m, over this flat lake bed: the tiles' zoom-18 photos and the LiDAR's trees one by one over 8 km about the landing, where the pattern and the last thousand metres are flown; beyond, a tree in fifty would be drawn."
+ }
 }

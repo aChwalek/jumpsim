@@ -21,6 +21,10 @@
   "spacing_m": 10,
   "why": "The near grid, every 100 m, rounds off the gorge of the Tarn the piers stand in, 250 m deep: the RGE ALTI every 10 m over the whole viaduct, so that each pier stands on the slope it stands on."
  },
+ "tiles": {
+  "detail": {"x": 200, "z": 400, "size_m": 6000},
+  "why": "The fine relief covers the viaduct only, 2.8 km: the tiles' photos and trees go on 6 km about it, over the wooded slopes of the gorge seen from the deck."
+ },
  "origin": {
   "lat": 44.08389,
   "lon": 3.02,

@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
+import { nearPier, underBridge, undersideAt } from '../../src/world/bridge';
 import { facetedHeight } from '../../src/world/cover';
 import { TREES_ALL_WITHIN } from '../../src/world/forest';
 import { TERRAIN_SPACING } from '../../src/world/ground';
@@ -44,6 +45,8 @@ const TREES_UP_TO = 3200;
  * this many times its texel, m, at the least (a phone's coarser target).
  */
 const SHOWN_FROM_TEXELS = 200;
+/** Side of a square of zoom-19 photos about a target or an exit, m, where the data names none. */
+const SPOT = 1024;
 /** Higher than this above the sea, m, the trees of the Alps are conifers: spruce, larch, arolla pine. */
 const CONIFERS_ABOVE = 1300;
 /** The tree line, m below the height the map's grass stops at (its look's grassBelow, above the landing). */
@@ -176,18 +179,37 @@ export async function main(args: string[]): Promise<void> {
     pictures.push(await pictureSource(name, path.join(ROOT, 'public', level.url), level.x ?? 0, level.z ?? 0, level.size));
   }
   pictures.sort((a, b) => b.res - a.res);
-  // Finer orthophotos fetched for the tiles: zoom 18 over the fine relief, zoom 19 about the spots.
-  const ortho: Source[] = [];
-  if (DATA.fine) {
+  // Where the tiles are finest, with photos at zoom 18 and the trees one by
+  // one: over the fine relief, or over the square the map's json names
+  // (`tiles.detail`: centre and side, m), for a map whose relief is coarse
+  // all over, or whose fine relief is too narrow for its trees.
+  const named = conf.tiles?.detail as { x: number; z: number; size_m: number } | undefined;
+  let detail: Rect | undefined;
+  if (named) {
+    const half = named.size_m / 2;
+    detail = { x0: named.x - half, z0: named.z - half, x1: named.x + half, z1: named.z + half };
+  } else if (DATA.fine) {
     const f = DATA.fine;
     const half = ((f.size - 1) * f.spacing) / 2;
     const halfZ = (((f.rows ?? f.size) - 1) * f.spacing) / 2;
-    const rect = { x0: f.x - half, z0: f.z - halfZ, x1: f.x + half, z1: f.z + halfZ };
-    ortho.push(wmtsSource('z18', service, frame, 18, rect, 60, snow));
+    detail = { x0: f.x - half, z0: f.z - halfZ, x1: f.x + half, z1: f.z + halfZ };
   }
-  for (const [k, c] of (DATA.imagerySpots?.centres ?? []).entries()) {
-    const half = DATA.imagerySpots!.size / 2;
-    ortho.push(wmtsSource(`z19-${k}`, service, frame, 19, { x0: c[0] - half, z0: c[1] - half, x1: c[0] + half, z1: c[1] + half }, 40, snow));
+  // Zoom 19 where the ground is looked at from a few metres: the data's own
+  // spots, else each landing's target and each exit.
+  const spotSize = DATA.imagerySpots?.size ?? SPOT;
+  const spots: number[][] = [...(DATA.imagerySpots?.centres ?? [])];
+  if (!DATA.imagerySpots) {
+    for (const p of packs) {
+      for (const c of [[p.target.x, p.target.z], ...(p.base ? [[p.base.x, p.base.z]] : [])]) {
+        if (!spots.some((s) => Math.hypot(s[0]! - c[0]!, s[1]! - c[1]!) < spotSize / 2)) spots.push(c);
+      }
+    }
+  }
+  const ortho: Source[] = [];
+  if (detail) ortho.push(wmtsSource('z18', service, frame, 18, detail, 60, snow));
+  for (const [k, c] of spots.entries()) {
+    const half = spotSize / 2;
+    ortho.push(wmtsSource(`z19-${k}`, service, frame, 19, { x0: c[0]! - half, z0: c[1]! - half, x1: c[0]! + half, z1: c[1]! + half }, 40, snow));
   }
   for (const s of ortho) {
     const zoom = s.name === 'z18' ? 18 : 19;
@@ -310,13 +332,10 @@ export async function main(args: string[]): Promise<void> {
   console.log(`heights: root error ${root.error.toFixed(0)} (${seconds()})`);
 
   // --- Trees ----------------------------------------------------------------------------------------
-  // One by one from the canopy's height, over the fine relief, where the lines are flown low.
+  // One by one from the canopy's height, over the detail square, where the lines are flown low.
   const found: TreeRec[] = [];
-  if (DATA.fine && !tilesetOnly && !args.includes('--no-trees')) {
-    const f = DATA.fine;
-    const half = ((f.size - 1) * f.spacing) / 2;
-    const halfZ = (((f.rows ?? f.size) - 1) * f.spacing) / 2;
-    let box = { x0: f.x - half, z0: f.z - halfZ, x1: f.x + half, z1: f.z + halfZ };
+  if (detail && !tilesetOnly && !args.includes('--no-trees')) {
+    let box = { ...detail };
     // Trying it out on a small area: only the trees there.
     if (focus) {
       const [fx, fz, fr] = focus as [number, number, number];
@@ -344,7 +363,14 @@ export async function main(args: string[]): Promise<void> {
       }
       return false;
     };
-    const trees = await findTrees(frame, box, (x, z) => !onRoof(x, z));
+    // Under a bridge, as the game has it (src/world/real.ts): only what stays
+    // below the deck and clear of the piers. The canopy sees the deck and the
+    // piers themselves as tall crowns.
+    const bridges = packs[0]!.bridges ?? [];
+    const ground = packs[0]!.groundAt;
+    const clearOfBridges = (x: number, z: number, height: number): boolean =>
+      !underBridge(bridges, x, z, 4) || (ground(x, z) + height < undersideAt(bridges, x, z) - 3 && !nearPier(bridges, x, z, 3));
+    const trees = (await findTrees(frame, box, (x, z) => !onRoof(x, z))).filter((t) => clearOfBridges(t.x, t.z, t.height));
     // Nothing grows above the tree line, a little below where the grass stops: what stands up there is rock and ice.
     const grassBelow = Math.min(...dzIds.map((id) => (LOOKS[id] as { grassBelow?: number }).grassBelow ?? Infinity));
     const treeLine = grassBelow - TREE_LINE_BELOW_GRASS;
