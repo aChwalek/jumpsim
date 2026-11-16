@@ -1,0 +1,15 @@
+{
+  "name": "jumpsim-tiles",
+  "private": true,
+  "description": "Builds a drop zone's terrain as 3D Tiles: relief and aerial photos in squares at several levels of detail. See README.md.",
+  "type": "module",
+  "dependencies": {
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "@gltf-transform/functions": "4.5.1",
+    "aws4fetch": "1.0.20",
+    "ktx2-encoder": "0.6.0",
+    "meshoptimizer": "1.3.0",
+    "sharp": "0.35.5"
+  }
+}

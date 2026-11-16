@@ -110,6 +110,8 @@ export interface RealDzLook {
   slimRows?: boolean;
   /** Brightness the photos are drawn at. */
   imageryGain?: number;
+  /** The terrain as 3D Tiles, built by tools/tiles: the tileset, under TILES_ORIGIN (src/world/tilesets.ts). */
+  tiles?: string;
   /** The colour of the rock faces, where the photos' is wrong, and how much of the photo's to keep (0..1). */
   rockTint?: { color: number; photo: number };
   /**
@@ -431,6 +433,7 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     imagery: data.imagery,
     imagerySpots: data.imagerySpots,
     imageryGain: look.imageryGain,
+    tiles: look.tiles,
     rockTint: look.rockTint,
     wind: look.wind,
     groundAt,
