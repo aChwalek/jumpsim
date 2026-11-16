@@ -28,7 +28,7 @@ const BAND = 30;
 const FADE = 0.5;
 /** A square this close, m, has its trees in the whole meshes too. */
 const NEAR_SQUARE = WHOLE + BAND + 200;
-/** Squares nearer than this lay their trees' shadows, m. */
+/** Shadows fade out over the last quarter of this, m: beyond, a shadow is a pixel or two. */
 const SHADOWS = 1600;
 /** How far the eye goes before the squares are sorted near and far again, m. */
 const RESORT = 40;
@@ -49,7 +49,6 @@ interface Grove {
   /** Hidden, but still going until then, s. */
   goingUntil: number;
   near: boolean;
-  shadows: boolean;
 }
 
 /** One of the shapes trees are drawn with, every tree of it in one draw. */
@@ -236,7 +235,13 @@ function bodyMaterial(split: 0 | 1 | 2, time: { value: number }): THREE.MeshLamb
   return material;
 }
 
-/** A dark pool on the ground, stretched away from the sun, lying on the slope under the tree. */
+/**
+ * A dark pool on the ground, stretched away from the sun, lying on the slope
+ * under the tree. A pixel takes one shadow only (the stencil): in a forest
+ * they would pile up into black. Drawn a little nearer the eye along its
+ * line of sight, as far again as the coarser ground off in the distance may
+ * stand above the true one: the picture is the same, the shadow stays on top.
+ */
 function shadowMaterial(sun: { away: THREE.Vector2; stretch: { value: number } }, time: { value: number }): THREE.MeshBasicMaterial {
   const material = new THREE.MeshBasicMaterial({
     color: 0x0c1a08,
@@ -246,6 +251,10 @@ function shadowMaterial(sun: { away: THREE.Vector2; stretch: { value: number } }
     polygonOffset: true,
     polygonOffsetFactor: -20,
     polygonOffsetUnits: -20,
+    stencilWrite: true,
+    stencilRef: 1,
+    stencilFunc: THREE.NotEqualStencilFunc,
+    stencilZPass: THREE.ReplaceStencilOp,
   });
   material.userData.castShadow = true;
   material.onBeforeCompile = (shader) => {
@@ -262,7 +271,15 @@ function shadowMaterial(sun: { away: THREE.Vector2; stretch: { value: number } }
         vec2 side = vec2(-sunAway.y, sunAway.x);
         vec2 d = sunAway * (position.x * (wide + reach) + reach) + side * (position.z * wide * 1.05);
         vec3 transformed = vec3(tree.x + d.x, tree.y + crown.y * d.x + crown.z * d.y + 0.05, tree.z + d.y);
-        vShow = treeShown() * treeByRank(share);`,
+        vShow = treeShown() * treeByRank(share) * (1.0 - smoothstep(${(SHADOWS * 0.75).toFixed(1)}, ${SHADOWS.toFixed(1)}, distance(cameraPosition, tree.xyz)));`,
+      )
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+        float eyeFar = max(length(mvPosition.xyz), 1e-3);
+        mvPosition.xyz *= max(0.0, eyeFar - (0.2 + 0.004 * eyeFar)) / eyeFar;
+        gl_Position = projectionMatrix * mvPosition;
+        if (vShow <= 0.0) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying float vShow;')
@@ -316,12 +333,9 @@ export function buildForest(): Forest {
   const color = new THREE.Color();
 
   const place = (g: Grove, eye: THREE.Vector3): boolean => {
-    const d = g.box.distanceToPoint(eye);
-    const near = d < NEAR_SQUARE;
-    const shade = d < SHADOWS;
-    const changed = near !== g.near || shade !== g.shadows;
+    const near = g.box.distanceToPoint(eye) < NEAR_SQUARE;
+    const changed = near !== g.near;
     g.near = near;
-    g.shadows = shade;
     return changed;
   };
 
@@ -347,7 +361,8 @@ export function buildForest(): Forest {
           (conifer ? shapes.coniferWhole : shapes.broadleafWhole).pushAll(g);
           (conifer ? shapes.coniferNearPlain : shapes.broadleafNearPlain).pushAll(g);
         } else (conifer ? shapes.coniferPlain : shapes.broadleafPlain).pushAll(g);
-        if (shadows && g.shadows) shapes.shadow.pushAll(g);
+        // Their shadows, all of them: they fade out with distance tree by tree (shadowMaterial).
+        if (shadows) shapes.shadow.pushAll(g);
       }
     }
     for (const s of Object.values(shapes)) s.end();
@@ -360,7 +375,6 @@ export function buildForest(): Forest {
     shown: false,
     goingUntil: 0,
     near: false,
-    shadows: false,
   });
 
   return {
@@ -476,7 +490,8 @@ export function buildForest(): Forest {
     },
     setSun(direction, strength) {
       const flat = Math.max(1e-3, Math.hypot(direction.x, direction.z));
-      sun.stretch.value = Math.min(3, flat / Math.max(0.2, direction.y));
+      // A low sun's shadows long, but not past twice the tree's own reach.
+      sun.stretch.value = Math.min(2, flat / Math.max(0.2, direction.y));
       sun.away.set(-direction.x / flat, -direction.z / flat);
       shadowMat.opacity = 0.38 * strength;
       const on = strength > 0.02;
