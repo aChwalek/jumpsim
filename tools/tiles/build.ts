@@ -5,7 +5,7 @@
 // far from it (3d-tiles-renderer), so the triangles and the picture's texels
 // on screen stay about the same wherever one flies. See README.md.
 
-import { readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -70,11 +70,14 @@ export async function main(args: string[]): Promise<void> {
   };
   const dzIds = (option('dz') ?? map).split(',') as (keyof typeof LOOKS)[];
   const focus = option('focus')?.split(',').map(Number);
-  const quality = Number(option('quality') ?? 255);
+  // ETC1S quality: 192 is a fifth lighter than 255 and looks the same on the ground.
+  const quality = Number(option('quality') ?? 192);
+  // Each build has its own folder, so that what is cached of an older one never mixes with it.
+  const version = option('version') ?? new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12);
   const workers = Number(option('workers') ?? Math.max(2, os.cpus().length - 2));
   // Only the tileset, from the tree and the heights: the squares already written stand.
   const tilesetOnly = args.includes('--tileset-only');
-  const out = path.join(ROOT, 'public', 'tiles', map);
+  const out = path.join(ROOT, 'public', 'tiles', map, version);
   const conf = JSON.parse(readFileSync(path.join(ROOT, 'tools', 'dz', `${map}.json`), 'utf8'));
   const { DATA } = (await import(`../../src/world/data/${map}.ts`)) as { DATA: RealDzData };
   const started = Date.now();
@@ -373,6 +376,21 @@ export async function main(args: string[]): Promise<void> {
   };
   writeFileSync(path.join(out, 'tileset.json'), JSON.stringify(tileset));
   console.log(`wrote ${out}: ${all.length} tiles, ${(bytes / 1e6).toFixed(0)} MB (${seconds()})`);
+  // The game finds each map's tileset in src/world/tilesets.ts.
+  const index = path.join(ROOT, 'src', 'world', 'tilesets.ts');
+  const known: Record<string, string> = existsSync(index)
+    ? JSON.parse(readFileSync(index, 'utf8').match(/TILESETS: Record<string, string> = (\{[\s\S]*?\});/)![1]!)
+    : {};
+  known[map] = `${map}/${version}/tileset.json`;
+  writeFileSync(
+    index,
+    `// Written by tools/tiles/build.ts: each map's tileset, under the tiles' origin
+// (src/world/tiles.ts). Upload a build (tools/tiles/upload.mjs) before shipping its line here.
+
+export const TILESETS: Record<string, string> = ${JSON.stringify(known, null, 2)};
+`,
+  );
+  console.log(`version ${version}: src/world/tilesets.ts updated; upload with node tools/tiles/upload.mjs ${map} ${version}`);
 }
 
 /** Height of a tile's grid at (x, z): its cells are split along the diagonal from the north-east corner to the south-west one. */

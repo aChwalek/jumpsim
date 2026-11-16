@@ -205,7 +205,7 @@ export interface DzPack {
   imagery?: Imagery[];
   /** Finer squares of photo laid over them. */
   imagerySpots?: ImagerySpots;
-  /** The terrain as 3D Tiles (tools/tiles), drawn instead of the mesh and the photos: the tileset's address. */
+  /** The terrain as 3D Tiles (tools/tiles), drawn instead of the mesh and the photos: the tileset, under TILES_ORIGIN. */
   tiles?: string;
   /** Brightness the photos are drawn at, 1 as they are. */
   imageryGain?: number;

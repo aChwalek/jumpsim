@@ -5,6 +5,7 @@
 // sources of each fact are noted.
 
 import type { RealDzLook } from './real';
+import { TILESETS } from './tilesets';
 
 type Look = RealDzLook & { lat: number; lon: number; utcOffsetH: number };
 
@@ -326,7 +327,7 @@ function chamonixLook(name: string, exit: number, landing: { landingAxisDeg: num
     // lend the faces the white of the snow on their ledges.
     rockTint: { color: 0x8d8780, photo: 0.35 },
     // The terrain as tiles, both exits' relief in them (tools/tiles).
-    tiles: 'tiles/chamonix/tileset.json',
+    tiles: TILESETS.chamonix,
     // The valley goes on down past each landing, both on slopes: nothing laid flat.
     relief: { flatBelow: 0.5, blend: 2, below: true },
     // Granite and snow about the exits, no grass: the last meadows end about 2400 m up.

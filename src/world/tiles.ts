@@ -58,6 +58,13 @@ export interface TerrainTiles {
 
 let ktx2: KTX2Loader | null = null;
 
+/**
+ * Where the tiles are fetched from: the dev server's public/tiles, or the R2
+ * bucket on its own domain, straight from Cloudflare's edge, so that they
+ * never go through the Worker and count against its requests.
+ */
+export const TILES_ORIGIN = import.meta.env.DEV ? `${import.meta.env.BASE_URL}tiles/` : 'https://tiles.lowpull.app/';
+
 /** A number the page asks for (?tileError=24, ?tileHeight=4, ?tileTexel=10), to try others out. */
 function asked(name: string): number | null {
   try {
@@ -78,7 +85,7 @@ export function tilesWanted(): boolean {
 }
 
 /**
- * The tiles at `url`, seen by `camera`. Each square's mesh takes the
+ * The tiles at `url` (under TILES_ORIGIN), seen by `camera`. Each square's mesh takes the
  * material `material` makes from its photo; `prepare` is called on each
  * material made (cloud shadows).
  */
@@ -89,7 +96,7 @@ export function buildTerrainTiles(
   material: (photo: THREE.Texture, texel: number) => THREE.Material,
 ): TerrainTiles {
   ktx2 ??= new KTX2Loader().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
-  const tiles = new TilesRenderer(`${import.meta.env.BASE_URL}${url}`);
+  const tiles = new TilesRenderer(`${TILES_ORIGIN}${url}`);
   tiles.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader: ktx2, meshoptDecoder: MeshoptDecoder }));
   const device = handheld() ? 'handheld' : 'desktop';
   tiles.errorTarget = asked('tileError') ?? ERROR_TARGET[device];

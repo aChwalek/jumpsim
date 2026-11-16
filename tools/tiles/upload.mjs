@@ -1,8 +1,11 @@
-// Uploads a map's tiles from public/tiles/<map>/ to the R2 bucket the
-// Worker serves /tiles/ from (wrangler.jsonc, binding TILES):
+// Uploads a build of a map's tiles, public/tiles/<map>/<version>/, to the
+// R2 bucket jumpsim-tiles, which serves them at https://tiles.lowpull.app/
+// (its own domain: the Worker never sees them, nor counts them):
 //
-//   node tools/tiles/upload.mjs chamonix [--from n]
+//   node tools/tiles/upload.mjs chamonix 202611161410 [--from n]
 //
+// A build's files never change: they are cached a year, by the browsers too,
+// so that a second flight downloads nothing.
 // Through Cloudflare's API with wrangler's login, a few requests a second:
 // the API takes 1200 requests in 5 minutes, and `wrangler r2 bulk put`
 // goes faster and is turned away. `--from n` starts at the n-th square, to
@@ -18,9 +21,10 @@ const BUCKET = 'jumpsim-tiles';
 /** Requests a second, under the API's 4. */
 const RATE = 3.5;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const map = process.argv[2];
-if (!map) throw new Error('usage: node tools/tiles/upload.mjs <map> [--from n]');
-const dir = path.join(root, 'public', 'tiles', map);
+const [map, version] = process.argv.slice(2);
+if (!map || !version) throw new Error('usage: node tools/tiles/upload.mjs <map> <version> [--from n]');
+const dir = path.join(root, 'public', 'tiles', map, version);
+const CACHE = 'public, max-age=31536000, immutable';
 
 const files = [];
 const walk = (d) => {
@@ -31,7 +35,7 @@ const walk = (d) => {
   }
 };
 walk(dir);
-const entry = (file) => ({ key: `${map}/${path.relative(dir, file).split(path.sep).join('/')}`, file });
+const entry = (file) => ({ key: `${map}/${version}/${path.relative(dir, file).split(path.sep).join('/')}`, file });
 const from = process.argv.includes('--from') ? Number(process.argv[process.argv.indexOf('--from') + 1]) : 0;
 const squares = files
   .filter((f) => f.endsWith('.glb'))
@@ -58,7 +62,7 @@ async function put({ key, file }, type) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${account}/r2/buckets/${BUCKET}/objects/${key}`, {
       method: 'PUT',
-      headers: { Authorization: `Bearer ${auth()}`, 'Content-Type': type },
+      headers: { Authorization: `Bearer ${auth()}`, 'Content-Type': type, 'Cache-Control': CACHE },
       body: readFileSync(file),
     });
     if (res.ok) return;
@@ -91,7 +95,7 @@ async function upload(entries, type) {
   await Promise.all(Array.from({ length: 4 }, worker));
 }
 
-console.log(`${squares.length} squares and the tileset to ${BUCKET}/${map}/, about ${Math.round(squares.length / RATE / 60)} min`);
+console.log(`${squares.length} squares and the tileset to ${BUCKET}/${map}/${version}/, about ${Math.round(squares.length / RATE / 60)} min`);
 await upload(squares, 'model/gltf-binary');
 await upload(tileset, 'application/json');
 console.log('done');

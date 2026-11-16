@@ -15,8 +15,10 @@ node tools/tiles/run.mjs chamonix --dz chamonix,chamonix-durier
 node tools/tiles/run.mjs chamonix --dz chamonix,chamonix-durier --focus 0,0,400   # a trial over a small area
 ```
 
-It writes `public/tiles/<map>/` (ignored by git: hundreds of megabytes) and
-reads `src/world/data/<map>.ts`, `tools/dz/<map>.json` and the photos in
+It writes `public/tiles/<map>/<version>/` (ignored by git: hundreds of
+megabytes; `--version` names it, the date and time by default) and the
+map's line in `src/world/tilesets.ts`, which the game reads the tileset
+from. It reads `src/world/data/<map>.ts`, `tools/dz/<map>.json` and the photos in
 `public/dz/<map>/`, so `tools/dz/build.py` must have built the drop zone
 first. `--dz` names every drop zone sharing the map (one per exit): each draws
 the relief about its own exit every metre.
@@ -38,9 +40,10 @@ the relief about its own exit every metre.
   landings (`imagerySpots`), then the drop zone's near, mid and far pictures.
   Each fades into the coarser ones near its edge. A parent's photo is its
   four children's, shrunk.
-- **Compression**: photos in KTX2 (Basis ETC1S, quality 255, mipmaps), 8 times
-  smaller on the graphics card than a JPEG once decoded; grids quantized and
-  compressed with meshopt.
+- **Compression**: photos in KTX2 (Basis ETC1S, quality 192, mipmaps), 8 times
+  smaller on the graphics card than a JPEG once decoded; 192 is a fifth
+  lighter to download than 255 and looks the same on the ground. Grids are
+  quantized and compressed with meshopt.
 - **Error**: each square's extras hold its grid's height error (`h`, m) and
   its photo's texel (`t`, m). The game sets the `geometricError` from them as
   it loads the tileset (`src/world/tiles.ts`): the height error × 4 or the
@@ -50,10 +53,14 @@ the relief about its own exit every metre.
   try others: `?tileError=`, `?tileHeight=`, `?tileTexel=`; `?tiles=0` draws
   the old terrain. The file's own `geometricError` (height × 8, texel × 12)
   only stands if the extras are missing.
-- **Hosting**: `node tools/tiles/upload.mjs <map>` puts them in the R2 bucket
-  `jumpsim-tiles`, which the Worker serves at `/tiles/` (wrangler.jsonc,
-  binding `TILES`); the dev server serves them from `public/tiles/`. A local
-  `npm run deploy` would ship them as assets too: deploy from a clean
-  checkout, as usual.
+- **Hosting**: `node tools/tiles/upload.mjs <map> <version>` puts a build in
+  the R2 bucket `jumpsim-tiles`, served straight from R2 at
+  `https://tiles.lowpull.app/<map>/<version>/` (its own domain, CORS reads
+  from any origin: `cors.json`), cached a year: a build never changes. The
+  Worker never sees them, so they cost none of its daily requests. Upload a
+  build before shipping its line in `src/world/tilesets.ts`. The dev server
+  serves them from `public/tiles/`. A local `npm run deploy` would ship them
+  as assets too: deploy from a clean checkout, as usual. See CLAUDE.md for
+  what things cost.
 
 Orthophoto tiles are cached in `~/.cache/jumpsim-dz`, the same as build.py's.
