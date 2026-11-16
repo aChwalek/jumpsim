@@ -92,6 +92,8 @@ export class PerfMeter {
   private gaps = 0;
   private lastCpu = 0;
   private programs = 0;
+  /** What the room says of how the others see us, for the report (net/check.ts). */
+  netReport: () => string = () => '';
   /** A bench step being measured: its label, length, and who waits for it. */
   private step: { label: string; seconds: number; done: (s: PerfSummary) => void } | null = null;
 
@@ -213,6 +215,7 @@ export class PerfMeter {
       display: displayMode(),
       heavy:
         `n=${this.heavy} ` + PARTS.map((p, i) => `${p}=${Math.round(this.heavyParts[i]!)}`).join(' ') + ` gaps=${this.gaps}`,
+      net: this.netReport(),
       ...summary,
       worstMs: sorted[sorted.length - 1] ?? 0,
       hitches: this.frames.filter((f) => f > HITCH).length,

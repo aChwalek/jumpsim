@@ -271,6 +271,7 @@ export const fr = {
     noTarget: 'PAS DE CIBLE',
     noPlayer: 'PERSONNE EN VUE',
     targetGone: 'CIBLE PERDUE',
+    noPause: 'PAS DE PAUSE À PLUSIEURS',
     lockHint: (k: string) => `${k} pour verrouiller la caméra dessus`,
     pickHint: (k: string) => `${k} : cibler ce qui est au centre de l'écran`,
     locked: 'CAMÉRA VERROUILLÉE SUR LA CIBLE',

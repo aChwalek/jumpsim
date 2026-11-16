@@ -38,6 +38,14 @@ export const PERF_BLOBS = [
    * garbage collection, the graphics process, the browser).
    */
   'heavy',
+  /**
+   * With others: "peers=1 n=20 off=0.40/1.10 apart=0.20/0.60 lead=165 trip=28 skew=4/12":
+   * how many in the room, measures, how far off they draw us and how far apart
+   * the two views are (middle/worst, m), how far on we draw them, the quickest
+   * trip to the server, and the furthest clock of another from ours, peer to
+   * peer, with the trip it was measured on (ms). See net/check.ts.
+   */
+  'net',
 ] as const;
 
 /** Numbers, double1 onwards. */

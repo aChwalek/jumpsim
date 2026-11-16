@@ -396,6 +396,8 @@ const perf = new PerfMeter(
   }),
   handheld(),
 );
+// With others: how they see us, in the same reports.
+perf.netReport = () => net?.report() ?? '';
 /** A bench is running (?bench): the resolution stays where it puts it. */
 let benching = false;
 
@@ -435,6 +437,8 @@ function dropBots(): void {
 function joinRoom(name: string): void {
   leaveRoom(false);
   dropBots();
+  // With others there is no pause.
+  paused = false;
   // A public room is at its drop zone, whoever leads it.
   const pinned = publicDz(name);
   if (pinned) menu.chooseDz(pinned);
@@ -862,11 +866,14 @@ const BOARDING_STALE = 60;
 /** The plane off the room's clock by this much is put back on it, s: a frame cut short, a pause, the menu. */
 const PLANE_SLIP = 0.005;
 
-/** Our plane where the room's clock puts it, `ahead` s before now (the sim then flies it on to now). */
-function keepPlaneOnClock(ahead: number): void {
+/**
+ * Our plane where the room's clock puts it, `ahead` s before `at` (the room's
+ * clock now, ms, by default): the sim then flies it on from there.
+ */
+function keepPlaneOnClock(ahead: number, at?: number): void {
   const plane = jump?.plane;
   if (!jump || !plane || loadLeft === null || !net) return;
-  const flown = Math.max(0, (net.serverNow() - loadLeft) / 1000 - ahead);
+  const flown = Math.max(0, ((at ?? net.serverNow()) - loadLeft) / 1000 - ahead);
   if (Math.abs(flown - plane.flown) < PLANE_SLIP) return;
   jump.flyPlane(flown);
   // The replay flies it on from there (once out, a slip is too small to show).
@@ -1122,7 +1129,8 @@ const actions: Record<Action, () => void> = {
   flyUp: () => flyStep(1),
   flyDown: () => flyStep(-1),
   toggleHud: () => hud.toggle(),
-  togglePause: () => (paused = !paused),
+  // With others, time does not wait: no pause.
+  togglePause: () => (net ? say(T.cue.noPause) : (paused = !paused)),
   replay: () => {
     if (replay) stopReplay();
     else if (canReplay()) playReplay();
@@ -1313,7 +1321,8 @@ function simulate(seconds: number): void {
   // Under line twists, every press of a toggle is a kick round that way.
   const taps = devices.takeTaps();
   // Out cold, the hands do nothing: the canopy flies on its stowed brakes, or as it was left.
-  const cold = blow.cold;
+  // Nor do they in the menu with others, the jump going on.
+  const cold = blow.cold || away;
   const pulls = cold ? NO_PULLS : devices.pulls;
   const analogL = cold ? 0 : devices.analogBrakeL;
   const analogR = cold ? 0 : devices.analogBrakeR;
@@ -2711,7 +2720,7 @@ const drawnPose = makePose();
 let drawnHeap = 0;
 
 /** Our jumper as the others will draw it: all of it, as we draw it. */
-function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation: number | null, elapsed: number): void {
+function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation: number | null, elapsed: number, at: number): void {
   const o = net.out;
   const s = model.state;
   o.phase = jump ? jump.phase : 'none';
@@ -2766,7 +2775,7 @@ function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation
     o.plane.headingDeg = plane.headingDeg;
     o.plane.aircraft = plane.type.id;
   }
-  net.send(elapsed);
+  net.send(elapsed, at);
 }
 
 /** How the altimeter warns in freefall: from 1500 m, then 1000 m; off a BASE object, the last 150 m. */
@@ -2798,6 +2807,22 @@ function magnify(dt: number): void {
 let last = performance.now();
 let frameAverage = 1 / 60;
 
+/**
+ * The sim goes by the time the frames take, not by the frames: a frame that
+ * took long is made up for over the next ones, each going on by STEP_MAX at
+ * most, so that what a step is given stays what it was made for. Behind real
+ * time by this much at most, s: past it, the time is given up (a tab left
+ * hidden, a long stall). Alone, little is owed; with others, our time is
+ * theirs, and what we send says how far behind it we are.
+ */
+const STEP_MAX = 0.1;
+const BEHIND_ALONE = 0.5;
+const BEHIND_TOGETHER = 2;
+/** Real time the sim has still to go on by, s. */
+let behind = 0;
+/** With others, gone to the menu: the jump goes on, the hands off the keys. */
+let away = false;
+
 function frame(now: number): void {
   requestAnimationFrame(frame);
   perf.begin();
@@ -2819,7 +2844,15 @@ function frame(now: number): void {
   /** The title screen: the drop zone seen from a circle round it, without our jumper. */
   const titled = menu.titleShown && !watching && !replay;
   perf.mark(0);
-  const live = !waiting && !paused;
+  // With others the jump under way goes on, under the menu too: their time does not wait for us.
+  const together = net !== null && !watching && (!menu.isOpen || menu.resumable);
+  const live = together || (!waiting && !paused);
+  // Gone to the menu, with others: the hands off the keys, the jump flies on as it was left.
+  away = together && (waiting || paused || menu.isOpen);
+  /** The room's clock at this frame, ms: what our state is true at, less what we are behind by. */
+  const roomNow = net?.roomTime(now) ?? 0;
+  /** How much the sim went on by, s. */
+  let stepped = 0;
   /** How far the replay of the whole jump went on this frame, s of its own clock. */
   let watched = 0;
   // Paused or not before, the replay has its own pause.
@@ -2834,7 +2867,12 @@ function frame(now: number): void {
     replay.advance(Math.min(elapsed, 0.1), (kind, level, rate) => sound.ouch(kind, level, rate));
     if (replay.done) stopReplay();
   } else if (live) {
-    const seconds = Math.min(elapsed, 0.1);
+    // What the frame took, and what earlier ones could not: no more than STEP_MAX at once.
+    behind = Math.min(behind + elapsed, net ? BEHIND_TOGETHER : BEHIND_ALONE);
+    const seconds = Math.min(behind, STEP_MAX);
+    const before = behind;
+    behind -= seconds;
+    stepped = seconds;
     if (bots) {
       // Before our own step, so that they see us where we are at the same moment as they are.
       us.pos = model.state.pos;
@@ -2858,13 +2896,14 @@ function frame(now: number): void {
         faceTheView(feet, fromDeg);
       }
     }
-    // With others, the load's plane where the room's clock has it: the step flies it on to now.
-    keepPlaneOnClock(arrival ? 0 : seconds);
+    // With others, the load's plane where the room's clock has it: the step flies it on to where we
+    // will be, `behind` short of now. On the ground nothing flies it: straight there.
+    keepPlaneOnClock(arrival ? behind : before, roomNow);
     if (arrival) {
       airTime += seconds;
-      // On the feet again: walking, but not while gathering the canopy up.
+      // On the feet again: walking, but not while gathering the canopy up, nor with our hands off the keys.
       const gathering = gather !== null && gather < 1;
-      arrival.update(seconds, ragdoll || gathering ? null : letGoFeet(devices.feet));
+      arrival.update(seconds, ragdoll || gathering || away ? null : letGoFeet(devices.feet));
       if (gather !== null) gather = Math.min(1, gather + seconds / GATHER_TIME);
     } else {
       simulate(seconds);
@@ -2889,11 +2928,13 @@ function frame(now: number): void {
     }
   } else if (!watching && !replay) {
     // Paused or in the menu: the others' plane does not wait, nor does ours, with us in it.
-    keepPlaneOnClock(0);
+    keepPlaneOnClock(0, roomNow);
   }
+  // Not stepping: time stands still, nothing is owed.
+  if (stepped === 0) behind = 0;
 
   perf.mark(1);
-  const moving = live && !replay && !watching ? Math.min(elapsed, 0.1) : 0;
+  const moving = stepped;
   const pose = stance();
   const inflation = replay ? replay.frame.inflation : jump ? jump.inflation : 1;
   // The hands are on the risers from line stretch until they let go on the
@@ -2917,7 +2958,7 @@ function frame(now: number): void {
     const run = jump?.afoot ? jumpFeet().feet : null;
     const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : run ? [run.legL, run.legR] : undefined;
     updateLegs(moving, pose === 'hanging' && !touchdown && !skim);
-    const held = posture.update(moving, pose, FREEFALL_STANCES.has(pose) && !blow.cold ? bodyControls() : still, legs, legCues);
+    const held = posture.update(moving, pose, FREEFALL_STANCES.has(pose) && !blow.cold && !away ? bodyControls() : still, legs, legCues);
     plantFeet(held, moving);
     // Limp from a blow, the arms and legs go where the wind takes them.
     const limp = jump?.stunned ? Math.min(1, jump.body.stunned / 0.6) : 0;
@@ -2965,13 +3006,16 @@ function frame(now: number): void {
     sparks.light!.intensity = 0;
   }
   if (net) {
+    // When what we are now is true on the room's clock: for them to draw us where we are by the time
+    // it comes, and for us to draw them where they are at the same moment as we are.
+    const roomTime = roomNow - behind * 1000;
     // Watching our replay, the pilot is drawn from it: the others go on seeing us as we are, still.
-    if (replay) net.send(elapsed);
-    else sendJumper(net, pose, onRisers, inflation, elapsed);
+    if (replay) net.send(elapsed, roomTime);
+    else sendJumper(net, pose, onRisers, inflation, elapsed, roomTime);
     // While a jump is watched again, the others of now are not in it.
     // Those on our load in our plane, where they are in theirs.
     const plane = jump?.plane;
-    net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid, plane }, setup.dz, !watching);
+    net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid, plane, roomTime }, setup.dz, !watching, replay ? undefined : model.state.pos);
     if (net.players !== playersShown) showGear();
   } else if (bots) {
     bots.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, light, !watching);
