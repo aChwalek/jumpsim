@@ -8,8 +8,11 @@
 import { T } from '../i18n';
 import { keyLabel } from '../input/keyLabels';
 
-/** `ledge`: on top of a BASE object, before the exit; `baseCanopy`: under its one canopy, which cannot be cut away. */
-export type KeysPhase = 'ledge' | 'plane' | 'freefall' | 'freefallProgressive' | 'wingsuit' | 'canopy' | 'baseCanopy' | 'ground' | 'replay' | 'replayFree';
+/**
+ * `ledge`: on top of a BASE object, before the exit; `lip`: on the lip of a
+ * bridge; `baseCanopy`: under its one canopy, which cannot be cut away.
+ */
+export type KeysPhase = 'ledge' | 'lip' | 'plane' | 'freefall' | 'freefallProgressive' | 'wingsuit' | 'canopy' | 'baseCanopy' | 'ground' | 'replay' | 'replayFree';
 /** `touch`: a touch screen, whose controls are on the glass and say what they do. */
 export type InputKind = 'keyboard' | 'gamepad' | 'touch';
 export type PadKind = 'xbox' | 'playstation';
@@ -31,6 +34,16 @@ function keyboardRows(phase: KeysPhase): Row[] {
         [[k('KeyW'), k('KeyS')], t.run],
         [[k('KeyA'), k('KeyD')], t.sidestep],
         [[t.mouse], t.lookTurn],
+        [[t.space], t.leap],
+        [['↑', '↓', '←', '→'], t.exitPosition],
+        [[k('KeyT'), k('KeyL')], t.targetLock],
+        [[k('KeyB')], t.outsideCamera],
+      ];
+    case 'lip':
+      return [
+        [[k('KeyA'), k('KeyD')], t.shuffle],
+        [[k('KeyQ'), k('KeyE'), t.mouse], t.turnRound],
+        [[k('KeyW'), k('KeyS')], t.stepOff],
         [[t.space], t.leap],
         [['↑', '↓', '←', '→'], t.exitPosition],
         [[k('KeyT'), k('KeyL')], t.targetLock],
@@ -133,6 +146,15 @@ function gamepadRows(phase: KeysPhase): [PadControl[], string][] {
       return [
         [['ls'], t.run],
         [['rs'], t.lookTurn],
+        [['a'], t.leap],
+        [['b', 'y', 'x'], t.positionsPad],
+        [['rs'], t.targetLockPad],
+        [['view'], t.camera],
+      ];
+    case 'lip':
+      return [
+        [['ls'], t.shufflePad],
+        [['rs'], t.turnRound],
         [['a'], t.leap],
         [['b', 'y', 'x'], t.positionsPad],
         [['rs'], t.targetLockPad],
