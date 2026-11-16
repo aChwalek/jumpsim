@@ -190,7 +190,11 @@ export const en: Strings = {
     atImpact: 'at impact',
     freefallOnly: 'of freefall',
     again: (k: K) =>
-      `${k('KeyR')} or Y to go again · arrows or D-pad, then Space or A, for the buttons · 1 pattern · 2 final · 3 plane · 4 BASE · ${k('KeyV')}, Esc or Start for the menu`,
+      `${k('KeyR')} or Y to go again · arrows or D-pad, then Space or A, for the buttons · 1 pattern · 2 final · 3 plane · 4 BASE · ${k('KeyV')} or Start for the menu · Esc or B to hide`,
+    /** The card at the end of the jump, put out of the way and back. */
+    hideCard: 'Hide (Esc)',
+    showCard: 'Show the result',
+    escKey: 'Esc',
     fps: (fps: string, scale: string) => `${fps} fps · render ${scale}%`,
     muted: 'muted',
     wind: (hdg: string, from: string, kmh: string, gust: string | null) =>
@@ -392,10 +396,9 @@ export const en: Strings = {
     dragHint: 'Drag to turn around',
     invite: {
       label: 'Invite a friend',
-      copied: 'Link copied ✓',
-      title: "Send this jump's link: your friend comes into your room, with the same setup.",
-      text: (dz: string) => `Come and jump with me at ${dz} on Lowpull`,
-      prompt: "This jump's link, to send:",
+      title: "Copies this jump's link: your friend comes into your room, with the same setup.",
+      linkTitle: "Copy your room's link, to send to your friend",
+      copied: 'Link copied',
     },
     back: 'Back',
     resume: 'Resume the jump',
@@ -436,6 +439,8 @@ export const en: Strings = {
       imReady: "I'm ready",
       waiting: 'Ready · waiting',
       readyCount: (n: number, total: number) => `${n}/${total} ready`,
+      goAnyway: 'Go anyway',
+      notReady: (names: string[]) => (names.length === 1 ? `${names[0]} not ready` : `${names.length} not ready`),
       startNow: 'Start without waiting',
       startNowWarn: (names: string) => `Not ready yet: ${names}. Click again to start anyway.`,
     },
