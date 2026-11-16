@@ -10,6 +10,7 @@ import { GLTFExtensionsPlugin } from '3d-tiles-renderer/three/plugins';
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { handheld } from '../viewport';
+import type { Forest } from './forest';
 
 /**
  * Screen-space error the tiles are refined to, CSS px. A phone takes coarser
@@ -94,9 +95,12 @@ export function buildTerrainTiles(
   camera: THREE.Camera,
   renderer: THREE.WebGLRenderer,
   material: (photo: THREE.Texture, texel: number) => THREE.Material,
+  forest?: Forest,
 ): TerrainTiles {
   ktx2 ??= new KTX2Loader().setTranscoderPath(`${import.meta.env.BASE_URL}basis/`).detectSupport(renderer);
-  const tiles = new TilesRenderer(`${TILES_ORIGIN}${url}`);
+  // In development, another build can be tried (?tileset=chamonix/<version>/tileset.json).
+  const tried = import.meta.env.DEV ? new URLSearchParams(location.search).get('tileset') : null;
+  const tiles = new TilesRenderer(`${TILES_ORIGIN}${tried ?? url}`);
   tiles.registerPlugin(new GLTFExtensionsPlugin({ ktxLoader: ktx2, meshoptDecoder: MeshoptDecoder }));
   const device = handheld() ? 'handheld' : 'desktop';
   tiles.errorTarget = asked('tileError') ?? ERROR_TARGET[device];
@@ -129,8 +133,17 @@ export function buildTerrainTiles(
   });
   tiles.addEventListener('tiles-load-start', () => (loading = true));
   tiles.addEventListener('tiles-load-end', () => (loading = false));
+  // The squares' trees go to the forest, drawn all together.
+  if (forest) {
+    tiles.addEventListener('dispose-model', ({ tile }) => forest.remove(tile));
+    tiles.addEventListener('tile-visibility-change', ({ tile, visible }) => forest.show(tile, visible));
+  }
   tiles.addEventListener('load-model', ({ scene, tile }) => {
     arrived++;
+    if (forest) {
+      tiles.group.updateMatrixWorld();
+      forest.add(tile, scene as THREE.Object3D, tiles.group.matrixWorld);
+    }
     // A texel of the square's photo, m: its edges hold texels too.
     const box = (tile as { boundingVolume: { box: number[] } }).boundingVolume.box;
     scene.traverse((node) => {

@@ -40,6 +40,23 @@ the relief about its own exit every metre.
   landings (`imagerySpots`), then the drop zone's near, mid and far pictures.
   Each fades into the coarser ones near its edge. A parent's photo is its
   four children's, shrunk.
+- **Trees**: one per crown of the IGN's LiDAR HD canopy height (MNH, open
+  data, fetched from the Géoplateforme's WMS-R in Lambert 93 a metre a cell
+  and cached; `canopy.ts`), over the fine relief.
+  - Each peak at least 3 m high, the highest within a few metres, whose crown
+    fills most of the disc round it, gives a tree: its place, its height, its
+    crown's width (eight rays down its sides), and its colour from the square's
+    photo.
+  - Thrown out: trees on a mapped roof; spikes of rock or ice (too tall, or too
+    narrow for their height); trees above the tree line (200 m below the
+    look's `grassBelow`); trees where the photo is bright and not green.
+  - Conifer if its crown is narrow, or above 1300 m.
+  - The finest squares carry every tree. A coarser one keeps the tallest of
+    each cell (32 a side), its crown as wide as theirs put together. Squares
+    over 1600 m carry none.
+  - They go in the square's .glb as points (position, colour, `_SHAPE`:
+    height, radius, conifer; `_SLOPE`: the ground's), drawn by
+    `src/world/forest.ts`. `--no-trees` builds without them.
 - **Compression**: photos in KTX2 (Basis ETC1S, quality 192, mipmaps), 8 times
   smaller on the graphics card than a JPEG once decoded; 192 is a fifth
   lighter to download than 255 and looks the same on the ground. Grids are

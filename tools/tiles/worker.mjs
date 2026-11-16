@@ -18,7 +18,7 @@ const io = new NodeIO()
   .registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
 
 async function build(job) {
-  const { file, texture, positions, normals, uvs, indices, translation, quality } = job;
+  const { file, texture, positions, normals, uvs, indices, translation, quality, trees } = job;
   const ktx2 = await encodeToKTX2(texture.data, {
     isUASTC: false,
     qualityLevel: quality,
@@ -49,7 +49,20 @@ async function build(job) {
     .setAttribute('TEXCOORD_0', accessor('VEC2', uvs))
     .setIndices(accessor('SCALAR', indices))
     .setMaterial(material);
-  const node = doc.createNode('ground').setMesh(doc.createMesh('ground').addPrimitive(primitive)).setTranslation(translation);
+  const mesh = doc.createMesh('ground').addPrimitive(primitive);
+  // The square's trees, a point each: where, how tall and wide, which kind, the slope under it, its colour.
+  if (trees) {
+    const points = doc
+      .createPrimitive()
+      .setMode(0)
+      .setAttribute('POSITION', accessor('VEC3', trees.positions))
+      .setAttribute('COLOR_0', accessor('VEC4', trees.colors).setNormalized(true))
+      .setAttribute('_SHAPE', accessor('VEC3', trees.shapes))
+      .setAttribute('_SLOPE', accessor('VEC2', trees.slopes))
+      .setMaterial(doc.createMaterial('trees'));
+    mesh.addPrimitive(points);
+  }
+  const node = doc.createNode('ground').setMesh(mesh).setTranslation(translation);
   doc.createScene().addChild(node);
   await doc.transform(meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
   const glb = await io.writeBinary(doc);

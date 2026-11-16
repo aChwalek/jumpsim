@@ -29,6 +29,19 @@ export class Frame {
     return [R * ((lon * Math.PI) / 180), R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360))];
   }
 
+  /** A point of the globe in the local frame: x east, z south, m. */
+  local(lat: number, lon: number): [number, number] {
+    const [mx, my] = Frame.merc(lat, lon);
+    return [(mx - this.mx0) * this.k, -(my - this.my0) * this.k];
+  }
+
+  /** The latitude and longitude of a point of the local frame. */
+  latlon(x: number, z: number): [number, number] {
+    const mx = this.mx0 + x / this.k;
+    const my = this.my0 - z / this.k;
+    return [(2 * Math.atan(Math.exp(my / R)) - Math.PI / 2) / (Math.PI / 180), mx / R / (Math.PI / 180)];
+  }
+
   /** Global pixel coordinates of a local point at a zoom level, 256 pixels a tile. */
   pixel(x: number, z: number, zoom: number): [number, number] {
     const n = 256 * 2 ** zoom;

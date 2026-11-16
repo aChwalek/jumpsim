@@ -14,6 +14,7 @@ import { facetedHeight } from '../../src/world/cover';
 import { TERRAIN_SPACING } from '../../src/world/ground';
 import { createRealDz, type RealDzData } from '../../src/world/real';
 import { LOOKS } from '../../src/world/realDzs';
+import { findTrees } from './canopy';
 import { Frame, type Rect, type Source, fetchTiles, pictureSource, tilesOver, wmtsSource } from './imagery';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -35,6 +36,27 @@ const REACH = 40960;
  */
 const HEIGHT_WEIGHT = 8;
 const TEXEL_WEIGHT = 12;
+/** Squares wider than this, m, carry no trees: from that far the photo shows the forest. */
+const TREES_UP_TO = 1600;
+/** A square coarser than the finest keeps at most one tree a cell, cells this many a side. */
+const TREE_CELLS = 32;
+/** Higher than this above the sea, m, the trees of the Alps are conifers: spruce, larch, arolla pine. */
+const CONIFERS_ABOVE = 1300;
+/** The tree line, m below the height the map's grass stops at (its look's grassBelow, above the landing). */
+const TREE_LINE_BELOW_GRASS = 200;
+
+/** A tree as a square carries it: where (local m), its ground's height and slope, its size, kind, colour. */
+interface TreeRec {
+  x: number;
+  y: number;
+  z: number;
+  gx: number;
+  gz: number;
+  height: number;
+  radius: number;
+  conifer: boolean;
+  rgb: [number, number, number];
+}
 
 interface Tile {
   level: number;
@@ -264,6 +286,125 @@ export async function main(args: string[]): Promise<void> {
   settle(root);
   console.log(`heights: root error ${root.error.toFixed(0)} (${seconds()})`);
 
+  // --- Trees ----------------------------------------------------------------------------------------
+  // One by one from the canopy's height, over the fine relief, where the lines are flown low.
+  const found: TreeRec[] = [];
+  if (DATA.fine && !tilesetOnly && !args.includes('--no-trees')) {
+    const f = DATA.fine;
+    const half = ((f.size - 1) * f.spacing) / 2;
+    const halfZ = (((f.rows ?? f.size) - 1) * f.spacing) / 2;
+    let box = { x0: f.x - half, z0: f.z - halfZ, x1: f.x + half, z1: f.z + halfZ };
+    // Trying it out on a small area: only the trees there.
+    if (focus) {
+      const [fx, fz, fr] = focus as [number, number, number];
+      box = { x0: Math.max(box.x0, fx - fr), z0: Math.max(box.z0, fz - fr), x1: Math.min(box.x1, fx + fr), z1: Math.min(box.z1, fz + fr) };
+    }
+    // Not on a roof: the buildings mapped, a metre and a half round them.
+    const roofs = new Map<string, typeof packs[0]['buildings']>();
+    for (const b of packs[0]!.buildings) {
+      const key = `${Math.floor(b.x / 50)},${Math.floor(b.z / 50)}`;
+      roofs.set(key, [...(roofs.get(key) ?? []), b]);
+    }
+    const onRoof = (x: number, z: number): boolean => {
+      for (let dj = -1; dj <= 1; dj++) {
+        for (let di = -1; di <= 1; di++) {
+          for (const b of roofs.get(`${Math.floor(x / 50) + di},${Math.floor(z / 50) + dj}`) ?? []) {
+            const a = (b.headingDeg * Math.PI) / 180;
+            const dx = x - b.x;
+            const dz = z - b.z;
+            // Along the length (its heading, from north) and across it.
+            const along = dx * Math.sin(a) - dz * Math.cos(a);
+            const across = dx * Math.cos(a) + dz * Math.sin(a);
+            if (Math.abs(along) < b.length / 2 + 1.5 && Math.abs(across) < b.width / 2 + 1.5) return true;
+          }
+        }
+      }
+      return false;
+    };
+    const trees = await findTrees(frame, box, (x, z) => !onRoof(x, z));
+    // Nothing grows above the tree line, a little below where the grass stops: what stands up there is rock and ice.
+    const grassBelow = Math.min(...dzIds.map((id) => (LOOKS[id] as { grassBelow?: number }).grassBelow ?? Infinity));
+    const treeLine = grassBelow - TREE_LINE_BELOW_GRASS;
+    for (const t of trees) {
+      const y = drawn(t.x, t.z);
+      if (y > treeLine) continue;
+      found.push({
+        x: t.x,
+        y,
+        z: t.z,
+        gx: (drawn(t.x + 1, t.z) - drawn(t.x - 1, t.z)) / 2,
+        gz: (drawn(t.x, t.z + 1) - drawn(t.x, t.z - 1)) / 2,
+        height: t.height,
+        radius: t.radius,
+        conifer: t.conifer || DATA.origin.elevation + y > CONIFERS_ABOVE,
+        rgb: [0, 0, 0],
+      });
+    }
+    console.log(`trees: ${found.length} found, ${found.filter((t) => t.conifer).length} conifers (${seconds()})`);
+  }
+  // By 100 m squares, for each leaf to take its own.
+  const treeGrid = new Map<string, TreeRec[]>();
+  for (const t of found) {
+    const key = `${Math.floor(t.x / 100)},${Math.floor(t.z / 100)}`;
+    treeGrid.set(key, [...(treeGrid.get(key) ?? []), t]);
+  }
+  const treesIn = (t: Tile): TreeRec[] => {
+    const out: TreeRec[] = [];
+    for (let j = Math.floor(t.z0 / 100); j <= Math.floor((t.z0 + t.size) / 100); j++) {
+      for (let i = Math.floor(t.x0 / 100); i <= Math.floor((t.x0 + t.size) / 100); i++) {
+        for (const tree of treeGrid.get(`${i},${j}`) ?? []) {
+          if (tree.x >= t.x0 && tree.x < t.x0 + t.size && tree.z >= t.z0 && tree.z < t.z0 + t.size) out.push(tree);
+        }
+      }
+    }
+    return out;
+  };
+  /** Its colour from the square's own photo, about its crown; a roof or a rock, bright and not green, is no tree. */
+  const colour = (t: Tile, rgb: Uint8Array, trees: TreeRec[]): TreeRec[] =>
+    trees.flatMap((tree) => {
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      const step = t.size / (TEX - 1);
+      const reach = Math.max(1, Math.min(4, tree.radius * 0.5 / step));
+      for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const i = Math.min(TEX - 1, Math.max(0, Math.round((tree.x - t.x0) / step + dx * reach)));
+        const j = Math.min(TEX - 1, Math.max(0, Math.round((tree.z - t.z0) / step + dz * reach)));
+        const o = (j * TEX + i) * 3;
+        r += rgb[o]!;
+        g += rgb[o + 1]!;
+        b += rgb[o + 2]!;
+      }
+      r /= 5;
+      g /= 5;
+      b /= 5;
+      const light = (0.3 * r + 0.5 * g + 0.2 * b) / 255;
+      const green = (2 * g - r - b) / 255;
+      // Snow, ice, bare rock, a roof: bright, and not green.
+      if (light > 0.55 || (light > 0.3 && green < 0.02)) return [];
+      return [{ ...tree, rgb: [Math.round(r), Math.round(g), Math.round(b)] as [number, number, number] }];
+    });
+  /**
+   * A coarser square's trees: of its children's, the tallest in each of its
+   * cells, its crown as wide as theirs put together, so that the forest seen
+   * from further off keeps its cover with fewer trees.
+   */
+  const thin = (t: Tile, trees: TreeRec[]): TreeRec[] => {
+    const cell = t.size / TREE_CELLS;
+    const cells = new Map<number, { best: TreeRec; area: number }>();
+    for (const tree of trees) {
+      const key = Math.floor((tree.z - t.z0) / cell) * TREE_CELLS + Math.floor((tree.x - t.x0) / cell);
+      const c = cells.get(key);
+      const area = tree.radius * tree.radius;
+      if (!c) cells.set(key, { best: tree, area });
+      else {
+        c.area += area;
+        if (tree.height > c.best.height) c.best = tree;
+      }
+    }
+    return [...cells.values()].map(({ best, area }) => ({ ...best, radius: Math.min(cell * 0.7, Math.max(best.radius, Math.sqrt(area))) }));
+  };
+
   // --- Pictures and files -------------------------------------------------------------------------
   if (!tilesetOnly) {
     rmSync(out, { recursive: true, force: true });
@@ -308,14 +449,27 @@ export async function main(args: string[]): Promise<void> {
     }
     return rgb;
   };
-  const process = async (t: Tile): Promise<Uint8Array> => {
+  let treesWritten = 0;
+  const process = async (t: Tile): Promise<{ rgb: Uint8Array; trees: TreeRec[] }> => {
     let rgb: Uint8Array;
+    let trees: TreeRec[];
     if (t.children) {
       const kids: Uint8Array[] = [];
-      for (const c of t.children) kids.push(await process(c));
+      const under: TreeRec[] = [];
+      for (const c of t.children) {
+        const done = await process(c);
+        kids.push(done.rgb);
+        under.push(...done.trees);
+      }
       rgb = shrink(kids);
-    } else rgb = await leafPicture(t);
+      trees = t.size <= TREES_UP_TO ? colour(t, rgb, thin(t, under)) : [];
+    } else {
+      rgb = await leafPicture(t);
+      trees = t.size <= TREES_UP_TO ? colour(t, rgb, treesIn(t)) : [];
+    }
+    treesWritten += trees.length;
     const job = geometry(t, grids.get(t)!);
+    const forest = treeArrays(trees, job.translation);
     const rgba = new Uint8Array(TEX * TEX * 4);
     for (let p = 0, q = 0; p < rgb.length; p += 3, q += 4) {
       rgba[q] = rgb[p]!;
@@ -325,12 +479,13 @@ export async function main(args: string[]): Promise<void> {
     }
     grids.delete(t);
     void pool
-      .run({ ...job, file: path.join(out, t.file), texture: { data: rgba, size: TEX }, quality }, [
+      .run({ ...job, file: path.join(out, t.file), texture: { data: rgba, size: TEX }, quality, trees: forest }, [
         rgba.buffer,
         job.positions.buffer,
         job.normals.buffer,
         job.uvs.buffer,
         job.indices.buffer,
+        ...(forest ? [forest.positions.buffer, forest.shapes.buffer, forest.slopes.buffer, forest.colors.buffer] : []),
       ])
       .catch((e: Error) => {
         console.error(`${t.file}: ${e.message}`);
@@ -346,10 +501,11 @@ export async function main(args: string[]): Promise<void> {
         }
       });
     await pool.ready();
-    return rgb;
+    return { rgb, trees };
   };
   if (!tilesetOnly) await process(root);
   await pool.close();
+  if (found.length) console.log(`trees: ${treesWritten} written over every level`);
 
   // --- The tileset ------------------------------------------------------------------------------------
   const describe = (t: Tile): object => {
@@ -476,6 +632,26 @@ function geometry(t: Tile, h: Float64Array) {
     o += 12;
   }
   return { positions, normals, uvs, indices, translation: [cx, cy, cz] };
+}
+
+/**
+ * A square's trees as the worker writes them, about its centre: places
+ * (x, ground y, z), shapes (height, crown radius, conifer 1 or 0), the
+ * ground's slope under them (east, south), colours (RGBA bytes). None if it has none.
+ */
+function treeArrays(trees: TreeRec[], centre: number[]) {
+  if (!trees.length) return null;
+  const positions = new Float32Array(trees.length * 3);
+  const shapes = new Float32Array(trees.length * 3);
+  const slopes = new Float32Array(trees.length * 2);
+  const colors = new Uint8Array(trees.length * 4);
+  trees.forEach((t, k) => {
+    positions.set([t.x - centre[0]!, t.y - centre[1]!, t.z - centre[2]!], k * 3);
+    shapes.set([t.height, t.radius, t.conifer ? 1 : 0], k * 3);
+    slopes.set([t.gx, t.gz], k * 2);
+    colors.set([...t.rgb, 255], k * 4);
+  });
+  return { positions, shapes, slopes, colors };
 }
 
 /** A parent's picture from its four children's (north-west, north-east, south-west, south-east), a [1 2 1] filter across. */
