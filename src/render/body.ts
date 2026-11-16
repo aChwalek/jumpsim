@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { limbMesh, roundLimbEnds, shoeGeometry } from './characterParts';
 import { rigPack } from './rigPack';
 import { CharacterHead, ClothStyle } from './characterStyle';
-import type { RigParams } from '../sim/rig';
+import { HIP_BACK, HIP_DROP, THIGH, type RigParams } from '../sim/rig';
 import { GEAR_LAYER, OUTSIDE_LAYER } from './scene';
 import { JOINTS, type Joint } from '../sim/ragdoll';
 import { canisterColor, type SmokeKind } from './smoke';
@@ -21,11 +21,8 @@ import { DEFAULT_GLOW, DEFAULT_SUIT, GLOW_COLORS, OUTFIT_COLORS, type Outfit } f
 
 const UPPER_ARM = 0.3;
 const FOREARM = 0.28;
-const THIGH = 0.43;
-/** Hip joints below the pilot's centre of mass, apart, and back, m. */
-const HIP_DROP = 0.1;
+/** Hip joints apart, m; how far down and back they are comes from the rig. */
 const HIP_APART = 0.1;
-const HIP_BACK = 0.08;
 /**
  * The model's eyes are only 10 cm above the riser attachments. A real torso
  * starts some 20 cm under the eyes and its chest is just behind them, so it

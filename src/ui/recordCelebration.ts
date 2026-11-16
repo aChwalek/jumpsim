@@ -8,6 +8,7 @@ const label = (kind: RecordKind): string => {
     longestFlightSeconds: t.longestFlight, longestFlightDistance: t.longestDistance, longestFreefallSeconds: t.longestFreefall,
     fastestVerticalSpeed: t.fastestVertical, fastestHorizontalSpeed: t.fastestHorizontal,
     longestSwoopDistance: t.longestSwoop, longestSwoopSeconds: t.longestSwoopTime, fastestSwoopSpeed: t.fastestSwoop,
+    longestSlide: t.longestSlide,
     bestStreak: t.bestStreak })[kind];
 };
 

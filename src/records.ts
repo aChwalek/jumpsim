@@ -4,7 +4,7 @@ export const RECORD_RULES = {
   lowestPull: 'min', bestDistance: 'min', bestScore: 'max',
   longestFlightSeconds: 'max', longestFlightDistance: 'max', longestFreefallSeconds: 'max',
   fastestVerticalSpeed: 'max', fastestHorizontalSpeed: 'max',
-  longestSwoopDistance: 'max', longestSwoopSeconds: 'max', fastestSwoopSpeed: 'max', bestStreak: 'max',
+  longestSwoopDistance: 'max', longestSwoopSeconds: 'max', fastestSwoopSpeed: 'max', longestSlide: 'max', bestStreak: 'max',
 } as const;
 export type RecordKind = keyof typeof RECORD_RULES;
 export interface PersonalRecord {

@@ -161,3 +161,15 @@ test('swoop records count small survived passes and respect discipline filters',
   expect(logStats(entries)).toMatchObject({ longestSwoopDistance: 10, longestSwoopSeconds: 3, fastestSwoopSpeed: 20 });
   expect(logStats(filterLogbook(entries, 'normal'))).toMatchObject({ longestSwoopDistance: 0.5, longestSwoopSeconds: 0.1, fastestSwoopSpeed: 6 });
 });
+
+test('the slide on the feet is a record of its own, only when it ended standing', () => {
+  const entries = [
+    entry(1, { outcome: 'run', slid: 6, swoop: { distance: 40, seconds: 3, entrySpeed: 20, topSpeed: 25 } }),
+    entry(2, { outcome: 'slide', slid: 12 }),
+    entry(3, { outcome: 'hard', slid: 15 }),
+    entry(4, { outcome: 'standUp' }),
+  ];
+  // The swoop still ends at the first touch.
+  expect(logStats(entries)).toMatchObject({ longestSlide: 6, longestSwoopDistance: 40 });
+  expect(logStats([entry(1, { outcome: 'slide', slid: 9 })]).longestSlide).toBeNull();
+});

@@ -12,6 +12,7 @@ import { isSideways } from '../viewport';
 import { Altimeter } from './altimeter';
 import { RecordCelebration } from './recordCelebration';
 import type { PersonalRecord } from '../records';
+import type { LogEntry } from '../logbook';
 import { keysHtml, type InputKind, type KeysPhase, type PadKind } from './keys';
 
 const el = (id: string): HTMLElement => {
@@ -104,10 +105,23 @@ const MALFUNCTION_ROWS: Record<Malfunction, () => [string, string]> = {
   offHeading: () => [T.hud.offHeading, T.hud.offHeadingRow],
 };
 
+const row = (value: string, label: string): string => `<tr><td>${value}</td><td>${label}</td></tr>`;
+const kmh = (ms: number): string => `${num(ms * 3.6)} km/h`;
+/** Under a minute in seconds, then in minutes and seconds. */
+function duration(s: number): string {
+  const rounded = Math.round(s);
+  return rounded < 60 ? `${num(rounded)} s` : T.menu.logbookScreen.minutes(Math.floor(rounded / 60), String(rounded % 60).padStart(2, '0'));
+}
+
 /** What the jump itself was, for the card at the end. */
 function jumpRows(log: JumpLog): string {
+  return [`<tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>${T.hud.freefall((log.topSpeed * 3.6).toFixed(0))}</td></tr>`, ...openingRows(log)].join('');
+}
+
+/** The pull and what came of it: the canopy flying, or not, and what was done about it. */
+function openingRows(log: JumpLog): string[] {
   const t = T.hud;
-  const rows: string[] = [`<tr><td>${log.freefallSeconds.toFixed(0)} s</td><td>${t.freefall((log.topSpeed * 3.6).toFixed(0))}</td></tr>`];
+  const rows: string[] = [];
   if (log.pullHeight !== null) {
     const what = log.cutawayHeight === null ? t.pulled(metres(log.openHeight)) : t.pulledOnly;
     rows.push(`<tr><td>${metres(log.pullHeight)} m</td><td>${what}</td></tr>`);
@@ -119,7 +133,50 @@ function jumpRows(log: JumpLog): string {
     rows.push(`<tr><td>${metres(log.reserveHeight)} m</td><td>${t.reserveRow(log.reserveBy, metres(log.openHeight))}</td></tr>`);
   }
   rows.push(`<tr><td>${num(log.openingLoad, 1)} g</td><td>${t.openingLoad}</td></tr>`);
-  return rows.join('');
+  return rows;
+}
+
+/**
+ * Everything measured on the jump, part by part as it was flown: the
+ * freefall, the canopy, the swoop, the landing. `log`: the jump from the
+ * plane or the object; `entry`: the jump as the logbook keeps it.
+ */
+function statsGrid(t: Touchdown, distanceToTarget: number, log: JumpLog | null, entry: LogEntry | null): string {
+  const s = T.hud.stats;
+  const groups: [string, string[]][] = [];
+  if (log) {
+    groups.push([s.freefall, [
+      row(`${metres(log.exitHeight)} m`, s.exit),
+      row(`${num(log.freefallSeconds)} s`, s.freefallTime),
+      row(kmh(log.topSpeed), s.topVertical),
+      row(kmh(log.topHorizontalSpeed), s.topHorizontal),
+      ...openingRows(log),
+    ]]);
+  }
+  if (entry) {
+    const canopy = [row(duration(entry.canopySeconds), s.underCanopy)];
+    // From the plane, the whole jump is more than the canopy ride.
+    if (entry.flight && log) canopy.push(row(duration(entry.flight.seconds), s.jumpTime));
+    if (entry.flight) canopy.push(row(`${metres(entry.flight.horizontalDistance)} m`, s.travelled));
+    groups.push([s.canopy, canopy]);
+    const swoop = entry.swoop;
+    if (swoop) {
+      groups.push([s.swoop, [
+        row(swoop.distance < 1 ? `${num(swoop.distance * 100)} cm` : `${num(swoop.distance, 1)} m`, s.swoopDistance),
+        row(`${num(swoop.seconds, 1)} s`, s.swoopTime),
+        row(kmh(swoop.entrySpeed), s.swoopEntry),
+        row(kmh(swoop.topSpeed), s.swoopTop),
+      ]]);
+    }
+  }
+  const landing = [
+    row(`${num(t.sink, 1)} m/s`, T.hud.sink),
+    row(kmh(t.groundSpeed), T.hud.groundSpeedRow),
+    row(`${nearMetres(distanceToTarget)} m`, T.hud.fromTarget),
+  ];
+  if (entry?.slid) landing.push(row(`${num(entry.slid, 1)} m`, T.hud.skidRow));
+  groups.push([s.landing, landing]);
+  return `<div class="stats">${groups.map(([title, rows]) => `<section><h2>${title}</h2><table>${rows.join('')}</table></section>`).join('')}</div>`;
 }
 
 /** What can be done once down: go again, change the jump, or see the end of it again. */
@@ -367,6 +424,7 @@ export class Hud {
    */
   showImpact(log: JumpLog, opening: boolean, speed: number, malfunction: Malfunction | null = null): void {
     this.celebration.clear();
+    this.result.classList.remove('withStats');
     const t = T.hud;
     const [title, text] =
       opening && malfunction === 'streamer'
@@ -396,6 +454,7 @@ export class Hud {
    */
   showStrike(when: 'freefall' | 'opening' | 'canopy', speed: number, log: JumpLog | null): void {
     this.celebration.clear();
+    this.result.classList.remove('withStats');
     const t = T.hud;
     const text = { freefall: t.strikeFreefall, opening: t.strikeOpening, canopy: t.strikeCanopy }[when];
     this.cardFocus = null;
@@ -423,8 +482,11 @@ export class Hud {
     vines = false,
     scored: { score: AccuracyScore; record: number | null } | null = null,
     records: readonly PersonalRecord[] = [],
+    /** The jump as the logbook kept it: the canopy, the swoop, the slide. */
+    entry: LogEntry | null = null,
   ): void {
     this.celebration.clear();
+    this.result.classList.remove('withStats');
     if (!t) {
       this.result.style.display = 'none';
       return;
@@ -434,13 +496,9 @@ export class Hud {
       <h1>${T.hud.titles[t.rating]}</h1>
       <p>${T.hud.comments[t.rating]}${wet ? T.hud.wet : ''}${vines ? T.hud.vines : ''}</p>
       ${scored ? scoreBlock(scored, this.board) : ''}
-      <table>
-        <tr><td>${num(t.sink, 1)} m/s</td><td>${T.hud.sink}</td></tr>
-        <tr><td>${(t.groundSpeed * 3.6).toFixed(0)} km/h</td><td>${T.hud.groundSpeedRow}</td></tr>
-        <tr><td>${nearMetres(distanceToTarget)} m</td><td>${T.hud.fromTarget}</td></tr>
-        ${log ? jumpRows(log) : ''}
-      </table>
+      ${statsGrid(t, distanceToTarget, log, entry)}
       ${hint()}`;
+    this.result.classList.add('withStats');
     this.result.style.display = 'block';
     this.celebration.start(this.result, records, (kind) => this.onRecordSound(kind));
   }

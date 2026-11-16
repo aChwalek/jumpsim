@@ -47,6 +47,12 @@ test('crashes and impacts never celebrate records, and automatic pulls do not co
   expect(brokenRecords([], entry({ freefall: { ...freefall, aad: true } })).some((r) => r.kind === 'lowestPull')).toBe(false);
 });
 
+test('a slide on the feet ending standing is celebrated, one ending on the backside is not', () => {
+  const previous = [entry({ outcome: 'run', slid: 5 })];
+  expect(brokenRecords(previous, entry({ outcome: 'run', slid: 8 })).find((r) => r.kind === 'longestSlide')).toMatchObject({ value: 8, previous: 5, global: true });
+  expect(brokenRecords(previous, entry({ outcome: 'slide', slid: 20 })).some((r) => r.kind === 'longestSlide')).toBe(false);
+});
+
 test('different global and discipline streak lengths get their correct separate values', () => {
   const previous = [entry({ discipline: 'wingbase' }), entry(), entry()];
   const records = brokenRecords(previous, entry({ discipline: 'wingbase' })).filter((r) => r.kind === 'bestStreak');

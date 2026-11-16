@@ -58,14 +58,15 @@ import { FlightModel, neutralControls, type Environment } from './sim/flightMode
 import { noBodyInputs, stepPosition, type BodyInputs, type BodyPosition } from './sim/freefall';
 import { Jump, type JumpOptions } from './sim/jump';
 import { MAIN_MALFUNCTIONS } from './sim/opening';
-import { detectTouchdown, feetHeight, worst, type Touchdown } from './sim/landing';
+import { SLIDE_FROM, detectTouchdown, feetHeight, rateLanding, worst, type Touchdown } from './sim/landing';
+import { Skim, slidesOn, type LegAngles, type SkimEnd } from './sim/skim';
 import { SwoopTracker } from './sim/swoop';
 import { engineHubs } from './sim/plane';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import type { RunUp } from './sim/runUp';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry, warmTrims } from './sim/telemetry';
 import { blowAt, contact, newContact, rebound, tumbleAxis } from './sim/midair';
-import { DEG, quat, rotateInv, vec3 } from './sim/vec';
+import { DEG, quat, rotate, rotateInv, vec3 } from './sim/vec';
 import { gustPeakKmh, windAt } from './sim/weather';
 import { Hud } from './ui/hud';
 import { padIcon, type KeysPhase, type PadControl } from './ui/keys';
@@ -145,6 +146,24 @@ let pointMarker: Markers | null = null;
 const pointMarks: MarkerTarget[] = [];
 const legSwing = new LegSwing();
 const legCues: LegCues = { prep: 0, fore: 0, side: 0 };
+/** Sliding on the feet: the legs out ahead, the knees bent by the weight; and how far into that pose. */
+const skimLegs: LegAngles = { hip: 0, knee: 0 };
+let skimPose = 0;
+/** Seconds the legs take to go out to the slide, or back to hanging. */
+const PLANT_TIME = 0.15;
+/** Over the hanging pose, the legs planted on the ground while the feet slide. */
+function plantFeet(p: Pose, dt: number): void {
+  if (skim) skim.legs(skimLegs);
+  // On the ground for good, the legs are the arrival's.
+  skimPose = arrival ? 0 : Math.max(0, Math.min(1, skimPose + (skim ? dt : -dt) / PLANT_TIME));
+  if (skimPose === 0) return;
+  const k = skimPose * skimPose * (3 - 2 * skimPose);
+  p.hipL += (skimLegs.hip - p.hipL) * k;
+  p.hipR += (skimLegs.hip - p.hipR) * k;
+  p.kneeL += (skimLegs.knee - p.kneeL) * k;
+  p.kneeR += (skimLegs.knee - p.kneeR) * k;
+  p.spread += (0.04 - p.spread) * k;
+}
 /** A short message over the HUD's cue, until a time (performance.now ms). */
 let flash: { text: string; until: number } | null = null;
 const planeView = new PlaneView();
@@ -685,7 +704,14 @@ const watchWind = new THREE.Vector3();
 const watchEnv: Environment = { wind: vec3(), airDensity: AIR_DENSITY_SEA_LEVEL };
 
 /** Writes the jump that just ended in the logbook. */
-function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distance?: number, wet?: boolean, accuracy?: number): PersonalRecord[] {
+function logThisJump(
+  outcome: Outcome,
+  sink: number,
+  groundSpeed: number,
+  distance?: number,
+  wet?: boolean,
+  accuracy?: number,
+): { logged: LogEntry; records: PersonalRecord[] } {
   const { gear, weather } = setup;
   const log = jump?.log;
   const previous = loadLogbook();
@@ -717,6 +743,8 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
     canopySeconds: canopyTime,
     flight: { seconds: flightTime, horizontalDistance: flightDistance },
     swoop: swoop.result ? { ...swoop.result } : undefined,
+    // Measured apart from the swoop, which ends at the first touch as in competition.
+    slid: skidded >= 0.5 ? Math.round(skidded * 100) / 100 : undefined,
     outcome,
     sink,
     groundSpeed,
@@ -725,7 +753,7 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
     accuracy,
   });
   trackRecorder.logged(logged.n, logged.time);
-  return brokenRecords(previous, logged);
+  return { logged, records: brokenRecords(previous, logged) };
 }
 
 /** Each landing sent to the leaderboard gets the next number: the answer for an older one is not shown. */
@@ -861,6 +889,9 @@ function spawn(kind: Start): void {
   Object.assign(applied, ramped);
   Object.assign(hands, ramped);
   touchdown = null;
+  endSkim();
+  firstTouch = null;
+  skidded = 0;
   arrival = null;
   verdict = null;
   stepsHeard = 0;
@@ -1053,7 +1084,7 @@ const actions: Record<Action, () => void> = {
     menu.refresh();
   },
   cutaway: () => {
-    if (!paused && !blow.cold && jump && !touchdown && !arrival) jump.cutaway();
+    if (!paused && !blow.cold && jump && !touchdown && !skim && !arrival) jump.cutaway();
   },
   slider: () => {
     if (paused) return;
@@ -1299,48 +1330,138 @@ function simulate(seconds: number): void {
     model.pilotPoint(swoopFeetBefore, model.rig.feetPos);
     const beforeHeight = swoopFeetBefore.y - solid(swoopFeetBefore.x, swoopFeetBefore.z, swoopFeetBefore.y);
     const beforeSpeed = Math.hypot(s.vel.x, s.vel.z);
+    // Sliding on the feet, the ground holds up what the canopy does not.
+    skim?.pushOn();
     model.step(dt, applied, env);
     model.pilotPoint(swoopFeetAfter, model.rig.feetPos);
     const height = swoopFeetAfter.y - solid(swoopFeetAfter.x, swoopFeetAfter.z, swoopFeetAfter.y);
     swoop.step(dt, Math.hypot(swoopFeetAfter.x - swoopFeetBefore.x, swoopFeetAfter.z - swoopFeetBefore.z), beforeHeight, height, beforeSpeed, Math.hypot(s.vel.x, s.vel.z));
     canopyTime += dt;
     recordFlightStep(dt, beforeStep.x, beforeStep.z);
+    // Bounced off a slope and flying on: the landing will be somewhere else.
+    if (!skim && firstTouch && height > 3) firstTouch = null;
+    if (skim) {
+      if (hitSide(skim.contact)) {
+        endSkim();
+        return;
+      }
+      const end = skim.after(dt);
+      skidSound(dt);
+      const feet = model.pilotPoint(vec3(), skim.contact);
+      const wet = isWet(dz, feet.x, feet.z);
+      const vines = !!dz.onVines?.(feet.x, feet.z);
+      if (end === 'up') {
+        // Off the ground again, flying: the next touch is a touchdown of its own.
+        endSkim();
+        continue;
+      }
+      if (end || ((wet || vines) && skim.push > 0)) {
+        settle(skimmed(skim, end ?? 'fall', firstTouch!), wet, vines, left);
+        return;
+      }
+      continue;
+    }
     touchdown = detectTouchdown(model, solid);
     if (touchdown && hitSide()) {
       touchdown = null;
       return;
     }
     if (touchdown) {
-      const landed = touchdown;
       const feet = model.pilotPoint(vec3(), rig.feetPos);
       const wet = isWet(dz, feet.x, feet.z);
       // A row of vines is posts and wires: nobody stands that up.
       const vines = !!dz.onVines?.(feet.x, feet.z);
-      if (vines) landed.rating = worst(landed.rating, 'hard');
-      const distance = Math.hypot(feet.x - dz.target.x, feet.z - dz.target.z);
-      // The accuracy challenge, and the best done here before this one.
-      const scored: { score: AccuracyScore; record: number | null } | null = setup.jump.challenges
-        ? { score: scoreAccuracy(distance, landed.rating, wet, vines), record: bestScore(loadLogbook(), setup.dz) }
-        : null;
-      const log = jump?.log ?? null;
-      // On the ground the canopy is blown by the wind at its own height.
-      windAt(env.wind, setup.weather, canopyAboveFeet(), airTime);
-      arrival = new Arrival(model, landed, { groundAt: solid, wet, wind: vec3(env.wind.x, env.wind.y, env.wind.z) });
-      heldSinceLanding.forward = heldSinceLanding.turn = heldSinceLanding.slide = true;
-      const records = logThisJump(landed.rating, landed.sink, landed.groundSpeed, distance, wet, scored?.score.points);
-      verdict = () => {
-        hud.showResult(landed, distance, wet, log, vines, scored, records);
-        // The mouse, for the card's buttons.
-        devices.release();
-      };
-      recorder.crash();
-      postScore(scored?.score ?? null);
-      land({ sink: landed.sink, groundSpeed: landed.groundSpeed, wet });
-      // What is left of the frame is spent on the ground.
-      arrival.update(left);
-      if (landed.rating === 'hard' || landed.rating === 'crash') startRagdoll(true);
+      // Where the feet first touch is where the landing scores, slide or not.
+      firstTouch ??= { x: feet.x, z: feet.z, sink: touchdown.sink, groundSpeed: touchdown.groundSpeed };
+      if (!wet && !vines && slidesOn(touchdown)) {
+        // Too fast to run, gently down and level: the feet slide on the grass.
+        skim = new Skim(model, solid);
+        touchdown = null;
+        sound.step(firstTouch.groundSpeed);
+        continue;
+      }
+      settle(touchdown, wet, vines, left);
     }
   }
+}
+
+/** The feet have touched for the first time on this landing: where, and how fast. */
+interface FirstTouch {
+  x: number;
+  z: number;
+  sink: number;
+  groundSpeed: number;
+}
+let firstTouch: FirstTouch | null = null;
+/** Sliding on the feet after a fast touchdown, the canopy still flying: null otherwise. */
+let skim: Skim | null = null;
+/** Metres slid on the feet before this landing ended, for the card. */
+let skidded = 0;
+let skidHeard = 0;
+
+/** What a slide on the feet comes to: the landing it ends in. */
+function skimmed(k: Skim, end: SkimEnd, first: FirstTouch): Touchdown {
+  const s = model.state;
+  const right = rotate(vec3(), s.pilotAtt, vec3(1, 0, 0));
+  const bankDeg = Math.asin(Math.max(-1, Math.min(1, -right.y))) / DEG;
+  // Slow enough, it is run off; gone down, sat down and slid off, or thrown
+  // over when still very fast. The blow of the touchdown is already taken.
+  const rating =
+    end === 'run'
+      ? rateLanding(first.sink, k.speed, bankDeg)
+      : worst(rateLanding(first.sink, Math.max(k.speed, SLIDE_FROM), bankDeg), 'slide');
+  return { sink: 0, groundSpeed: k.speed, bankDeg, rating };
+}
+
+/** The slide on the feet is over, one way or another: the ground lets go. */
+function endSkim(): void {
+  if (skim) skidded += skim.distance;
+  skim = null;
+  model.footForce.x = model.footForce.y = model.footForce.z = 0;
+}
+
+/** The shoes on the grass, louder with more weight on them. */
+function skidSound(dt: number): void {
+  if (!skim || skim.push <= 0) return;
+  skidHeard += dt;
+  if (skidHeard < 0.09) return;
+  skidHeard = 0;
+  sound.skid(skim.speed, Math.min(1, skim.push));
+}
+
+/** The landing is over in the air: what the feet do now is the ground's, from `left` seconds before the frame's end. */
+function settle(ended: Touchdown, wet: boolean, vines: boolean, left: number): void {
+  endSkim();
+  if (vines) ended.rating = worst(ended.rating, 'hard');
+  const s = model.state;
+  const first = firstTouch ?? { x: s.pos.x, z: s.pos.z, sink: ended.sink, groundSpeed: ended.groundSpeed };
+  // On the card and in the logbook: the touchdown as it came, the verdict as it ended.
+  const landed: Touchdown = { ...ended, sink: first.sink, groundSpeed: first.groundSpeed };
+  touchdown = landed;
+  const distance = Math.hypot(first.x - dz.target.x, first.z - dz.target.z);
+  // The accuracy challenge, and the best done here before this one.
+  const scored: { score: AccuracyScore; record: number | null } | null = setup.jump.challenges
+    ? { score: scoreAccuracy(distance, landed.rating, wet, vines), record: bestScore(loadLogbook(), setup.dz) }
+    : null;
+  const log = jump?.log ?? null;
+  // On the ground the canopy is blown by the wind at its own height.
+  windAt(env.wind, setup.weather, canopyAboveFeet(), airTime);
+  // Off a slide on the feet, the legs go on from where they were planted.
+  const legsFrom = skimPose > 0 ? skimLegs.hip : undefined;
+  arrival = new Arrival(model, ended, { groundAt: solid, wet, wind: vec3(env.wind.x, env.wind.y, env.wind.z), legsFrom });
+  heldSinceLanding.forward = heldSinceLanding.turn = heldSinceLanding.slide = true;
+  const { logged, records } = logThisJump(landed.rating, landed.sink, landed.groundSpeed, distance, wet, scored?.score.points);
+  verdict = () => {
+    hud.showResult(landed, distance, wet, log, vines, scored, records, logged);
+    // The mouse, for the card's buttons.
+    devices.release();
+  };
+  recorder.crash();
+  postScore(scored?.score ?? null);
+  land({ sink: ended.sink, groundSpeed: ended.groundSpeed, wet });
+  // What is left of the frame is spent on the ground.
+  arrival.update(left);
+  if (landed.rating === 'hard' || landed.rating === 'crash') startRagdoll(true);
 }
 
 /** After a blow from someone, another from them does not count for this long, s: what is seen of them lags. */
@@ -1446,9 +1567,9 @@ const feetNow = vec3();
  * Under canopy, the feet have come in through the side of what they met (a
  * tower's wall) rather than down onto it: the pilot stops against it.
  */
-function hitSide(): boolean {
+function hitSide(at = rig.feetPos): boolean {
   const s = model.state;
-  const feet = model.pilotPoint(feetNow, rig.feetPos);
+  const feet = model.pilotPoint(feetNow, at);
   const top = solid(feet.x, feet.z, feet.y);
   if (top - (feet.y - (s.pos.y - beforeStep.y)) <= 0.5) return false;
   impact = true;
@@ -2323,7 +2444,7 @@ function cue(): string {
   const fingers = devices.lastUsed === 'touch';
   const mainOut =
     jump !== null && jump.canopy === 'main' && (jump.phase === 'canopy' || (jump.phase === 'opening' && (jump.inflation !== null || jump.towing)));
-  if (devices.cutawayHeld > 0 && (mainOut || !jump) && !touchdown && !arrival && singleCanopy()) {
+  if (devices.cutawayHeld > 0 && (mainOut || !jump) && !touchdown && !skim && !arrival && singleCanopy()) {
     // One canopy and nothing under it: a BASE container has no cutaway handle.
     return `${T.cue.noCutaway}<small>${T.cue.oneCanopy}</small>`;
   }
@@ -2723,8 +2844,9 @@ function frame(now: number): void {
     rigView.setArms(onRisers);
     const run = jump?.afoot ? jumpFeet().feet : null;
     const legs: [number, number] | undefined = arrival ? [arrival.legL, arrival.legR] : run ? [run.legL, run.legR] : undefined;
-    updateLegs(moving, pose === 'hanging' && !touchdown);
+    updateLegs(moving, pose === 'hanging' && !touchdown && !skim);
     const held = posture.update(moving, pose, FREEFALL_STANCES.has(pose) && !blow.cold ? bodyControls() : still, legs, legCues);
+    plantFeet(held, moving);
     // Limp from a blow, the arms and legs go where the wind takes them.
     const limp = jump?.stunned ? Math.min(1, jump.body.stunned / 0.6) : 0;
     const shown = limp > 0 ? blendPose(copyPose(limpPose, held), LIMP, limp) : held;
@@ -3054,7 +3176,7 @@ if (benchDz !== null) void bench(benchDz);
 
 if (import.meta.env.DEV) {
   // The rig can change between jumps: these always give the current one.
-  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, fly, light, apply, resolution, settings };
+  const sim = { spawn, ramped, devices, camera, renderer, scene, sound, menu, fly, light, apply, resolution, settings, hud };
   Object.defineProperties(sim, {
     model: { get: () => model },
     rig: { get: () => rig },
@@ -3067,6 +3189,7 @@ if (import.meta.env.DEV) {
     releasedView: { get: () => releasedView },
     view: { get: () => view, set: (v: 'eyes' | 'outside') => (view = v) },
     arrival: { get: () => arrival },
+    skim: { get: () => skim },
     ragdoll: { get: () => ragdoll },
     blow: { get: () => blow },
     replay: { get: () => replay },

@@ -1,7 +1,8 @@
 // What the pilot does once the feet are on the ground: a few steps, a run, a
 // slide or a tumble, and the canopy coming down behind.
 //
-// Flight ends at touchdown. From there this drives the pilot's body by hand
+// Flight ends at touchdown, or once a fast one has slid on the feet as far as
+// it goes (see skim.ts). From there this drives the pilot's body by hand
 // (it writes the position and attitudes into the flight model's state), so
 // the camera, the rig and its shadows follow it as they follow the flight.
 
@@ -31,6 +32,8 @@ export interface ArrivalSetting {
   wet: boolean;
   /** Where the air is going, world frame, m/s: the canopy falls that way. */
   wind: Vec3;
+  /** Hip angle the legs come from, rad forward: hanging in the harness unless given. */
+  legsFrom?: number;
 }
 
 /** How hard each way of arriving brakes, m/s². */
@@ -82,6 +85,8 @@ export class Arrival {
   private lastSwing = 0;
 
   private readonly violent: boolean;
+  /** Hip angle of the legs at touchdown, rad forward. */
+  private readonly legs0: number;
   private readonly sink: number;
   /** Side the pilot goes down on: 1 right, -1 left. */
   private readonly side: number;
@@ -110,6 +115,8 @@ export class Arrival {
     const s = model.state;
     this.kind = arrivalKind(touchdown, setting.wet);
     this.violent = touchdown.rating === 'crash';
+    this.legs0 = setting.legsFrom ?? LEGS_HANGING;
+    this.legL = this.legR = this.legs0;
     this.sink = touchdown.sink;
     this.side = touchdown.bankDeg < 0 ? -1 : 1;
     this.speed = touchdown.groundSpeed;
@@ -235,8 +242,8 @@ export class Arrival {
     quatMultiply(this.target, this.target, quatFromAxisAngle(this.turn, AXIS_X, pitch));
     quatMultiply(this.target, this.target, quatFromAxisAngle(this.turn, AXIS_Z, -roll));
     quatSlerp(s.pilotAtt, this.attitude0, this.target, k);
-    this.legL = LEGS_HANGING + (legL - LEGS_HANGING) * k;
-    this.legR = LEGS_HANGING + (legR - LEGS_HANGING) * k;
+    this.legL = this.legs0 + (legL - this.legs0) * k;
+    this.legR = this.legs0 + (legR - this.legs0) * k;
 
     this.dropCanopy();
   }

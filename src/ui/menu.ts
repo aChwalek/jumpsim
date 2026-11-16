@@ -2239,6 +2239,7 @@ export class Menu {
       tile(stats.longestSwoopDistance === null ? '—' : swoopDistance(stats.longestSwoopDistance), t.longestSwoop),
       tile(stats.longestSwoopSeconds === null ? '—' : `${num(stats.longestSwoopSeconds, 2)} s`, t.longestSwoopTime),
       tile(stats.fastestSwoopSpeed === null ? '—' : `${num(stats.fastestSwoopSpeed * 3.6)} km/h`, t.fastestSwoop),
+      tile(stats.longestSlide === null ? '—' : `${num(stats.longestSlide, 1)} m`, t.longestSlide, t.standing),
     ].join('');
     body.append(records);
 
@@ -2310,7 +2311,8 @@ export class Menu {
     const canopy = `${e.canopy.areaFt2} ft²${e.canopy.kind === 'triCell' ? ` ${kindName('triCell')}` : ''} · ${e.canopy.exitWeightKg} kg`;
     const ff = e.freefall ? (e.freefall.aad ? t.aad : e.freefall.pullHeight !== null ? t.pulledAt(num(e.freefall.pullHeight)) : '') : '';
     const bad = e.outcome === 'hard' || e.outcome === 'crash' || e.outcome === 'impact';
-    const swoop = e.swoop ? `<small>${t.swoopResult(swoopDistance(e.swoop.distance), num(e.swoop.seconds, 2), num(e.swoop.entrySpeed * 3.6), num(e.swoop.topSpeed * 3.6))}</small>` : '';
+    const slid = e.slid ? t.slidResult(num(e.slid, 1)) : '';
+    const swoop = e.swoop || slid ? `<small>${e.swoop ? t.swoopResult(swoopDistance(e.swoop.distance), num(e.swoop.seconds, 2), num(e.swoop.entrySpeed * 3.6), num(e.swoop.topSpeed * 3.6)) : ''}${e.swoop && slid ? ' · ' : ''}${slid}</small>` : '';
     const result =
       e.outcome === 'impact'
         ? `${num(e.sink * 3.6)} km/h`
