@@ -100,7 +100,7 @@ export const en: Strings = {
       firm: 'A bit firm, but you stayed on your feet.',
       heavy: 'Heavy one: that jarred the legs, but you stayed on your feet.',
       run: 'A few running steps, nothing serious.',
-      slide: 'Too much ground speed to run it out: it ends in a slide.',
+      slide: 'Too fast to run, too much weight on the legs to slide on your feet: you end up on your backside.',
       hard: 'That hurt. Flared too high, too low, or still turning?',
       crash: 'Likely injured.',
     },
@@ -109,6 +109,7 @@ export const en: Strings = {
     sink: 'vertical speed',
     groundSpeedRow: 'ground speed',
     fromTarget: 'from the target',
+    skidRow: 'slid on the feet',
     score: {
       title: 'ACCURACY CHALLENGE',
       points: 'pts',

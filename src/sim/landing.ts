@@ -7,8 +7,9 @@ import { vec3 } from './vec';
 
 /**
  * From best to worst. Each says what happens. Ground speed decides what the
- * legs do: stood up, `run` off, or above what anyone runs, sat down and slid
- * off as swoopers do. Sink decides how it feels on the feet: `firm`, then
+ * legs do: stood up, `run` off, or above what anyone runs, slid on the feet
+ * while the canopy holds the pilot up (skim.ts), and sat down and slid off
+ * when it does not. Sink decides how it feels on the feet: `firm`, then
  * `heavy`, but still standing.
  */
 export type LandingRating = 'standUp' | 'firm' | 'heavy' | 'run' | 'slide' | 'hard' | 'crash';
@@ -18,7 +19,7 @@ const ORDER: LandingRating[] = ['standUp', 'firm', 'heavy', 'run', 'slide', 'har
 /** Ground speed above which a landing is run off rather than stood up, m/s. */
 const RUN_FROM = 2;
 /** Ground speed nobody runs off: 15 km/h, by a skydiver's judgement. */
-const SLIDE_FROM = 15 / 3.6;
+export const SLIDE_FROM = 15 / 3.6;
 
 export interface Touchdown {
   /** Downward speed of the feet at contact, m/s. */

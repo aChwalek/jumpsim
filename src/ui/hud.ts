@@ -423,6 +423,8 @@ export class Hud {
     vines = false,
     scored: { score: AccuracyScore; record: number | null } | null = null,
     records: readonly PersonalRecord[] = [],
+    /** Metres slid on the feet before the landing ended. */
+    skidded = 0,
   ): void {
     this.celebration.clear();
     if (!t) {
@@ -438,6 +440,7 @@ export class Hud {
         <tr><td>${num(t.sink, 1)} m/s</td><td>${T.hud.sink}</td></tr>
         <tr><td>${(t.groundSpeed * 3.6).toFixed(0)} km/h</td><td>${T.hud.groundSpeedRow}</td></tr>
         <tr><td>${nearMetres(distanceToTarget)} m</td><td>${T.hud.fromTarget}</td></tr>
+        ${skidded >= 0.5 ? `<tr><td>${Math.round(skidded)} m</td><td>${T.hud.skidRow}</td></tr>` : ''}
         ${log ? jumpRows(log) : ''}
       </table>
       ${hint()}`;

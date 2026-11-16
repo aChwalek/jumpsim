@@ -309,6 +309,10 @@ const RISER_ABOVE_PILOT_CG = 0.45;
 const RISER_LENGTH = 0.5;
 const EYES_ABOVE_PILOT_CG = 0.55;
 const FEET_BELOW_PILOT_CG = 0.95;
+/** The legs as drawn: hip joints below the pilot's centre of mass and back from it, and the thigh, m. */
+export const HIP_DROP = 0.1;
+export const HIP_BACK = 0.08;
+export const THIGH = 0.43;
 /** Distance between the two riser attachments on the harness, m. */
 const SHOULDER_WIDTH = 0.4;
 /** Distance between the tops of the front and rear risers of one side, m. */

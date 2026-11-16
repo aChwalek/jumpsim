@@ -101,7 +101,7 @@ export const fr = {
       firm: 'Un peu sec à l\'arrivée, mais ça tient debout.',
       heavy: 'Arrivée sèche : ça tasse les jambes, mais ça tient debout.',
       run: 'Quelques pas de course, rien de grave.',
-      slide: 'Trop de vitesse sol pour courir : ça finit en glissade.',
+      slide: 'Trop vite pour courir, trop de poids sur les jambes pour glisser debout : ça finit sur les fesses.',
       hard: 'Ça fait mal. Arrondi trop haut, trop bas, ou en virage ?',
       crash: 'Blessure probable.',
     },
@@ -110,6 +110,7 @@ export const fr = {
     sink: 'vitesse verticale',
     groundSpeedRow: 'vitesse sol',
     fromTarget: 'de la cible',
+    skidRow: 'glissé sur les pieds',
     score: {
       title: 'DÉFI PRÉCISION',
       points: 'pts',

@@ -389,6 +389,12 @@ export function playLanding(ctx: BaseAudioContext, noise: AudioBuffer, out: Audi
   }
 }
 
+/** Soles rubbing over grass: a hiss that rises with the speed and fills out with the weight. */
+export function playSkid(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioNode, groundSpeed: number, weight: number): void {
+  const fast = clamp01(groundSpeed / 12);
+  burst(ctx, noise, out, { type: 'bandpass', from: 1100 + 900 * fast, to: 900 + 600 * fast, level: (0.08 + 0.3 * weight) * (0.4 + 0.6 * fast), seconds: 0.14 });
+}
+
 /** One foot coming down on the grass, harder at a run. */
 export function playStep(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioNode, groundSpeed: number): void {
   const run = clamp01(groundSpeed / 6);
@@ -735,5 +741,13 @@ export class Sound {
   /** A footfall on the ground, at this ground speed in m/s. */
   step(groundSpeed: number): void {
     if (this.ctx && this.noise && this.volume) playStep(this.ctx, this.noise, this.volume, groundSpeed);
+  }
+
+  /**
+   * A tenth of a second of shoes sliding on the grass, at this ground speed in
+   * m/s, with `weight` (0 to 1) of the pilot on them. Called over and over.
+   */
+  skid(groundSpeed: number, weight: number): void {
+    if (this.ctx && this.noise && this.volume) playSkid(this.ctx, this.noise, this.volume, groundSpeed, weight);
   }
 }

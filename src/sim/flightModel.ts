@@ -105,6 +105,8 @@ export class FlightModel {
 
   /** Aerodynamic force divided by weight during the last step. */
   loadFactor = 1;
+  /** Aerodynamic force on canopy and pilot during the last step, world frame, N. */
+  readonly aeroForce = vec3();
   /** Angle of attack at the centre of the canopy during the last step, rad. */
   alphaCentre = 0;
   /**
@@ -167,6 +169,13 @@ export class FlightModel {
   twistBind = false;
   /** The pilot kicking round under the lines, to the left (-1) or the right (1), or not (0). */
   kick = 0;
+
+  /**
+   * The ground pushing on the pilot's feet, world frame, N: the legs holding
+   * up what the canopy does not, and the shoes rubbing. Taken at the joint,
+   * so it turns neither body: the pilot holds their own stance over the feet.
+   */
+  readonly footForce = vec3();
 
   /** The canopy flown: the reserve takes over from the main after a cutaway. */
   constructor(public rig: RigParams) {}
@@ -306,7 +315,8 @@ export class FlightModel {
     const weight = canopy.weight + pilot.weight;
     const lift = rotate(this.accel, s.att, cf);
     const drag = rotate(this.tmp, s.pilotAtt, pf);
-    this.loadFactor = Math.hypot(lift.x + drag.x, lift.y + drag.y, lift.z + drag.z) / weight;
+    set(this.aeroForce, lift.x + drag.x, lift.y + drag.y, lift.z + drag.z);
+    this.loadFactor = Math.hypot(this.aeroForce.x, this.aeroForce.y, this.aeroForce.z) / weight;
 
     // What turns each body about the joint, in its own frame: the air, its
     // weight, the harness, and Euler's term for a spinning body.
@@ -338,6 +348,9 @@ export class FlightModel {
     this.ry = -weight;
     this.carry(canopy, s.att, w, cf, this.canopyTurn);
     this.carry(pilot, s.pilotAtt, wp, pf, this.pilotTurn);
+    this.rx += this.footForce.x;
+    this.ry += this.footForce.y;
+    this.rz += this.footForce.z;
     const a = this.solve(this.accel);
     s.vel.x += a.x * dt;
     s.vel.y += a.y * dt;
