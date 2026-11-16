@@ -205,6 +205,8 @@ const HOLD_RADIUS = 45;
 const WINGS_LEVEL = 25;
 /** The flare starts with the feet this high, m. */
 const FLARE_HEIGHT = 4.5;
+/** How far ahead the ground is looked at for the flare, s of flight: a slope rising in front comes up sooner. */
+const FLARE_LOOK = [0.4, 0.8, 1.2];
 /** How fast the hands move a toggle, of its travel per second. */
 const HAND_RATE = 1.6;
 /** After the opening: a moment, then both toggles down to free the brakes, s. */
@@ -436,6 +438,7 @@ export class Bot {
   private readonly wanted: Controls = neutralControls();
   private readonly slot = vec3();
   private readonly tmp = vec3();
+  private readonly feet = vec3();
   private readonly pullAt: number;
   private readonly breakOffAt: number;
   /** Compass heading of the track. */
@@ -881,6 +884,18 @@ export class Bot {
     if (tracking) input.turn = clamp(input.turn, -TRACK_TURN, TRACK_TURN);
   }
 
+  /**
+   * How high the feet are over the ground they are flying to: here, or a
+   * moment ahead if it rises (a slope coming up in front), whichever is less.
+   */
+  private overAhead(height: number): number {
+    const s = this.model.state;
+    const feet = this.model.pilotPoint(this.feet, this.model.rig.feetPos);
+    let least = height;
+    for (const t of FLARE_LOOK) least = Math.min(least, feet.y - this.plan.groundAt(feet.x + s.vel.x * t, feet.z + s.vel.z * t));
+    return least;
+  }
+
   /** Under canopy: to the start of the final, round it until low enough, then in and a flare. */
   private steer(env: Environment): void {
     const w = this.wanted;
@@ -894,7 +909,7 @@ export class Bot {
     }
     const s = this.model.state;
     const final = this.finalAt;
-    if (height < FLARE_HEIGHT) {
+    if (this.overAhead(height) < FLARE_HEIGHT) {
       w.brakeL = w.brakeR = 1;
       return;
     }

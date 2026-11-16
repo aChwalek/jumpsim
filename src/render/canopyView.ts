@@ -19,6 +19,7 @@ import type { RigParams } from '../sim/rig';
 import { RING, SHOULDER } from './body';
 import { Deployment } from './deployment';
 import { suspensionLines } from './lines';
+import { castShadow, layShadow, shadowFall, shadowGrazing, shadowOpacity, type GroundAt } from './groundShadow';
 import { DEFAULT_SUIT, OUTFIT_COLORS, type Outfit } from './outfit';
 import { GEAR_LAYER, type Lighting } from './scene';
 
@@ -94,6 +95,8 @@ export interface CanopyLook {
   pilotAtt: THREE.Quaternion | null;
   /** Height of the ground under the canopy, m. */
   ground: number;
+  /** The ground anywhere, for where the shadow falls. */
+  groundAt: GroundAt;
 }
 
 /** What hangs on one side of the pilot: risers, toggle, and the arm working them. */
@@ -202,6 +205,8 @@ export class CanopyView {
   private readonly q = new THREE.Vector3();
   private readonly a = new THREE.Vector3();
   private readonly b = new THREE.Vector3();
+  private readonly fall = shadowFall();
+  private readonly placed = new THREE.Matrix4();
   private readonly e = new THREE.Vector3();
   private readonly reach = new THREE.Vector3();
   private readonly centre = new THREE.Vector3();
@@ -392,6 +397,9 @@ export class CanopyView {
     }
     this.canopyShadow = new THREE.Mesh(new THREE.ShapeGeometry(outline).rotateX(-Math.PI / 2), this.shadowMaterial);
     this.canopyShadow.renderOrder = 7;
+    // Laid on the slope by a matrix of its own, which the bounds do not follow.
+    this.canopyShadow.matrixAutoUpdate = false;
+    this.canopyShadow.frustumCulled = false;
     this.shadow.add(this.canopyShadow);
     light.clouds.shade(this.shadowMaterial, 'shadow');
     light.clouds.shade(this.fabricMaterial, 'light');
@@ -1127,14 +1135,20 @@ export class CanopyView {
     // Full in the sun, as the canopy was always drawn (the glow was stuck at full before it followed the light).
     this.glow.lerpColors(light.fabricShade, light.fabric, light.clouds.sunThrough(centre.x, centre.y, centre.z));
 
-    // The shadow, from the sun, on the ground under it.
+    // The shadow, from the sun, where its light meets the ground, laid on the slope there.
     const { sun } = light;
-    const t = (centre.y - look.ground) / Math.max(0.05, sun.y);
-    this.canopyShadow.position.set(centre.x - sun.x * t, look.ground, centre.z - sun.z * t);
-    const forward = this.b.set(0, 0, -1).applyQuaternion(att);
-    this.canopyShadow.rotation.y = Math.atan2(-forward.x, -forward.z);
-    const height = centre.y - look.ground;
-    this.shadowMaterial.opacity = (0.12 + 0.36 * Math.max(0, 1 - height / 250)) * light.shadow;
+    const fall = this.fall;
+    const falls = this.canopyShadow.visible && castShadow(centre, sun, look.groundAt, fall);
+    const grazing = falls ? shadowGrazing(sun, fall) : 0;
+    this.canopyShadow.visible = grazing > 0;
+    if (grazing > 0) {
+      // The canopy's outline as it is turned, banked and pitched: a turn narrows the shadow,
+      // and a canopy falling onto the slope casts the shape it lies in.
+      this.placed.makeRotationFromQuaternion(att).setPosition(centre);
+      layShadow(this.canopyShadow.matrix, this.placed, sun, fall);
+      this.canopyShadow.matrixWorldNeedsUpdate = true;
+    }
+    this.shadowMaterial.opacity = shadowOpacity(fall.drop) * grazing * light.shadow;
     this.shadow.visible = light.shadow > 0.02;
   }
 }

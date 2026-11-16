@@ -389,9 +389,17 @@ export function playLanding(ctx: BaseAudioContext, noise: AudioBuffer, out: Audi
   }
 }
 
-/** Soles rubbing over grass: a hiss that rises with the speed and fills out with the weight. */
-export function playSkid(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioNode, groundSpeed: number, weight: number): void {
+/**
+ * Soles rubbing over grass: a hiss that rises with the speed and fills out
+ * with the weight. Over water, spray: brighter, louder, with a wash under it.
+ */
+export function playSkid(ctx: BaseAudioContext, noise: AudioBuffer, out: AudioNode, groundSpeed: number, weight: number, wet = false): void {
   const fast = clamp01(groundSpeed / 12);
+  if (wet) {
+    burst(ctx, noise, out, { type: 'highpass', from: 2600 + 1400 * fast, to: 1800 + 900 * fast, level: (0.2 + 0.5 * weight) * (0.5 + 0.5 * fast), seconds: 0.16 });
+    burst(ctx, noise, out, { type: 'lowpass', from: 1400, to: 500, level: 0.15 + 0.4 * weight, seconds: 0.18 });
+    return;
+  }
   burst(ctx, noise, out, { type: 'bandpass', from: 1100 + 900 * fast, to: 900 + 600 * fast, level: (0.08 + 0.3 * weight) * (0.4 + 0.6 * fast), seconds: 0.14 });
 }
 
@@ -744,10 +752,11 @@ export class Sound {
   }
 
   /**
-   * A tenth of a second of shoes sliding on the grass, at this ground speed in
-   * m/s, with `weight` (0 to 1) of the pilot on them. Called over and over.
+   * A tenth of a second of shoes sliding on the grass, or planing over water
+   * (`wet`), at this ground speed in m/s, with `weight` (0 to 1) of the pilot
+   * on them. Called over and over.
    */
-  skid(groundSpeed: number, weight: number): void {
-    if (this.ctx && this.noise && this.volume) playSkid(this.ctx, this.noise, this.volume, groundSpeed, weight);
+  skid(groundSpeed: number, weight: number, wet = false): void {
+    if (this.ctx && this.noise && this.volume) playSkid(this.ctx, this.noise, this.volume, groundSpeed, weight, wet);
   }
 }
