@@ -60,7 +60,9 @@ the relief about its own exit every metre.
   Worker never sees them, so they cost none of its daily requests. Upload a
   build before shipping its line in `src/world/tilesets.ts`. The dev server
   serves them from `public/tiles/`. A local `npm run deploy` would ship them
-  as assets too: deploy from a clean checkout, as usual. See CLAUDE.md for
-  what things cost.
+  as assets too: deploy from a clean checkout, as usual. Once nothing names
+  an older build, `node tools/tiles/prune.mjs <map> --keep <version> --yes`
+  deletes it from the bucket (without `--yes` it only says what it would
+  delete). See CLAUDE.md for what things cost.
 
 Orthophoto tiles are cached in `~/.cache/jumpsim-dz`, the same as build.py's.
