@@ -13,7 +13,7 @@ import { BASE_OPENING, MAIN_OPENING, Opening, RESERVE_HANDLE_OPENING, RESERVE_OP
 import { EXIT_SPOTS, Plane, type ExitSpot, type JumpRun } from './plane';
 import { ReleasedCanopy } from './released';
 import type { RigParams } from './rig';
-import { RunUp } from './runUp';
+import { RunUp, straightLip, type Lip } from './runUp';
 import { hasWings, suitFit, type Suit } from './suit';
 import { DEG, copy, quat, quatFromYaw, quatMultiply, rotate, set, vec3, type Vec3 } from './vec';
 
@@ -38,6 +38,11 @@ export interface Ledge {
   height?: number;
   /** No run: standing on the lip of a bridge, the jumper jumps out from there. */
   standing?: boolean;
+  /**
+   * Standing, the lip the jumper can shuffle along: a straight one square to
+   * the heading if not given.
+   */
+  lip?: Lip;
 }
 
 export const isLedge = (from: JumpRun | Ledge): from is Ledge => (from as Ledge).kind === 'ledge';
@@ -197,8 +202,18 @@ export class Jump {
   readonly walk: RunUp | null;
   /** A BASE jump, off an object: the AAD is off, as for any BASE jump. */
   readonly base: boolean;
-  /** The ledge's own height, when it has one. */
+  /**
+   * The ledge's own height, when it has one. Not a bridge's: along its lip,
+   * the ledge's height changes as the ground under the edge does.
+   */
   private readonly exitHeight: number | undefined;
+  /** On a bridge's lip: the ledge's height over what the ground under the start says, m. */
+  private lipHeightOff = 0;
+  /**
+   * The exit position was asked for. On a bridge's lip until it is, the
+   * jumper goes out the way they face the void: belly to it, or the back.
+   */
+  private exitPicked = false;
   /** One canopy and nothing else: a BASE container. */
   readonly single: boolean;
   readonly body: Freefall;
@@ -270,13 +285,14 @@ export class Jump {
     this.body = new Freefall(freefallParams(model.rig.gravMass, suitFit(options.suit)));
     this.wings = hasWings(options.suit);
     this.base = isLedge(from);
-    this.exitHeight = isLedge(from) ? from.height : undefined;
+    this.exitHeight = isLedge(from) && !from.standing ? from.height : undefined;
     this.single = options.container === 'base';
     this.spot = options.spot ?? 'low';
     if (isLedge(from)) {
       this.phase = 'standing';
       this.plane = null;
-      this.runUp = new RunUp(this.solidAt, from.x, from.z, from.headingDeg, undefined, from.standing);
+      const lip = from.standing ? (from.lip ?? straightLip(from.x, from.z, from.headingDeg)) : null;
+      this.runUp = new RunUp(this.solidAt, from.x, from.z, from.headingDeg, undefined, lip);
       this.walk = null;
     } else {
       this.phase = 'plane';
@@ -305,6 +321,7 @@ export class Jump {
     };
     if (this.runUp) this.stand();
     else this.ride();
+    if (isLedge(from) && from.standing && from.height !== undefined) this.lipHeightOff = from.height - this.height();
   }
 
   /**
@@ -365,6 +382,7 @@ export class Jump {
   fly(position: BodyPosition, roll = 1): void {
     if (this.pullWhenFlat || this.stunned || (this.wings && !flat(position))) return;
     if (this.phase === 'plane' || this.phase === 'standing' || this.phase === 'freefall') this.body.setPosition(position, roll);
+    if (this.phase === 'standing') this.exitPicked = true;
   }
 
   /**
@@ -385,6 +403,7 @@ export class Jump {
     if (this.pullWhenFlat || this.stunned) return;
     if (this.phase === 'plane' || this.phase === 'standing') this.body.setPosition(dir < 0 ? 'belly' : 'back');
     else if (this.phase === 'freefall') this.body.rollOver(dir);
+    if (this.phase === 'standing') this.exitPicked = true;
   }
 
   /**
@@ -508,7 +527,11 @@ export class Jump {
       return;
     }
     if (this.phase === 'standing') {
-      if (this.runUp!.step(dt, input)) this.exit();
+      const r = this.runUp!;
+      const out = r.step(dt, input);
+      // Facing the deck, the back to the void: a back exit, unless asked otherwise.
+      if (r.standing && !this.exitPicked) this.body.setPosition(r.facingOut ? 'belly' : 'back');
+      if (out) this.exit();
       else this.stand();
       return;
     }
@@ -765,7 +788,7 @@ export class Jump {
     b.yawRate = 0;
     this.phase = 'freefall';
     this.time = 0;
-    this.log.exitHeight = this.exitHeight ?? this.height();
+    this.log.exitHeight = this.exitHeight ?? this.height() + this.lipHeightOff;
   }
 
   /**

@@ -147,8 +147,8 @@ describe('off the viaduct', () => {
     expect(jump.phase).toBe('standing');
     expect(jump.log.exitHeight).toBe(b.height);
     expect(jump.clearance()).toBeCloseTo(0, 1);
-    // Nothing moves the feet on the lip.
-    until(() => false, 1, { ...noBodyInputs(), slide: 1, forward: 0.3 });
+    // A touch of forward is not a step off.
+    until(() => false, 1, { ...noBodyInputs(), forward: 0.3 });
     expect(jump.phase).toBe('standing');
     expect(Math.hypot(jump.runUp!.x - b.x, jump.runUp!.z - b.z)).toBe(0);
     until(() => jump.phase !== 'standing', 1, jumpKey);

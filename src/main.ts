@@ -85,6 +85,7 @@ import { madeUpName, sendScore } from './net/leaderboard';
 import { UNNAMED } from './net/scores';
 import { ensureAccount, googleOffered, loadAccount, renameAccount, signInWithGoogle, signOut, type Account } from './net/account';
 import { buildWorld, type World } from './world/build';
+import { lipOf } from './world/bridge';
 import { isWet, landingHeading, solidOf, spawnsFor, type DzPack } from './world/dz';
 import { dzInfo } from './world/dzs';
 import { MAP_HALF } from './ui/dzMap';
@@ -924,8 +925,10 @@ function spawn(kind: Start): void {
   } else if (kind === 'base') {
     const b = dz.base!;
     windAt(env.wind, setup.weather, b.height, airTime);
-    // Off a bridge, no run: from the lip of the deck.
-    const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg: b.headingDeg, height: b.height, standing: b.runUp === 0 } as const;
+    // Off a bridge, no run: from the lip of the deck, which the jumper can shuffle along.
+    const standing = b.runUp === 0;
+    const lip = standing && dz.bridges ? (lipOf(dz.bridges, b.x, b.z) ?? undefined) : undefined;
+    const ledge = { kind: 'ledge', x: b.x, z: b.z, headingDeg: b.headingDeg, height: b.height, standing, lip } as const;
     jump = new Jump(model, ledge, env, dz.groundAt, Math.random, { ...rigOptions(), malfunction: unlucky ? 'offHeading' : null });
     // Company on top: beside us, each going in turn, before or after us.
     startBots({ top: b });
@@ -1011,15 +1014,15 @@ function takePosition(position: BodyPosition): void {
  * On foot, free to walk and turn: on top of the object before the run-up,
  * or on the ground once at rest after the landing. Then the mouse and the
  * right stick turn the body, as in any first-person game; locked on a
- * target, the body faces where the camera looks (see faceTheView). Not on
- * the lip of a bridge, where nobody turns round, nor while gathering the
- * canopy up.
+ * target, the body faces where the camera looks (see faceTheView). On the
+ * lip of a bridge too, to turn round and go off backwards. Not while
+ * gathering the canopy up.
  */
 function onFoot(): boolean {
   if (replay || ragdoll) return false;
   if (arrival) return arrival.canWalk && !(gather !== null && gather < 1);
   if (jump?.phase === 'plane') return jump.walk !== null;
-  return jump?.phase === 'standing' && jump.runUp !== null && !jump.runUp.standing;
+  return jump?.phase === 'standing' && jump.runUp !== null;
 }
 
 const viewDir = new THREE.Vector3();
@@ -2433,7 +2436,7 @@ function keysPhase(): KeysPhase | null {
   if (watching) return watching.free ? 'replayFree' : 'replay';
   if (touchdown || arrival || impact) return 'ground';
   if (!jump || jump.phase === 'canopy' || jump.phase === 'opening') return singleCanopy() ? 'baseCanopy' : 'canopy';
-  if (jump.afoot) return 'ledge';
+  if (jump.afoot) return jump.runUp?.standing && jump.phase === 'standing' ? 'lip' : 'ledge';
   if (jump.phase === 'plane') return 'plane';
   if (jump.wings && jump.cutawayAt === null) return 'wingsuit';
   return jump.body.progressive ? 'freefallProgressive' : 'freefall';
@@ -2462,6 +2465,7 @@ function touchLayout(): TouchLayout | null {
       return { ...none, mode: 'canopy', cutaway: phase === 'canopy' && jump !== null, slider };
     }
     case 'ledge':
+    case 'lip':
     case 'plane':
       return { ...none, mode: 'walk', main: t.exit, cross: true };
     case 'freefall':
@@ -2560,8 +2564,11 @@ function cue(): string {
   }
   if (jump.phase === 'standing') {
     const exit = c.exitIn[jump.body.position];
-    const standing = jump.runUp?.standing;
-    const go = fingers ? (standing ? T.touch.jumpOut : T.touch.runAndJump) : standing ? c.jumpOut(keyLabel('KeyW')) : c.runAndJump(keyLabel('KeyW'));
+    const r = jump.runUp;
+    const standing = r?.standing;
+    // On the lip, the key that steps out over the edge: back, facing the deck.
+    const step = keyLabel(r && !r.facingOut ? 'KeyS' : 'KeyW');
+    const go = fingers ? (standing ? T.touch.jumpOut : T.touch.runAndJump) : standing ? c.jumpOut(step) : c.runAndJump(keyLabel('KeyW'));
     return `${c.onTop}<small>${exit ? `${exit} · ` : ''}${go}</small>`;
   }
   if (jump.phase === 'freefall' && jump.base) {
