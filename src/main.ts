@@ -2459,7 +2459,11 @@ function drawMap(now: number): void {
   menu.map.pictureDrawn(setup.dz);
 }
 
-/** Our jumper as the others will draw it. */
+/** The body as drawn at the last frame flown, and the heap of the canopy: what the others see of us. */
+const drawnPose = makePose();
+let drawnHeap = 0;
+
+/** Our jumper as the others will draw it: all of it, as we draw it. */
 function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation: number | null, elapsed: number): void {
   const o = net.out;
   const s = model.state;
@@ -2484,6 +2488,28 @@ function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation
   Object.assign(o.vel, s.vel);
   Object.assign(o.att, s.att);
   Object.assign(o.pilotAtt, s.pilotAtt);
+  o.slider = sliderState;
+  o.twist = s.twist;
+  o.posed = true;
+  copyPose(o.pose, drawnPose);
+  o.heap = drawnHeap;
+  Object.assign(o.heapFrom, heapFrom);
+  if (arrival) Object.assign(o.fallTo, arrival.fallTo);
+  o.walker = !!arrival?.walker;
+  o.gather = gather ?? 0;
+  o.hasJoints = ragdoll !== null;
+  if (ragdoll) jointArray(ragdoll, o.joints);
+  const free = jump?.released;
+  o.hasReleased = !!free && releasedView !== null;
+  if (free) {
+    const r = o.released;
+    Object.assign(r.pos, free.pos);
+    Object.assign(r.vel, free.vel);
+    Object.assign(r.att, free.att);
+    r.crumple = free.crumple;
+    r.heap = free.heap;
+    Object.assign(r.fallTo, free.fallTo);
+  }
   net.send(elapsed);
 }
 
@@ -2647,6 +2673,8 @@ function frame(now: number): void {
     } else if (!rigView.detached) rigView.canopy.setHeap(0);
     if (arrival?.walker && !rigView.detached) rigView.canopy.dragHeap(walkedTo.set(model.state.pos.x, 0, model.state.pos.z));
     if (gather !== null && !rigView.detached) carryCanopy(shown, gather);
+    copyPose(drawnPose, shown);
+    drawnHeap = heap;
     rigView.body.group.visible = !ragdoll;
     ragdollView.update(ragdoll ? jointArray(ragdoll, liveJoints) : null);
     hud.setCard(canReplay(), !!arrival?.walker, lastTrack !== null);
@@ -2673,7 +2701,9 @@ function frame(now: number): void {
     sparks.light!.intensity = 0;
   }
   if (net) {
-    if (!replay) sendJumper(net, pose, onRisers, inflation, elapsed);
+    // Watching our replay, the pilot is drawn from it: the others go on seeing us as we are, still.
+    if (replay) net.send(elapsed);
+    else sendJumper(net, pose, onRisers, inflation, elapsed);
     // While a jump is watched again, the others of now are not in it.
     net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, setup.dz, !watching);
     if (net.players !== playersShown) showGear();

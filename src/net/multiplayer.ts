@@ -11,7 +11,7 @@ import { Mesh } from './mesh';
 import { ROOM_NAME } from './protocol';
 import { RemoteJumper, type RemoteFrame } from './remote';
 import { RoomState, cleanName, nextLoad, publicDz, readRoomMessage, sharedPart, type RoomMessage, type SharedSetup } from './room';
-import { SNAPSHOT_BYTES, decodeSnapshot, emptySnapshot, encodeSnapshot, type Snapshot } from './snapshot';
+import { decodeSnapshot, emptySnapshot, encodeSnapshot, type Snapshot } from './snapshot';
 import type { OtherBody } from '../bots';
 import type { OtherJumper } from '../replay/track';
 import { vec3 } from '../sim/vec';
@@ -97,7 +97,6 @@ export class Multiplayer {
   private readonly remotes = new Map<string, { jumper: RemoteJumper; hello: Hello | null }>();
   private hello: Hello | null = null;
   private sinceSent = Number.POSITIVE_INFINITY;
-  private readonly sendBuffer = new ArrayBuffer(SNAPSHOT_BYTES);
   private readonly received = emptySnapshot();
   /** Who is in the room, who leads, who is ready. */
   readonly state = new RoomState();
@@ -233,7 +232,7 @@ export class Multiplayer {
     if (this.sinceSent < 1 / SEND_RATE) return;
     this.sinceSent = 0;
     this.out.t = performance.now();
-    this.mesh.broadcastState(encodeSnapshot(this.out, this.sendBuffer));
+    this.mesh.broadcastState(encodeSnapshot(this.out));
   }
 
   /** Draws the others: only those at our drop zone; `shown` false hides them all. */

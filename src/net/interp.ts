@@ -1,3 +1,4 @@
+import { blendPose } from '../render/body';
 import type { Quat } from '../sim/vec';
 import { copySnapshot, emptySnapshot, type Snapshot } from './snapshot';
 
@@ -78,7 +79,11 @@ export class SnapshotBuffer {
   }
 }
 
-/** Between two snapshots: what changes in steps (phase, stance, flags) is taken from the first. */
+/**
+ * Between two snapshots: what changes in steps (phase, stance, flags, the
+ * slider, where the heap started) is taken from the first; the ragdoll and
+ * the cut-away main go between the two only if both have them.
+ */
 export function lerpSnapshot(out: Snapshot, a: Snapshot, b: Snapshot, k: number): Snapshot {
   copySnapshot(out, a);
   const mix = (x: number, y: number) => x + (y - x) * k;
@@ -94,6 +99,23 @@ export function lerpSnapshot(out: Snapshot, a: Snapshot, b: Snapshot, k: number)
   for (const key of ['brakeL', 'brakeR', 'frontL', 'frontR'] as const) {
     out.controls[key] = mix(a.controls[key], b.controls[key]);
     out.hands[key] = mix(a.hands[key], b.hands[key]);
+  }
+  out.twist = mix(a.twist, b.twist);
+  if (a.posed && b.posed) blendPose(out.pose, b.pose, k);
+  out.heap = mix(a.heap, b.heap);
+  out.gather = mix(a.gather, b.gather);
+  if (a.hasJoints && b.hasJoints) for (let i = 0; i < out.joints.length; i++) out.joints[i] = mix(a.joints[i]!, b.joints[i]!);
+  if (a.hasReleased && b.hasReleased) {
+    const [r, ra, rb] = [out.released, a.released, b.released];
+    r.pos.x = mix(ra.pos.x, rb.pos.x);
+    r.pos.y = mix(ra.pos.y, rb.pos.y);
+    r.pos.z = mix(ra.pos.z, rb.pos.z);
+    r.vel.x = mix(ra.vel.x, rb.vel.x);
+    r.vel.y = mix(ra.vel.y, rb.vel.y);
+    r.vel.z = mix(ra.vel.z, rb.vel.z);
+    nlerp(r.att, ra.att, rb.att, k);
+    r.crumple = mix(ra.crumple, rb.crumple);
+    r.heap = mix(ra.heap, rb.heap);
   }
   if (a.inflation !== null && b.inflation !== null) out.inflation = mix(a.inflation, b.inflation);
   if (a.deploy === b.deploy) out.deployTime = mix(a.deployTime, b.deployTime);
