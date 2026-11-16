@@ -24,7 +24,8 @@ before anything that needs a paid plan or a new paid product.
     `tools/tiles/cors.json`.
   - R2 free tier, per month: 10 GB stored, 1 M writes, 10 M reads. Egress is
     free.
-  - Each flight reads about a thousand tiles. Chamonix stores 0.3 GB.
+  - Each flight reads about a thousand tiles. Chamonix stores 0.3 GB;
+    Millau, Pujaut and Chambéry 0.2 GB each.
 - **Upload versions, never overwrite**: a build goes to
   `<map>/<version>/...` with `Cache-Control: public, max-age=31536000,
   immutable`, so browsers keep it and a second flight downloads nothing.

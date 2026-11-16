@@ -4270,5 +4270,13 @@
    5.88408
   ]
  ],
- "inland": true
+ "inland": true,
+ "tiles": {
+  "detail": {
+   "x": 0,
+   "z": 0,
+   "size_m": 8000
+  },
+  "why": "The relief is the near grid's, every 100 m: the tiles' zoom-18 photos and the LiDAR's trees one by one over 8 km about the landing, from the lake's shore to the foot of the Mont du Chat; beyond, a tree in fifty would be drawn."
+ }
 }

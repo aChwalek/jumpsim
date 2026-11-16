@@ -36,18 +36,26 @@ the relief about its own exit every metre.
 - **Photo**: 512 texels a side, its edge texels on the square's edges (shared
   with the next square, no seam). A square is also split until its texels are
   as fine as the finest photo over it: IGN orthophotos at zoom 18 (0.42 m)
-  over the fine relief, zoom 19 (0.21 m) over the squares about the exits and
-  landings (`imagerySpots`), then the drop zone's near, mid and far pictures.
+  over the detail square, zoom 19 (0.21 m) over the squares about the exits
+  and landings (the data's `imagerySpots`, else a kilometre about each target
+  and each exit), then the drop zone's near, mid and far pictures.
+  The detail square is the fine relief's, or the one the map's json names
+  (`tiles.detail`: centre `x`, `z` and `size_m`, in the local frame), where
+  the relief is coarse all over (Pujaut, Chambéry) or too narrow for the
+  trees seen from the exit (Millau).
   Each fades into the coarser ones near its edge. A parent's photo is its
   four children's, shrunk.
 - **Trees**: one per crown of the IGN's LiDAR HD canopy height (MNH, open
   data, fetched from the Géoplateforme's WMS-R in Lambert 93 a metre a cell
-  and cached; `canopy.ts`), over the fine relief.
+  and cached; `canopy.ts`), over the detail square. Metropolitan France
+  only: the service gives the canopy in Lambert 93 alone.
   - Each peak at least 3 m high, the highest within a few metres, whose crown
     fills most of the disc round it, gives a tree: its place, its height, its
     crown's width (eight rays down its sides), and its colour from the square's
     photo.
-  - Thrown out: trees on a mapped roof; spikes of rock or ice (too tall, or too
+  - Thrown out: trees on a mapped roof; under a bridge, what would reach its
+    deck or stand on a pier (the canopy sees the deck and the piers as
+    crowns), as the game has it; spikes of rock or ice (too tall, or too
     narrow for their height); trees above the tree line (200 m below the
     look's `grassBelow`); trees where the photo is bright and not green.
   - Conifer if its crown is narrow, or above 1300 m.
