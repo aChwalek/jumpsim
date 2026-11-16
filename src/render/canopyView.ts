@@ -12,12 +12,14 @@
 // the lines, -Z towards the nose, X to the right.
 
 import * as THREE from 'three';
+import { ClothStyle } from './characterStyle';
+import { limbMesh, roundLimbEnds } from './characterParts';
 import type { Controls } from '../sim/flightModel';
 import type { RigParams } from '../sim/rig';
 import { RING, SHOULDER } from './body';
 import { Deployment } from './deployment';
 import { suspensionLines } from './lines';
-import { DEFAULT_SUIT, OUTFIT_COLORS } from './outfit';
+import { DEFAULT_SUIT, OUTFIT_COLORS, type Outfit } from './outfit';
 import { GEAR_LAYER, type Lighting } from './scene';
 
 const DEG = Math.PI / 180;
@@ -153,7 +155,8 @@ export class CanopyView {
   private readonly sliderMesh: THREE.Mesh;
   private readonly sides: Side[] = [];
   /** The sleeves of the arms up on the toggles: the jumpsuit's. */
-  private readonly sleeveMaterial = new THREE.MeshLambertMaterial({ color: OUTFIT_COLORS[DEFAULT_SUIT] });
+  private readonly clothStyle = new ClothStyle();
+  private readonly sleeveMaterial = this.clothStyle.material(OUTFIT_COLORS[DEFAULT_SUIT]);
   private readonly canopyShadow: THREE.Mesh;
   private readonly shadowMaterial: THREE.MeshBasicMaterial;
 
@@ -283,7 +286,12 @@ export class CanopyView {
     };
     const part = (width: number, depth: number, material: THREE.Material, length = 1): THREE.Mesh =>
       add(new THREE.BoxGeometry(width, length, depth), material);
-    const limb = (radius: number): THREE.Mesh => add(new THREE.CapsuleGeometry(radius, 1 - 2 * radius, 3, 10), suit);
+    const limb = (radius: number): THREE.Mesh => {
+      const mesh = limbMesh(radius, suit);
+      mesh.traverse((o) => o.layers.set(GEAR_LAYER));
+      this.object.add(mesh);
+      return mesh;
+    };
     for (const sign of [-1, 1]) {
       this.sides.push({
         sign,
@@ -291,8 +299,8 @@ export class CanopyView {
         rear: part(0.027, 0.006, webbing),
         toggle: part(0.024, 0.01, handle, 0.11),
         hand: add(new THREE.IcosahedronGeometry(0.046, 2).scale(0.85, 1.15, 0.9), glove),
-        upperArm: limb(0.042),
-        forearm: limb(0.034),
+        upperArm: limb(0.052),
+        forearm: limb(0.042),
         foot: new THREE.Vector3(),
         frontLink: new THREE.Vector3(),
         rearLink: new THREE.Vector3(),
@@ -372,15 +380,15 @@ export class CanopyView {
     for (let k = 0; k <= steps; k++) {
       const x = -half + (2 * half * k) / steps;
       const a = Math.abs(x / half);
-      const chord = rig.chord * (1 - 0.3 * Math.max(0, (a - 0.7) / 0.3) ** 2) * Math.sqrt(Math.max(0, 1 - a ** 8));
-      if (k === 0) outline.moveTo(x, -0.35 * chord);
-      else outline.lineTo(x, -0.35 * chord);
+      const chord = rig.chord * canopyTaper(a);
+      if (k === 0) outline.moveTo(x, -0.35 * chord + canopySweep(a, rig.chord));
+      else outline.lineTo(x, -0.35 * chord + canopySweep(a, rig.chord));
     }
     for (let k = steps; k >= 0; k--) {
       const x = -half + (2 * half * k) / steps;
       const a = Math.abs(x / half);
-      const chord = rig.chord * (1 - 0.3 * Math.max(0, (a - 0.7) / 0.3) ** 2) * Math.sqrt(Math.max(0, 1 - a ** 8));
-      outline.lineTo(x, 0.65 * chord);
+      const chord = rig.chord * canopyTaper(a);
+      outline.lineTo(x, 0.65 * chord + canopySweep(a, rig.chord));
     }
     this.canopyShadow = new THREE.Mesh(new THREE.ShapeGeometry(outline).rotateX(-Math.PI / 2), this.shadowMaterial);
     this.canopyShadow.renderOrder = 7;
@@ -532,8 +540,9 @@ export class CanopyView {
   }
 
   /** The jumpsuit's colour, on the arms up on the toggles. */
-  setSuitColor(color: number): void {
-    this.sleeveMaterial.color.setHex(color);
+  setOutfit(outfit: Outfit): void {
+    this.sleeveMaterial.color.setHex(outfit.suit);
+    this.clothStyle.set(outfit);
   }
 
   /** Shows the hands and arms on the toggles, or not (in freefall, on the ground, once cut away). */
@@ -591,10 +600,9 @@ export class CanopyView {
     if (Math.abs(s) > 1) return false;
     // Along the chord: a first guess from the plain section, then once more
     // from where that put the skin.
-    const outer = Math.max(0, (Math.abs(s) - 0.7) / 0.3);
-    const scale = rig.chord * (1 - 0.3 * outer * outer) * this.chordScale * Math.cos(rig.config.riggingAngleDeg * DEG);
+    const scale = rig.chord * canopyTaper(Math.abs(s)) * this.chordScale * Math.cos(rig.config.riggingAngleDeg * DEG);
     const u = this.chamberAt(s);
-    let c = 0.25 + local.z / scale;
+    let c = 0.25 + (local.z - canopySweep(s, rig.chord) * this.chordScale) / scale;
     if (c < -0.1 || c > 1.1) return false;
     const skin = this.skin(this.liftSkin, s, Math.min(1, Math.max(0, c)), true, u);
     c += (local.z - skin.z) / scale;
@@ -652,8 +660,7 @@ export class CanopyView {
       ((s * this.spread * rig.span) / (2 * radius)) * (1 - 0.12 * soft) +
       Math.sign(s) * brake * 0.11 * curl * curl +
       soft * 0.035 * Math.sin(s * 11.3 + t * 0.9);
-    const outer = Math.max(0, (a - 0.7) / 0.3);
-    const chord = rig.chord * (1 - 0.3 * outer * outer) * this.chordScale * (1 - (0.2 + 0.15 * rumple) * soft);
+    const chord = rig.chord * canopyTaper(a) * this.chordScale * (1 - (0.2 + 0.15 * rumple) * soft);
 
     // The section: along the chord (towards the nose) and up from it.
     let along = (0.25 - c) * chord;
@@ -702,7 +709,7 @@ export class CanopyView {
     const si = Math.sin(incidence);
     // Soft cells drop towards the pilot as their lines go slack.
     const r = radius + along * si + lift * ci - soft * (0.15 + 0.6 * rumple) * chord;
-    out.set(r * Math.sin(theta), rig.linksPos.y + r * Math.cos(theta), -along * ci + lift * si);
+    out.set(r * Math.sin(theta), rig.linksPos.y + r * Math.cos(theta), -along * ci + lift * si + canopySweep(s, rig.chord) * this.chordScale);
 
     const flap = this.flap[cell]!;
     if (flap > 0) {
@@ -885,6 +892,7 @@ export class CanopyView {
     if (stretch) {
       mesh.position.addVectors(a, b).multiplyScalar(0.5);
       mesh.scale.y = length;
+      roundLimbEnds(mesh, length);
     }
     mesh.quaternion.setFromUnitVectors(UP, along.divideScalar(length));
   }
@@ -1133,3 +1141,7 @@ export class CanopyView {
 
 /** Where the stabiliser hangs from along the tip, chord fractions. */
 const STABILISER = [0.12, 0.3, 0.5, 0.7, 0.88];
+
+/** Smooth taper across the whole span, with open, rounded tip cells. */
+export const canopyTaper = (s: number): number => 1 - 0.28 * s ** 2 - 0.12 * s ** 6;
+const canopySweep = (s: number, chord: number): number => 0.12 * chord * s ** 2;

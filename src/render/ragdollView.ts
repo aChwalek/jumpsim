@@ -3,8 +3,11 @@
 // between two of the ragdoll's joints rather than posed.
 
 import * as THREE from 'three';
+import { limbMesh, roundLimbEnds, shoeGeometry } from './characterParts';
+import { rigPack } from './rigPack';
+import { CharacterHead, ClothStyle } from './characterStyle';
 import { J, JOINT_COUNT } from '../sim/ragdoll';
-import { DEFAULT_HELMET, DEFAULT_SUIT, OUTFIT_COLORS, type Outfit } from './outfit';
+import { DEFAULT_SUIT, OUTFIT_COLORS, type Outfit } from './outfit';
 import { OUTSIDE_LAYER } from './scene';
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -29,28 +32,27 @@ export class RagdollView {
   private readonly b = new THREE.Vector3();
   private readonly c = new THREE.Vector3();
   private readonly basis = new THREE.Matrix4();
-  private readonly suit = new THREE.MeshLambertMaterial({ color: OUTFIT_COLORS[DEFAULT_SUIT] });
-  private readonly shell = new THREE.MeshLambertMaterial({ color: OUTFIT_COLORS[DEFAULT_HELMET] });
+  private readonly clothStyle = new ClothStyle();
+  private readonly headStyle = new CharacterHead();
+  private readonly suit = this.clothStyle.material(OUTFIT_COLORS[DEFAULT_SUIT]);
+  private readonly pants = this.clothStyle.material(OUTFIT_COLORS[DEFAULT_SUIT]);
+  private readonly shoe = new THREE.MeshLambertMaterial({ color: 0xe4e4e0 });
 
   constructor() {
     const suit = this.suit;
     const webbing = new THREE.MeshLambertMaterial({ color: 0x33363b, emissive: 0x0d0e10 });
-    const container = new THREE.MeshLambertMaterial({ color: 0x2c3036, emissive: 0x0b0c0e });
     const glove = new THREE.MeshLambertMaterial({ color: 0x6f747c, emissive: 0x1d1f23 });
-    const shoe = new THREE.MeshLambertMaterial({ color: 0xdcdcdc });
-    const shell = this.shell;
-    const visor = new THREE.MeshLambertMaterial({ color: 0x121418, emissive: 0x050608 });
-    const skin = new THREE.MeshLambertMaterial({ color: 0xc89a7c });
+    const shoe = this.shoe;
 
     const bone = (a: number, b: number, radius: number): void => {
-      const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(radius, 1 - 2 * radius, 3, 10), suit);
+      const mesh = limbMesh(radius, a === J.hipL || a === J.hipR || a === J.kneeL || a === J.kneeR ? this.pants : suit);
       this.bones.push({ mesh, a, b });
       this.object.add(mesh);
     };
-    bone(J.shoulderL, J.elbowL, 0.042);
-    bone(J.elbowL, J.handL, 0.034);
-    bone(J.shoulderR, J.elbowR, 0.042);
-    bone(J.elbowR, J.handR, 0.034);
+    bone(J.shoulderL, J.elbowL, 0.052);
+    bone(J.elbowL, J.handL, 0.042);
+    bone(J.shoulderR, J.elbowR, 0.052);
+    bone(J.elbowR, J.handR, 0.042);
     bone(J.hipL, J.kneeL, 0.075);
     bone(J.kneeL, J.footL, 0.06);
     bone(J.hipR, J.kneeR, 0.075);
@@ -71,27 +73,20 @@ export class RagdollView {
       box(0.045, 0.48, 0.01, -0.1, -0.055, -0.078, webbing),
       box(0.045, 0.48, 0.01, 0.1, -0.055, -0.078, webbing),
       box(0.25, 0.035, 0.012, 0, 0.025, -0.084, webbing),
-      box(0.34, 0.5, 0.15, 0, -0.075, 0.207, container),
-      box(0.3, 0.012, 0.13, 0, 0.045, 0.28, webbing),
     );
+    const pack = rigPack();
+    pack.position.set(0, -0.075, 0.207);
+    this.trunk.add(pack);
     this.object.add(this.trunk);
 
     // Head, in the helmet: Y up through the crown, -Z out of the visor.
-    const face = new THREE.Mesh(new THREE.SphereGeometry(0.1, 18, 14), skin);
-    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.122, 22, 16).scale(0.94, 1, 1.08), shell);
-    helmet.position.y = 0.02;
-    const glass = new THREE.Mesh(
-      new THREE.SphereGeometry(0.126, 18, 8, 1.5 * Math.PI - 0.95, 1.9, 1.05, 0.72).scale(0.94, 1, 1.08),
-      visor,
-    );
-    glass.position.y = 0.02;
-    this.head.add(face, helmet, glass);
+    this.head.add(this.headStyle.group);
     // Not from the inside of the helmet, seen through the eyes.
     this.head.traverse((o) => o.layers.set(OUTSIDE_LAYER));
     this.object.add(this.head);
 
     for (let i = 0; i < 2; i++) {
-      const s = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.09, 0.28).translate(0, 0, -0.07), shoe);
+      const s = new THREE.Mesh(shoeGeometry(), shoe);
       this.shoes.push(s);
       const h = new THREE.Mesh(new THREE.IcosahedronGeometry(0.046, 2).scale(0.85, 1.15, 0.9), glove);
       this.hands.push(h);
@@ -103,7 +98,10 @@ export class RagdollView {
   /** The colours of the jumpsuit and of the helmet. */
   setOutfit(outfit: Outfit): void {
     this.suit.color.setHex(outfit.suit);
-    this.shell.color.setHex(outfit.helmet);
+    this.headStyle.set(outfit);
+    this.clothStyle.set(outfit);
+    this.pants.color.setHex(outfit.pants ?? outfit.suit);
+    this.shoe.color.setHex(outfit.shoes ?? 0xe4e4e0);
   }
 
   /** The materials, to be lit like the rest of the pilot. */
@@ -167,6 +165,7 @@ export class RagdollView {
     const length = dir.length() || 1e-6;
     mesh.position.addVectors(a, b).multiplyScalar(0.5);
     mesh.scale.y = length;
+    roundLimbEnds(mesh, length);
     mesh.quaternion.setFromUnitVectors(UP, dir.divideScalar(length));
   }
 }

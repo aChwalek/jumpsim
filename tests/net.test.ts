@@ -231,6 +231,17 @@ describe('hello', () => {
     expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, glowColor: 'plaid' } })?.gear.glowColor).toBe('green');
   });
 
+  it('shares independent outfit colours and optional visor eyes with peers', () => {
+    expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, pantsColor: 'purple', shoesColor: 'orange', face: true } })?.gear).toMatchObject({
+      pantsColor: 'purple', shoesColor: 'orange', face: true,
+    });
+  });
+
+  it('shares helmet type, visor, face and cloth motifs with peers', () => {
+    const custom = { helmetKind: 'open', visorRaised: true, goggles: false, skinColor: 'brown', pattern: 'stripes', accentColor: 'red' };
+    expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, ...custom } })?.gear).toMatchObject(custom);
+  });
+
   it('keeps a smoke it knows, and has none from an older version or an unknown one', () => {
     expect(readHello({ type: 'hello', dz: 'pujaut', gear: { ...gear, smoke: 'green' } })?.gear.smoke).toBe('green');
     expect(readHello({ type: 'hello', dz: 'pujaut', gear })?.gear.smoke).toBe('none');

@@ -1,5 +1,4 @@
-// Colours on offer for what the jumper wears: the helmet's shell and the
-// jumpsuit (body, arms and legs; a suit's wings keep the canopy's colour).
+// Independent colours for the helmet, top, trousers and shoes.
 // Named in T.menu.gear.outfitColors.
 
 export const OUTFIT_COLORS = {
@@ -33,12 +32,30 @@ export const GLOW_COLOR_IDS = Object.keys(GLOW_COLORS) as GlowColor[];
 export const isGlowColor = (v: unknown): v is GlowColor => typeof v === 'string' && Object.hasOwn(GLOW_COLORS, v);
 export const DEFAULT_GLOW: GlowColor = 'green';
 
-/** What the jumper wears, as drawn: colours of the helmet, the jumpsuit and the glow sticks. */
+/** Rendered appearance. Optional additions preserve callers with the original two colours. */
 export interface Outfit {
   helmet: number;
   suit: number;
   glow: number;
+  pants?: number;
+  shoes?: number;
+  face?: boolean;
+  helmetKind?: HelmetKind;
+  visorRaised?: boolean;
+  goggles?: boolean;
+  skin?: number;
+  pattern?: SuitPattern;
+  accent?: number;
 }
 
 export const DEFAULT_HELMET: OutfitColor = 'white';
 export const DEFAULT_SUIT: OutfitColor = 'navy';
+
+export const HELMET_KINDS = ['full', 'open'] as const;
+export type HelmetKind = typeof HELMET_KINDS[number];
+export const SUIT_PATTERNS = ['plain', 'stripes', 'chevrons', 'split'] as const;
+export type SuitPattern = typeof SUIT_PATTERNS[number];
+export const SKIN_COLORS = { light: 0xf0c9a5, tan: 0xc89065, brown: 0x935d3c, dark: 0x513525 } as const;
+export type SkinColor = keyof typeof SKIN_COLORS;
+export const SKIN_COLOR_IDS = Object.keys(SKIN_COLORS) as SkinColor[];
+export const isSkinColor = (v: unknown): v is SkinColor => typeof v === 'string' && Object.hasOwn(SKIN_COLORS, v);
