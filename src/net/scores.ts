@@ -41,9 +41,30 @@ export const cleanName = (name: string): string =>
 /**
  * A name the game made up ("Parachutiste 42": T.menu.room.defaultName and two
  * digits, in either language), not one the player chose. The server gives
- * more digits once the two-digit ones are taken (worker/names.ts).
+ * more digits once the two-digit ones are taken (otherNames).
  */
 export const madeUpName = (name: string): boolean => /^(Parachutiste|Skydiver) \d{2,6}$/.test(name);
+
+/**
+ * Names to try instead of a taken one, in order: a name the game made up gets
+ * another number (two digits while some are left, then more), a chosen one a
+ * number after it ("Bob 2", "Bob 3"). Here rather than in the Worker,
+ * which uses it, for the tests to reach without the Worker's types.
+ */
+export function* otherNames(name: string, random: () => number = Math.random): Generator<string> {
+  if (madeUpName(name)) {
+    const prefix = name.replace(/ \d+$/, '');
+    for (let digits = 2; digits <= 6; digits++) {
+      const low = 10 ** (digits - 1);
+      for (let i = 0; i < 10; i++) yield `${prefix} ${low + Math.floor(random() * 9 * low)}`;
+    }
+    return;
+  }
+  for (let n = 2; n < 1000; n++) {
+    const suffix = ` ${n}`;
+    yield `${name.slice(0, NAME_MAX - suffix.length).trimEnd()}${suffix}`;
+  }
+}
 
 /**
  * What two names are compared by: one account per name, and "Jean-Marc" is

@@ -3,10 +3,9 @@ import { accuracyPoints } from '../src/accuracy';
 import { en } from '../src/i18n/en';
 import { fr } from '../src/i18n/fr';
 import { madeUpName } from '../src/net/leaderboard';
-import { BOARD_DZS, BOARD_STARTS, NAME_MAX, UNNAMED, cleanName, nameKey, parseSubmission, submissionPoints } from '../src/net/scores';
+import { BOARD_DZS, BOARD_STARTS, NAME_MAX, UNNAMED, cleanName, nameKey, otherNames, parseSubmission, submissionPoints } from '../src/net/scores';
 import { STARTS } from '../src/setup';
 import { DZS } from '../src/world/dzs';
-import { otherNames } from '../worker/names';
 
 const good = {
   dz: 'valbrise',

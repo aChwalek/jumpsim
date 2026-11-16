@@ -2,27 +2,7 @@
 // kept in the accounts database's "nameKey" column, unique (migration 0002):
 // two accounts cannot end up with the same one, even at the same moment.
 
-import { NAME_MAX, UNNAMED, madeUpName, nameKey } from '../src/net/scores';
-
-/**
- * Names to try instead of a taken one, in order: a name the game made up gets
- * another number (two digits while some are left, then more), a chosen one a
- * number after it ("Bob 2", "Bob 3").
- */
-export function* otherNames(name: string, random: () => number = Math.random): Generator<string> {
-  if (madeUpName(name)) {
-    const prefix = name.replace(/ \d+$/, '');
-    for (let digits = 2; digits <= 6; digits++) {
-      const low = 10 ** (digits - 1);
-      for (let i = 0; i < 10; i++) yield `${prefix} ${low + Math.floor(random() * 9 * low)}`;
-    }
-    return;
-  }
-  for (let n = 2; n < 1000; n++) {
-    const suffix = ` ${n}`;
-    yield `${name.slice(0, NAME_MAX - suffix.length).trimEnd()}${suffix}`;
-  }
-}
+import { UNNAMED, nameKey, otherNames } from '../src/net/scores';
 
 /** The names of the accounts, for one request. */
 export class Names {
