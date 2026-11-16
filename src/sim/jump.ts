@@ -70,6 +70,8 @@ export interface JumpOptions {
    * and off the end of the ramp, rather than waiting at a place on it.
    */
   onFoot?: boolean;
+  /** Which of the load the jumper is, 0 the first: where they start in a hold (see `holdSeat`). */
+  seat?: number;
   /** What the jumper wears: a plain jumpsuit if not given. */
   suit?: Suit;
 }
@@ -121,6 +123,24 @@ const BODY_HALF_WIDTH = 0.3;
 const LEAP_FROM_RAMP = 0.5;
 /** Where one starts in a hold: this far behind its front bulkhead, facing the ramp, m. */
 const HOLD_START = 1.5;
+/** The others of a load start behind, a row every this far, m, either side of the middle by `SEAT_ACROSS`. */
+const SEAT_PITCH = 1.1;
+const SEAT_ACROSS = 0.75;
+/** That many places down the hold, well short of the ramp; past that, the first ones again. */
+const HOLD_SEATS = 12;
+
+/**
+ * Where the one at `seat` of a load starts in a hold, so that nobody starts
+ * in someone else: the first in the middle, the next two behind either side
+ * of them, the next behind in the middle, and so on down the hold. Plane
+ * frame: across from its middle, and behind its front bulkhead, m.
+ */
+export function holdSeat(seat: number): { x: number; back: number } {
+  const k = ((Math.round(seat) % HOLD_SEATS) + HOLD_SEATS) % HOLD_SEATS;
+  const side = k % 3;
+  const row = 2 * Math.floor(k / 3) + (side === 0 ? 0 : 1);
+  return { x: side === 0 ? 0 : side === 1 ? -SEAT_ACROSS : SEAT_ACROSS, back: HOLD_START + row * SEAT_PITCH };
+}
 
 /**
  * The floor of a hold, plane frame: flat from the front bulkhead to the end
@@ -263,9 +283,10 @@ export class Jump {
       this.plane = new Plane(from, env.wind, groundAt(from.x, from.z));
       this.runUp = null;
       const ramp = this.plane.type.ramp;
-      // At the front of the hold, facing the ramp: all of it to run down.
+      // At the front of the hold, facing the ramp: all of it to run down. The others of the load behind.
+      const seat = holdSeat(options.seat ?? 0);
       this.walk =
-        ramp && options.onFoot ? new RunUp(holdFloor(ramp, this.plane.type.cabin.halfWidth), 0, ramp.front + HOLD_START, 180) : null;
+        ramp && options.onFoot ? new RunUp(holdFloor(ramp, this.plane.type.cabin.halfWidth), seat.x, ramp.front + seat.back, 180) : null;
       this.fromYaw = this.place(this.fromEye);
     }
     this.log = {
@@ -378,6 +399,13 @@ export class Jump {
     this.fromYaw = this.place(this.fromEye);
     this.spot = next;
     this.spotMove = 0;
+  }
+
+  /** The plane straight to where it is after `flown` s on its run, with the jumper in it if still aboard. */
+  flyPlane(flown: number): void {
+    if (!this.plane) return;
+    this.plane.fly(flown);
+    if (this.phase === 'plane') this.ride();
   }
 
   /** On the feet, walking: on top of the object, or in the hold of the plane. */

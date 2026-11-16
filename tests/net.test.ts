@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { INTERP_DELAY_MS, SnapshotBuffer, lerpSnapshot, nlerp } from '../src/net/interp';
 import { readHello } from '../src/net/multiplayer';
+import { planeGap, type OurPlane } from '../src/net/remote';
 import { SNAPSHOT_BYTES, copySnapshot, decodeSnapshot, emptySnapshot, encodeSnapshot, type Snapshot } from '../src/net/snapshot';
-import { quat } from '../src/sim/vec';
+import { quat, vec3 } from '../src/sim/vec';
 
 const at = (t: number, x: number): Snapshot => {
   const s = emptySnapshot();
@@ -141,6 +142,30 @@ describe('snapshot', () => {
     expect(lerpSnapshot(emptySnapshot(), crashed, before, 0.5).joints[0]).toBe(2);
   });
 
+  it('carries the plane they are in only while in it', () => {
+    const s = emptySnapshot();
+    Object.assign(s, { phase: 'plane', hasPlane: true, slider: 'stowed' });
+    Object.assign(s.plane.pos, { x: -4123.5, y: 4012.25, z: 2250.75 });
+    Object.assign(s.plane, { headingDeg: 271.3, aircraft: 'c130' });
+    const buffer = encodeSnapshot(s);
+    expect(buffer.byteLength).toBe(SNAPSHOT_BYTES + 15);
+    const b = decodeSnapshot(buffer)!;
+    expect([b.hasPlane, b.plane.aircraft, b.slider]).toEqual([true, 'c130', 'stowed']);
+    expect(b.plane.pos).toEqual(s.plane.pos);
+    expect(b.plane.headingDeg).toBeCloseTo(271.3, 6);
+    // Copied whole, and between two snapshots, the plane goes along.
+    const copy = copySnapshot(emptySnapshot(), b);
+    b.plane.pos.x = 0;
+    expect(copy.plane.pos.x).toBe(-4123.5);
+    const later = copySnapshot(emptySnapshot(), copy);
+    later.plane.pos.x += 10;
+    expect(lerpSnapshot(emptySnapshot(), copy, later, 0.5).plane.pos.x).toBeCloseTo(-4118.5, 6);
+    // Out of it: the packet shrinks back.
+    s.hasPlane = false;
+    expect(encodeSnapshot(s).byteLength).toBe(SNAPSHOT_BYTES);
+    expect(decodeSnapshot(encodeSnapshot(s), copy)!.hasPlane).toBe(false);
+  });
+
   it('keeps a packed canopy packed', () => {
     const s = emptySnapshot();
     s.inflation = null;
@@ -180,6 +205,18 @@ describe('snapshot buffer', () => {
     expect(out.pos.x).toBeCloseTo(25, 6);
   });
 
+  it('carries their plane on with them past the last snapshot: where they are in it stays put', () => {
+    const buffer = new SnapshotBuffer();
+    const s = at(0, 100);
+    s.hasPlane = true;
+    s.plane.pos.x = 90;
+    buffer.push(s, 1000);
+    const out = emptySnapshot();
+    buffer.sample(1000 + INTERP_DELAY_MS + 100, out);
+    expect(out.pos.x).toBeCloseTo(101, 6);
+    expect(out.pos.x - out.plane.pos.x).toBeCloseTo(10, 6);
+  });
+
   it('carries on along the velocity for a while when snapshots stop, then holds', () => {
     const b = new SnapshotBuffer();
     b.push(at(0, 0), local(0));
@@ -193,6 +230,26 @@ describe('snapshot buffer', () => {
 
   it('has nothing to draw before anything came', () => {
     expect(new SnapshotBuffer().sample(0, emptySnapshot())).toBe(false);
+  });
+});
+
+describe('their plane and ours', () => {
+  const ours: OurPlane = { pos: vec3(1000, 4000, -500), headingDeg: 270, type: { id: 'c130' } };
+  const theirs = (x: number, y = 4000, headingDeg = 270, aircraft: 'c130' | 'pc6' = 'c130') => ({ pos: vec3(x, y, -500), headingDeg, aircraft });
+
+  it('are the same load a moment apart: the gap from theirs to ours', () => {
+    expect(planeGap(ours, theirs(1030), vec3())).toEqual({ x: -30, y: 0, z: 0 });
+    // Headings either side of north are near each other.
+    const north = { ...ours, headingDeg: 359.5 };
+    expect(planeGap(north, theirs(1000, 4000, 0.5), vec3())).not.toBeNull();
+  });
+
+  it('are not when another aircraft, another height or another run, or the next load', () => {
+    expect(planeGap(ours, theirs(1000, 4000, 270, 'pc6'), vec3())).toBeNull();
+    expect(planeGap(ours, theirs(1000, 3500), vec3())).toBeNull();
+    expect(planeGap(ours, theirs(1000, 4000, 90), vec3())).toBeNull();
+    // 30 s behind at jump run speed.
+    expect(planeGap(ours, theirs(1000 + 30 * 60), vec3())).toBeNull();
   });
 });
 

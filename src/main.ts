@@ -61,7 +61,7 @@ import { MAIN_MALFUNCTIONS } from './sim/opening';
 import { SLIDE_FROM, detectTouchdown, feetHeight, rateLanding, worst, type Touchdown } from './sim/landing';
 import { Skim, slidesOn, type LegAngles, type SkimEnd } from './sim/skim';
 import { SwoopTracker } from './sim/swoop';
-import { engineHubs } from './sim/plane';
+import { engineHubs, seatSpot } from './sim/plane';
 import { AIR_DENSITY_SEA_LEVEL } from './sim/rig';
 import type { RunUp } from './sim/runUp';
 import { SIM_DT, emptyTelemetry, initTrimmed, readTelemetry, warmTrims } from './sim/telemetry';
@@ -447,7 +447,10 @@ function joinRoom(name: string): void {
       if (!net?.isPublic) net?.setReady(false);
       menu.applyShared(shared);
     },
-    start: (start, shared) => menu.startShared(shared, start),
+    start: (start, shared, at) => {
+      boarding = at;
+      menu.startShared(shared, start);
+    },
     changed: showRoom,
     exited: showExit,
   });
@@ -846,6 +849,30 @@ function startBots(from: BotsSpec['from']): void {
   });
 }
 
+/**
+ * When the load we are on left, by the room's clock (server ms): its plane
+ * flies by it, so that everyone aboard is in the same plane at the same
+ * moment. Null on a jump alone, or not from a plane.
+ */
+let loadLeft: number | null = null;
+/** Set by the room's start, for the jump it starts to take. */
+let boarding: number | null = null;
+/** A start older than this is not the one of the jump being started, s. */
+const BOARDING_STALE = 60;
+/** The plane off the room's clock by this much is put back on it, s: a frame cut short, a pause, the menu. */
+const PLANE_SLIP = 0.005;
+
+/** Our plane where the room's clock puts it, `ahead` s before now (the sim then flies it on to now). */
+function keepPlaneOnClock(ahead: number): void {
+  const plane = jump?.plane;
+  if (!jump || !plane || loadLeft === null || !net) return;
+  const flown = Math.max(0, (net.serverNow() - loadLeft) / 1000 - ahead);
+  if (Math.abs(flown - plane.flown) < PLANE_SLIP) return;
+  jump.flyPlane(flown);
+  // The replay flies it on from there (once out, a slip is too small to show).
+  if (jump.phase === 'plane') trackRecorder.setPlane(plane.type.id, plane.pos, plane.vel, plane.att);
+}
+
 /** One canopy and no reserve: a BASE container. */
 const singleCanopy = (): boolean => (jump ? jump.single : setup.gear.container === 'base');
 
@@ -853,6 +880,10 @@ function spawn(kind: Start): void {
   // No BASE object here: from the plane instead.
   if (kind === 'base' && !dz.base) kind = 'plane';
   scenario = kind;
+  // Started by the room: its load's plane, by its clock.
+  const left = boarding;
+  boarding = null;
+  loadLeft = kind === 'plane' && net && left !== null && (net.serverNow() - left) / 1000 < BOARDING_STALE ? left : null;
   // A jump over but not yet at rest still goes in the logbook whole.
   if (trackRecorder.isLogged) finishTrack();
   lastTrack = null;
@@ -872,10 +903,13 @@ function spawn(kind: Start): void {
     windAt(env.wind, setup.weather, spots.plane.height, airTime);
     // Any of what can go wrong with a main, as likely as each other.
     const malfunction = unlucky ? MAIN_MALFUNCTIONS[Math.floor(Math.random() * MAIN_MALFUNCTIONS.length)]! : null;
+    // With others, each in a place of their own: the first at the place chosen, the others round them.
+    const seat = net?.seat ?? 0;
     jump = new Jump(model, spots.plane, env, dz.groundAt, Math.random, {
       ...rigOptions(),
       malfunction,
-      spot: setup.jump.exitSpot,
+      spot: seatSpot(seat, setup.jump.exitSpot),
+      seat,
       onFoot: true,
     });
     // Company on a jump alone: out of the same plane, right after us, in a suit like ours.
@@ -902,6 +936,7 @@ function spawn(kind: Start): void {
     if (!jump.single) warmTrims(reserveRig);
   }
   planeView.object.visible = jump?.plane != null;
+  keepPlaneOnClock(0);
   if (jump?.plane) trackRecorder.setPlane(jump.plane.type.id, jump.plane.pos, jump.plane.vel, jump.plane.att);
   impact = false;
   Object.assign(ramped, neutralControls());
@@ -1028,7 +1063,7 @@ function say(text: string, small = '', ms = 1800): void {
   flash = { text: small ? `${text}<small>${small}</small>` : text, until: performance.now() + ms };
 }
 
-/** Where the target is now, if it can be seen: a player is not while in their plane. */
+/** Where the target is now, if it can be seen: a player is not while in a plane other than ours. */
 function targetPos(): THREE.Vector3 | null {
   if (!target) return null;
   if (target.kind === 'point') return targetAt.copy(target.pos);
@@ -2668,6 +2703,9 @@ function drawMap(now: number): void {
   menu.map.pictureDrawn(setup.dz);
 }
 
+/** Out of the plane, it still goes to the others this long, s: a few snapshots, should one be lost. */
+const PLANE_SENT_AFTER = 0.5;
+
 /** The body as drawn at the last frame flown, and the heap of the canopy: what the others see of us. */
 const drawnPose = makePose();
 let drawnHeap = 0;
@@ -2718,6 +2756,15 @@ function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation
     r.crumple = free.crumple;
     r.heap = free.heap;
     Object.assign(r.fallTo, free.fallTo);
+  }
+  // In the plane, and a moment after leaving it: which one, and where, for the others to draw us in
+  // theirs. The moment after is for them to go from the last snapshot in it to the first out of it.
+  const plane = jump?.phase === 'plane' || (jump?.phase === 'freefall' && jump.time < PLANE_SENT_AFTER) ? jump.plane : null;
+  o.hasPlane = plane !== null;
+  if (plane) {
+    Object.assign(o.plane.pos, plane.pos);
+    o.plane.headingDeg = plane.headingDeg;
+    o.plane.aircraft = plane.type.id;
   }
   net.send(elapsed);
 }
@@ -2811,6 +2858,8 @@ function frame(now: number): void {
         faceTheView(feet, fromDeg);
       }
     }
+    // With others, the load's plane where the room's clock has it: the step flies it on to now.
+    keepPlaneOnClock(arrival ? 0 : seconds);
     if (arrival) {
       airTime += seconds;
       // On the feet again: walking, but not while gathering the canopy up.
@@ -2838,6 +2887,9 @@ function frame(now: number): void {
         verdict = null;
       }
     }
+  } else if (!watching && !replay) {
+    // Paused or in the menu: the others' plane does not wait, nor does ours, with us in it.
+    keepPlaneOnClock(0);
   }
 
   perf.mark(1);
@@ -2917,7 +2969,9 @@ function frame(now: number): void {
     if (replay) net.send(elapsed);
     else sendJumper(net, pose, onRisers, inflation, elapsed);
     // While a jump is watched again, the others of now are not in it.
-    net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, setup.dz, !watching);
+    // Those on our load in our plane, where they are in theirs.
+    const plane = jump?.plane;
+    net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid, plane }, setup.dz, !watching);
     if (net.players !== playersShown) showGear();
   } else if (bots) {
     bots.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, light, !watching);

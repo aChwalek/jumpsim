@@ -27,6 +27,12 @@ export type ServerMessage =
   /** An offer, an answer or an ICE candidate, passed on from another peer. */
   | { type: 'signal'; from: string; data: unknown }
   /** Something for the whole room, from one of it. */
-  | { type: 'broadcast'; from: string; data: unknown };
+  | { type: 'broadcast'; from: string; data: unknown }
+  /** The server's clock (ms), in answer to a `time` sent at `sent` (the asker's clock). */
+  | { type: 'time'; sent: number; now: number };
 
-export type ClientMessage = { type: 'signal'; to: string; data: unknown } | { type: 'broadcast'; data: unknown };
+export type ClientMessage =
+  | { type: 'signal'; to: string; data: unknown }
+  | { type: 'broadcast'; data: unknown }
+  /** What time it is on the server: the loads leave by it, and their planes fly by it. */
+  | { type: 'time'; sent: number };

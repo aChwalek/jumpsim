@@ -198,6 +198,8 @@ export class Room extends DurableObject<Env> {
     } else if (message.type === 'signal' && typeof message.to === 'string') {
       const to = this.ctx.getWebSockets(message.to)[0];
       if (to) send(to, { type: 'signal', from, data: message.data });
+    } else if (message.type === 'time' && Number.isFinite(message.sent)) {
+      send(ws, { type: 'time', sent: message.sent, now: Date.now() });
     }
   }
 

@@ -65,6 +65,12 @@ export class SnapshotBuffer {
       out.pos.x += out.vel.x * ahead;
       out.pos.y += out.vel.y * ahead;
       out.pos.z += out.vel.z * ahead;
+      // Their plane with them: where they are in it stays put.
+      if (out.hasPlane) {
+        out.plane.pos.x += out.vel.x * ahead;
+        out.plane.pos.y += out.vel.y * ahead;
+        out.plane.pos.z += out.vel.z * ahead;
+      }
       out.t = last.t + ahead * 1000;
       return true;
     }
@@ -81,8 +87,8 @@ export class SnapshotBuffer {
 
 /**
  * Between two snapshots: what changes in steps (phase, stance, flags, the
- * slider, where the heap started) is taken from the first; the ragdoll and
- * the cut-away main go between the two only if both have them.
+ * slider, where the heap started) is taken from the first; the ragdoll, the
+ * cut-away main and the plane go between the two only if both have them.
  */
 export function lerpSnapshot(out: Snapshot, a: Snapshot, b: Snapshot, k: number): Snapshot {
   copySnapshot(out, a);
@@ -116,6 +122,12 @@ export function lerpSnapshot(out: Snapshot, a: Snapshot, b: Snapshot, k: number)
     nlerp(r.att, ra.att, rb.att, k);
     r.crumple = mix(ra.crumple, rb.crumple);
     r.heap = mix(ra.heap, rb.heap);
+  }
+  if (a.hasPlane && b.hasPlane) {
+    const [p, pa, pb] = [out.plane.pos, a.plane.pos, b.plane.pos];
+    p.x = mix(pa.x, pb.x);
+    p.y = mix(pa.y, pb.y);
+    p.z = mix(pa.z, pb.z);
   }
   if (a.inflation !== null && b.inflation !== null) out.inflation = mix(a.inflation, b.inflation);
   if (a.deploy === b.deploy) out.deployTime = mix(a.deployTime, b.deployTime);
