@@ -2869,7 +2869,7 @@ function frame(now: number): void {
     drawnHeap = heap;
     rigView.body.group.visible = !ragdoll;
     ragdollView.update(ragdoll ? jointArray(ragdoll, liveJoints) : null);
-    hud.setCard(canReplay(), !!arrival?.walker, lastTrack !== null);
+    hud.setCard(canReplay(), !!arrival?.walkedOff, lastTrack !== null);
     rigFrame.time = airTime;
     rigFrame.dt = moving;
     rigFrame.wind.set(env.wind.x, env.wind.y, env.wind.z);
