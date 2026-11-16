@@ -93,10 +93,11 @@ import {
   ICON_BACK,
   ICON_BOOK,
   ICON_CANOPY,
+  ICON_CHECK,
   ICON_COG,
+  ICON_COPY,
   ICON_DZ,
   ICON_GLOBE,
-  ICON_INVITE,
   ICON_LOCK,
   ICON_MORE,
   ICON_PEOPLE,
@@ -107,7 +108,6 @@ import {
   ICON_WEATHER,
 } from './icons';
 import { Nav } from './nav';
-import { browserWays, shareLink } from './share';
 import { MAX_PEERS } from '../net/protocol';
 import { NAME_MAX, cleanName, type SharedSetup } from '../net/room';
 import { loadBoard, loadPlaces, madeUpName } from '../net/leaderboard';
@@ -172,6 +172,38 @@ function button(cls: string, ...children: Child[]): HTMLButtonElement {
   b.type = 'button';
   return b;
 }
+
+/**
+ * Text to the clipboard; whether it went. Where there is no clipboard API
+ * (plain http, as on a phone trying the dev server), the old way, through a
+ * field out of sight. Either needs a click: a gamepad press will not do.
+ */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Not allowed now: the old way may be.
+  }
+  const field = document.createElement('textarea');
+  field.value = text;
+  field.readOnly = true;
+  field.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+  document.body.append(field);
+  field.select();
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    field.remove();
+  }
+}
+
+/** A link as the invite button shows it: no https://. */
+const shortLink = (link: string): string => link.replace(/^https?:\/\//, '');
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 const options = <V>(values: readonly V[], label: (v: V) => string): Option<V>[] => values.map((value) => ({ value, label: label(value) }));
@@ -729,15 +761,23 @@ export class Menu {
     });
 
     const hint = h('span', 'stage-hint', T.menu.dragHint);
-    // A friend along: by the jumpers, over the button that goes.
+    // A friend along: by the jumpers, over the button that goes. Once
+    // there is a room, the button is its link, and a click copies it.
     const invite = button('invite');
     invite.dataset.key = 'invite';
-    invite.title = T.menu.invite.title;
+    const inviteText = h('span', 'invite-text');
+    const inviteIcon = h('span', 'invite-icon');
+    invite.append(inviteText, inviteIcon);
     invite.addEventListener('click', () => void this.invite());
     this.updaters.push(() => {
+      const t = T.menu.invite;
+      const link = this.room?.link ?? null;
       const copied = performance.now() < this.invitedUntil;
+      invite.classList.toggle('has-link', link !== null);
       invite.classList.toggle('done', copied);
-      invite.innerHTML = `${ICON_INVITE}<span>${copied ? T.menu.invite.copied : T.menu.invite.label}</span>`;
+      invite.title = link ? t.linkTitle : t.title;
+      inviteText.textContent = copied ? t.copied : link ? shortLink(link) : t.label;
+      inviteIcon.innerHTML = copied ? ICON_CHECK : ICON_COPY;
     });
     // The name and the height over the jumpers' heads, in the sky behind them.
     this.stage = h('div', 'stage', this.crew.el, head, hint, this.nav.add(invite), this.map.el);
@@ -766,23 +806,35 @@ export class Menu {
     };
     this.updaters.push(showJump);
     this.ticking.push(showJump);
-    const go = h('div', 'go', this.nav.add(this.resume), this.nav.add(this.jump));
+    // Leading, with others not ready: everyone goes now, in one click. Over
+    // the jump button, not on it: the click that said ready cannot land on it.
+    const anywaySub = h('span', 'go-sub');
+    const anyway = button('anyway', html(ICON_PLANE), h('span', 'go-label', T.menu.room.goAnyway), anywaySub);
+    anyway.dataset.key = 'anyway';
+    anyway.addEventListener('click', () => {
+      if (this.canGoAnyway()) this.onStartNow();
+    });
+    this.updaters.push(() => {
+      // Names as typed by the others: as text, never as markup.
+      const waiting = this.room?.players.filter((p) => !p.ready && !p.self).map((p) => p.name || '…') ?? [];
+      anyway.hidden = !this.canGoAnyway();
+      anywaySub.textContent = T.menu.room.notReady(waiting);
+    });
+    const go = h('div', 'go', this.nav.add(anyway, { disabled: () => !this.canGoAnyway() }), this.nav.add(this.resume), this.nav.add(this.jump));
     return h('aside', 'side', this.stage, go);
   }
 
   /**
-   * Asks a friend along: the room's link, through the device's sheet or
-   * copied. Alone, a room is made first, with this jump's setup: whoever
-   * opens the link comes into it.
+   * Asks a friend along: the room's link to the clipboard, where the browser
+   * lets it (a click does, a gamepad press does not: the button shows the
+   * link anyway). Alone, a room is made first, with this jump's setup:
+   * whoever opens the link comes into it.
    */
   private async invite(): Promise<void> {
     if (!this.room) this.onCreateRoom();
-    const room = this.room;
-    if (!room) return;
-    const t = T.menu.invite;
-    const dz = dzInfo(room.publicDz ?? this.setup.dz).name;
-    const how = await shareLink({ title: 'Lowpull', text: t.text(dz), url: room.link }, browserWays(t.prompt));
-    if (how !== 'copied') return;
+    const link = this.room?.link;
+    this.refresh();
+    if (!link || !(await copyText(link))) return;
     this.invitedUntil = performance.now() + INVITED_MS;
     this.refresh();
     setTimeout(() => this.refresh(), INVITED_MS + 100);
@@ -1462,6 +1514,11 @@ export class Menu {
       warn.hidden = !warn.textContent;
     });
     return box;
+  }
+
+  /** Leading a room where someone else is not ready: saying ready ourselves would not be enough to go. */
+  private canGoAnyway(): boolean {
+    return this.canStartNow() && !!this.room?.players.some((p) => !p.ready && !p.self);
   }
 
   /** Leading a room of more than one where not everyone is ready. */

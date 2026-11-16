@@ -181,6 +181,7 @@ function statsGrid(t: Touchdown, distanceToTarget: number, log: JumpLog | null, 
 
 /** What can be done once down: go again, change the jump, or see the end of it again. */
 const hint = (): string => `
+  <button class="cardAway" data-card-away title="${T.hud.hideCard}">✕</button>
   <div class="actions">
     <button data-act="retry">${T.hud.retry}</button>
     <button data-act="change">${T.hud.change}</button>
@@ -223,6 +224,10 @@ export class Hud {
   private readonly frontR = el('frontR');
   private readonly held = el('held');
   private readonly result = el('result');
+  /** In place of the card when it is put away: a press brings it back. */
+  private readonly cardTab = el('cardTab');
+  /** The card put out of the way (Escape, B, its cross), until shown again or the next one. */
+  private cardAway = false;
   private readonly celebration = new RecordCelebration();
   onRecordSound: (kind: 'tick' | 'stamp') => void = () => {};
   private readonly gear = el('gear');
@@ -249,7 +254,9 @@ export class Hud {
   private board: BoardState | null = null;
 
   constructor() {
+    this.cardTab.addEventListener('click', () => this.putCardAway(false));
     this.result.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('[data-card-away]')) return this.putCardAway(true);
       const act = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act;
       if (act) {
         this.celebration.finish();
@@ -328,9 +335,33 @@ export class Hud {
     toggle.title = paused ? T.hud.watchPlay : T.hud.watchPause;
   }
 
-  /** Whether the card at the end of the jump is up. */
+  /** Whether the card at the end of the jump is up, and not put away. */
   get cardShown(): boolean {
+    return this.cardUp && !this.cardAway;
+  }
+
+  /** Whether there is a card at the end of the jump, shown or put away. */
+  get cardUp(): boolean {
     return this.result.style.display === 'block';
+  }
+
+  /** Escape, B: the card out of the way to look about, or back. False when there is none. */
+  toggleCard(): boolean {
+    if (!this.cardUp) return false;
+    this.putCardAway(!this.cardAway);
+    return true;
+  }
+
+  private putCardAway(away: boolean): void {
+    this.cardAway = away && this.cardUp;
+    if (this.cardAway) {
+      this.celebration.finish();
+      this.cardFocus?.classList.remove('focus');
+      this.cardFocus = null;
+    }
+    this.result.classList.toggle('away', this.cardAway);
+    this.cardTab.classList.toggle('on', this.cardAway);
+    this.cardTab.innerHTML = `${T.hud.showCard}<kbd>${T.hud.escKey}</kbd>`;
   }
 
   /**
@@ -425,6 +456,7 @@ export class Hud {
   showImpact(log: JumpLog, opening: boolean, speed: number, malfunction: Malfunction | null = null): void {
     this.celebration.clear();
     this.result.classList.remove('withStats');
+    this.putCardAway(false);
     const t = T.hud;
     const [title, text] =
       opening && malfunction === 'streamer'
@@ -455,6 +487,7 @@ export class Hud {
   showStrike(when: 'freefall' | 'opening' | 'canopy', speed: number, log: JumpLog | null): void {
     this.celebration.clear();
     this.result.classList.remove('withStats');
+    this.putCardAway(false);
     const t = T.hud;
     const text = { freefall: t.strikeFreefall, opening: t.strikeOpening, canopy: t.strikeCanopy }[when];
     this.cardFocus = null;
@@ -489,8 +522,10 @@ export class Hud {
     this.result.classList.remove('withStats');
     if (!t) {
       this.result.style.display = 'none';
+      this.putCardAway(false);
       return;
     }
+    this.putCardAway(false);
     this.cardFocus = null;
     this.result.innerHTML = `
       <h1>${T.hud.titles[t.rating]}</h1>

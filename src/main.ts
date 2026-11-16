@@ -1203,6 +1203,9 @@ const actions: Record<Action, () => void> = {
   padMenu: () => {
     if (!menu.isOpen) actions.openMenu();
   },
+  card: () => {
+    if (!replay) hud.toggleCard();
+  },
 };
 hud.onCard = (action) => {
   if (menu.isOpen) return;
@@ -1299,9 +1302,12 @@ menu.onPreview = async (chosen) => {
 menu.onCancel = fly;
 menu.onSettings = applySettings;
 // Escape opens the menu too; in the menu it goes back, and may close it:
-// that press is spent (the menu takes it first and marks it).
+// that press is spent (the menu takes it first and marks it). Once down, it
+// puts the card of the jump out of the way, and brings it back.
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Escape' && !e.repeat && !e.defaultPrevented && !menu.isOpen) actions.openMenu();
+  if (e.code === 'Escape' && !e.repeat && !e.defaultPrevented && !menu.isOpen) {
+    if (replay || watching || !hud.toggleCard()) actions.openMenu();
+  }
   // Tab picks the next player: not the next thing on the page.
   if (e.code === 'Tab' && !menu.isOpen) e.preventDefault();
 });

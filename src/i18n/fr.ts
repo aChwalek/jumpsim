@@ -191,7 +191,11 @@ export const fr = {
     atImpact: 'à l\'impact',
     freefallOnly: 'de chute libre',
     again: (k: K) =>
-      `${k('KeyR')} ou Y pour recommencer · flèches ou croix puis Espace ou A pour les boutons · 1 circuit · 2 finale · 3 avion · 4 BASE · ${k('KeyV')}, Échap ou Start pour le menu`,
+      `${k('KeyR')} ou Y pour recommencer · flèches ou croix puis Espace ou A pour les boutons · 1 circuit · 2 finale · 3 avion · 4 BASE · ${k('KeyV')} ou Start pour le menu · Échap ou B pour masquer`,
+    /** The card at the end of the jump, put out of the way and back. */
+    hideCard: 'Masquer (Échap)',
+    showCard: 'Afficher le résultat',
+    escKey: 'Échap',
     fps: (fps: string, scale: string) => `${fps} i/s · rendu ${scale} %`,
     muted: 'son coupé',
     wind: (hdg: string, from: string, kmh: string, gust: string | null) =>
@@ -395,10 +399,9 @@ export const fr = {
     /** The button over the jumpers that asks a friend along. */
     invite: {
       label: 'Inviter un ami',
-      copied: 'Lien copié ✓',
-      title: 'Envoie le lien de ce saut : ton ami arrive dans ta salle, avec les mêmes réglages.',
-      text: (dz: string) => `Viens sauter avec moi à ${dz} sur Lowpull`,
-      prompt: 'Le lien de ce saut, à envoyer :',
+      title: 'Copie le lien de ce saut : ton ami arrive dans ta salle, avec les mêmes réglages.',
+      linkTitle: 'Copier le lien de ta salle, à envoyer à ton ami',
+      copied: 'Lien copié',
     },
     back: 'Retour',
     resume: 'Reprendre le saut',
@@ -439,6 +442,8 @@ export const fr = {
       imReady: 'Je suis prêt',
       waiting: 'Prêt · en attente',
       readyCount: (n: number, total: number) => `${n}/${total} prêts`,
+      goAnyway: 'Lancer quand même',
+      notReady: (names: string[]) => (names.length === 1 ? `${names[0]} pas prêt` : `${names.length} pas prêts`),
       startNow: 'Lancer sans attendre',
       startNowWarn: (names: string) => `Pas encore prêts : ${names}. Clique encore pour lancer quand même.`,
     },
