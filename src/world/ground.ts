@@ -321,7 +321,12 @@ const ROCK_GLSL = /* glsl */ `
     vec2 w = abs(n.xz) + 0.001;
     w /= w.x + w.y;
     float face = rockFace(vec2(p.z, p.y)) * w.x + rockFace(vec2(p.x, p.y)) * w.y;
+  #ifdef GROUND_TILE
+    // The square's own photo, averaged over some 30 m whatever its texels.
+    vec3 tint = texture2D(map, vMapUv, tileBlur).rgb * photoGain;
+  #else
     vec3 tint = photoAt(p.xz, 4.5);
+  #endif
     // Rock is greyer than the averaged photo, which takes in the ledges' grass.
     float grey = dot(tint, vec3(0.3, 0.5, 0.2));
     tint = mix(vec3(grey), tint, 0.55) * vec3(1.02, 1.0, 0.97);
@@ -380,13 +385,16 @@ export interface RockCover {
 /**
  * Lambert material whose colour carries world-space ground detail. With
  * photos, the colour is the photo's, and only the fine grain is added to it;
- * bare rock replaces it where `rock` says so.
+ * bare rock replaces it where `rock` says so. A square of terrain tiles
+ * (`tile`) brings its own photo as `params.map`, a texel `tile.texel` metres
+ * wide: the photos only lend their brightness and the rock's colour then.
  */
 export function groundMaterial(
   params: THREE.MeshLambertMaterialParameters,
   layer: number,
   photos?: Photos,
   rock?: RockCover,
+  tile?: { texel: number },
 ): THREE.MeshLambertMaterial {
   noise ??= makeNoiseTexture();
   const detail = noise;
@@ -405,18 +413,26 @@ export function groundMaterial(
     shader.uniforms.grainMap = { value: marks };
     if (photos) Object.assign(shader.uniforms, photos.uniforms);
     if (photos && rock) Object.assign(shader.uniforms, { rockMap: { value: rock.texture }, rockBox: { value: rock.box } });
+    // A blur that averages some 30 m of the square's photo, as a mipmap bias.
+    if (tile) shader.uniforms.tileBlur = { value: Math.min(10, Math.max(0, Math.log2(30 / tile.texel))) };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vGroundWorld;\nvarying vec3 vGroundNormal;')
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
         vGroundWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
-        vGroundNormal = mat3(modelMatrix) * objectNormal;`,
+        ${
+          // A square's grid is quantized, its node scaled unevenly: its normals go through the normal matrix.
+          tile ? 'vGroundNormal = inverseTransformDirection(transformedNormal, viewMatrix);' : 'vGroundNormal = mat3(modelMatrix) * objectNormal;'
+        }`,
       );
+    // A square of tiles reads its own photo, `map`: the functions come after it is declared.
+    const anchor = tile ? '#include <map_pars_fragment>' : '#include <common>';
     shader.fragmentShader = shader.fragmentShader
       .replace(
-        '#include <common>',
-        `#include <common>
+        anchor,
+        `${anchor}
+        ${tile ? '#define GROUND_TILE\nuniform float tileBlur;' : ''}
         uniform sampler2D detailMap;
         uniform sampler2D grainMap;
         varying vec3 vGroundWorld;
@@ -429,7 +445,7 @@ export function groundMaterial(
         photos
           ? `#include <color_fragment>
         vec2 vGroundXZ = vGroundWorld.xz;
-        diffuseColor.rgb = photoAt(vGroundXZ);
+        ${tile ? 'diffuseColor.rgb *= photoGain;' : 'diffuseColor.rgb = photoAt(vGroundXZ);'}
         vec2 marks = texture2D(grainMap, vGroundXZ / ${GRAIN_TILE}).rg;
         // Blades wherever the ground bears something, as the grass standing on it has it: green, or
         // warm, short of blue or white. Bluish is tarmac, roofs and water, white is sand: stones.
@@ -470,7 +486,8 @@ export function groundMaterial(
         diffuseColor.rgb *= (0.45 + 1.1 * d1) * (0.75 + 0.5 * d2) * (0.8 + 0.4 * d3);`,
       );
   };
-  material.customProgramCacheKey = () => (photos ? (rock ? 'ground-photo-rock' : 'ground-photo') : 'ground-detail');
+  const kind = photos ? (tile ? 'ground-tile' : 'ground-photo') + (rock ? '-rock' : '') : 'ground-detail';
+  material.customProgramCacheKey = () => kind;
   return material;
 }
 
