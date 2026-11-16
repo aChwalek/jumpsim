@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { INTERP_DELAY_MS, SnapshotBuffer, lerpSnapshot, nlerp } from '../src/net/interp';
+import { TimeTrack, clockApart, compareSeen, readSeen, readTick, spread } from '../src/net/check';
 import { readHello } from '../src/net/multiplayer';
 import { flyOn, leadOf, planeGap, type OurPlane } from '../src/net/remote';
 import { SNAPSHOT_BYTES, copySnapshot, decodeSnapshot, emptySnapshot, encodeSnapshot, type Snapshot } from '../src/net/snapshot';
@@ -337,6 +338,56 @@ describe('their plane and ours', () => {
     expect(planeGap(ours, theirs(1000, 4000, 90), vec3())).toBeNull();
     // 30 s behind at jump run speed.
     expect(planeGap(ours, theirs(1000 + 30 * 60), vec3())).toBeNull();
+  });
+});
+
+describe('how the others see us', () => {
+  it('keeps where something was, and finds it between two moments', () => {
+    const track = new TimeTrack();
+    for (let t = 1000; t <= 5000; t += 10) track.push(t, t / 100, -t / 10, 0);
+    const out = vec3();
+    expect(track.at(4505, out)).toEqual({ x: 45.05, y: -450.5, z: 0 });
+    // Only the last few seconds.
+    expect(track.at(1500, out)).toBeNull();
+    expect(track.at(5001, out)).toBeNull();
+  });
+
+  it('tells a clock off on one side, which moves both views alike, from views that disagree', () => {
+    // Level, 4 m apart east-west, falling at 60 m/s. B's clock 100 ms behind A's: A draws B 6 m high,
+    // B draws A 6 m low. Each is off by 6 m, but they agree on where the other is.
+    const a = vec3(0, 2000, 0);
+    const b = vec3(4, 2000, 0);
+    const told = readSeen(JSON.parse(JSON.stringify({ type: 'seen', at: 1, self: [a.x, a.y, a.z], seen: [b.x, b.y + 6, b.z] })))!;
+    const shifted = compareSeen(told, b, vec3(a.x, a.y - 6, a.z));
+    expect(shifted.off).toBeCloseTo(6, 9);
+    expect(shifted.apart).toBeCloseTo(0, 9);
+    // A sees B where B is, but B sees A 5 m to the side: the views disagree.
+    const told2 = { ...told, seen: [b.x, b.y, b.z] as [number, number, number] };
+    const apart = compareSeen(told2, b, vec3(a.x, a.y, a.z + 5));
+    expect(apart.off).toBeCloseTo(0, 9);
+    expect(apart.apart).toBeCloseTo(5, 9);
+  });
+
+  it('forgets what it kept when the thing jumps somewhere else: a new jump, not a move', () => {
+    const track = new TimeTrack();
+    track.push(1000, 0, 4000, 0);
+    track.push(1010, 0.6, 4000, 0);
+    track.push(1020, 500, 300, 0);
+    expect(track.at(1005, vec3())).toBeNull();
+    expect(track.newest).toBe(1020);
+  });
+
+  it('compares two clocks peer to peer: the other one 100 ms ahead, over a 20 ms trip', () => {
+    const tock = readTick({ type: 'tock', a: 5000, b: 5110 });
+    expect(tock).toEqual({ type: 'tock', a: 5000, b: 5110 });
+    expect(clockApart(tock as { type: 'tock'; a: number; b: number }, 5020)).toEqual({ trip: 20, apart: 100 });
+    expect(readTick({ type: 'tick', a: 'x' })).toBeNull();
+  });
+
+  it('turns away what is not a measure', () => {
+    expect(readSeen({ type: 'seen', at: 1, self: [0, 0], seen: [0, 0, 0] })).toBeNull();
+    expect(readSeen({ type: 'hello' })).toBeNull();
+    expect(spread([3, 1, 2])).toEqual({ mid: 2, worst: 3 });
   });
 });
 

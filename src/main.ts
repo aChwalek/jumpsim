@@ -396,6 +396,8 @@ const perf = new PerfMeter(
   }),
   handheld(),
 );
+// With others: how they see us, in the same reports.
+perf.netReport = () => net?.report() ?? '';
 /** A bench is running (?bench): the resolution stays where it puts it. */
 let benching = false;
 
@@ -3013,7 +3015,7 @@ function frame(now: number): void {
     // While a jump is watched again, the others of now are not in it.
     // Those on our load in our plane, where they are in theirs.
     const plane = jump?.plane;
-    net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid, plane, roomTime }, setup.dz, !watching);
+    net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid, plane, roomTime }, setup.dz, !watching, replay ? undefined : model.state.pos);
     if (net.players !== playersShown) showGear();
   } else if (bots) {
     bots.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, light, !watching);

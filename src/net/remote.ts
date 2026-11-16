@@ -167,6 +167,8 @@ export class RemoteJumper {
   private phase: string | null = null;
   /** They left their plane at this frame. */
   exited = false;
+  /** How far on they were flown at the last frame, s: how old what came was. */
+  lead = 0;
   /** On the same load as us: drawn in our plane, then out of it. */
   private aboard = false;
   /** From their plane to ours, world frame, m: what they are moved by while in it. */
@@ -236,6 +238,7 @@ export class RemoteJumper {
     // What came is a moment old: flown on to now, where they are on their own screen. Not on the
     // ground, nor thrown about by a crash: they stay where they are. A bot is drawn as it is now.
     const lead = sampled && this.live === null && !s.landed && !s.hasJoints ? leadOf(f.roomTime, s.t) : 0;
+    this.lead = lead;
     if (lead > 0) flyOn(s, lead);
     // In their plane, drawn in ours if it is the same load: in the hold or at the door with us, to be
     // seen and picked as a target before the exit. Another plane is not drawn here: nor are they. A bot
