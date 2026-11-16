@@ -270,6 +270,7 @@ export const en: Strings = {
     noTarget: 'NO TARGET',
     noPlayer: 'NO ONE IN SIGHT',
     targetGone: 'TARGET GONE',
+    noPause: 'NO PAUSE WITH OTHERS',
     lockHint: (k: string) => `${k} to lock the camera on it`,
     pickHint: (k: string) => `${k}: target what is in the middle of the screen`,
     locked: 'CAMERA LOCKED ON TARGET',

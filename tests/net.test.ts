@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { INTERP_DELAY_MS, SnapshotBuffer, lerpSnapshot, nlerp } from '../src/net/interp';
 import { readHello } from '../src/net/multiplayer';
-import { planeGap, type OurPlane } from '../src/net/remote';
+import { flyOn, leadOf, planeGap, type OurPlane } from '../src/net/remote';
 import { SNAPSHOT_BYTES, copySnapshot, decodeSnapshot, emptySnapshot, encodeSnapshot, type Snapshot } from '../src/net/snapshot';
 import { quat, vec3 } from '../src/sim/vec';
 
@@ -231,10 +231,91 @@ describe('snapshot buffer', () => {
   it('has nothing to draw before anything came', () => {
     expect(new SnapshotBuffer().sample(0, emptySnapshot())).toBe(false);
   });
+
+  it('draws them no later than a moment given: ours, when we are behind', () => {
+    const b = new SnapshotBuffer();
+    for (let t = 0; t <= 1000; t += 100) b.push(at(t, t / 10), local(t));
+    expect(b.newest).toBe(1000);
+    const out = emptySnapshot();
+    b.sample(local(1000), out, 600);
+    expect(out.pos.x).toBeCloseTo(60, 6);
+    expect(out.t).toBeCloseTo(600, 6);
+  });
+
+  it("starts again when the sender's clock is set back, rather than wait for it to catch up", () => {
+    const b = new SnapshotBuffer();
+    for (let t = 10_000; t <= 11_000; t += 100) b.push(at(t, t / 10), local(t));
+    // Set back 5 s: what comes next is drawn, not held behind what came before.
+    for (let t = 6100; t <= 6500; t += 100) b.push(at(t, t / 10), local(t + 5000));
+    const out = emptySnapshot();
+    b.sample(local(11_500), out);
+    expect(out.pos.x).toBeCloseTo((6500 - INTERP_DELAY_MS) / 10, 6);
+  });
+});
+
+describe('the others drawn where they are now', () => {
+  it("flies on only what is stamped on the room's clock, by its age, up to half a second", () => {
+    const now = 1.79e12;
+    expect(leadOf(now, now - 180)).toBeCloseTo(0.18, 9);
+    expect(leadOf(now, now - 3000)).toBe(0.5);
+    // A stamp a little ahead of our clock (the two clocks a few ms apart): not flown back.
+    expect(leadOf(now, now + 4)).toBe(0);
+    // An older sender stamps with its own clock; a bot or a replay has no room clock.
+    expect(leadOf(now, 123_456)).toBe(0);
+    expect(leadOf(undefined, now - 180)).toBe(0);
+  });
+
+  it('flies the jumper on along their velocity, and a cut-away main along its own', () => {
+    const s = emptySnapshot();
+    Object.assign(s.pos, { x: 10, y: 3000, z: -5 });
+    Object.assign(s.vel, { x: 2, y: -55, z: 0 });
+    s.hasReleased = true;
+    Object.assign(s.released.pos, { x: 0, y: 3100, z: 0 });
+    Object.assign(s.released.vel, { x: 1, y: -20, z: 0 });
+    flyOn(s, 0.2);
+    expect(s.pos).toEqual({ x: 10.4, y: 2989, z: -5 });
+    expect(s.released.pos.x).toBeCloseTo(0.2, 9);
+    expect(s.released.pos.y).toBeCloseTo(3096, 9);
+  });
+
+  it('sees someone falling level with us level with us, not 10 m above', () => {
+    // On the room's clock: they stamp with it, ours runs 2 s behind it on performance.now.
+    const room0 = 1.79e12;
+    const local = (room: number) => room - room0 + 2000;
+    // Belly at terminal speed, drifting a little, from 4000 m at room0.
+    const truth = (room: number) => ({ x: 3 * ((room - room0) / 1000), y: 4000 - 55 * ((room - room0) / 1000) });
+    const b = new SnapshotBuffer();
+    const out = emptySnapshot();
+    let worstThen = 0;
+    let worstNow = 0;
+    let sent = 0;
+    // 15 a second, 35 to 75 ms through the network; drawn at 60 frames a second.
+    for (let room = room0; room < room0 + 5000; room += 1000 / 60) {
+      while (sent <= room) {
+        const s = emptySnapshot();
+        s.t = sent;
+        s.phase = 'freefall';
+        Object.assign(s.pos, { ...truth(sent), z: 0 });
+        Object.assign(s.vel, { x: 3, y: -55, z: 0 });
+        const delay = 35 + 40 * ((sent / 67) % 1);
+        if (sent > room0) b.push(s, local(sent + delay));
+        sent = sent === 0 ? room0 : sent + 1000 / 15;
+      }
+      if (room < room0 + 1000 || !b.sample(local(room), out)) continue;
+      const there = truth(room);
+      worstThen = Math.max(worstThen, Math.abs(out.pos.y - there.y));
+      flyOn(out, leadOf(room, out.t));
+      worstNow = Math.max(worstNow, Math.hypot(out.pos.x - there.x, out.pos.y - there.y));
+    }
+    // As it was drawn before: the network and the snapshots kept to go between, at 55 m/s.
+    expect(worstThen).toBeGreaterThan(8);
+    expect(worstNow).toBeLessThan(0.05);
+  });
 });
 
 describe('their plane and ours', () => {
-  const ours: OurPlane = { pos: vec3(1000, 4000, -500), headingDeg: 270, type: { id: 'c130' } };
+  // On jump run west at 60 m/s.
+  const ours: OurPlane = { pos: vec3(1000, 4000, -500), vel: vec3(-60, 0, 0), headingDeg: 270, type: { id: 'c130' } };
   const theirs = (x: number, y = 4000, headingDeg = 270, aircraft: 'c130' | 'pc6' = 'c130') => ({ pos: vec3(x, y, -500), headingDeg, aircraft });
 
   it('are the same load a moment apart: the gap from theirs to ours', () => {
@@ -242,6 +323,12 @@ describe('their plane and ours', () => {
     // Headings either side of north are near each other.
     const north = { ...ours, headingDeg: 359.5 };
     expect(planeGap(north, theirs(1000, 4000, 0.5), vec3())).not.toBeNull();
+  });
+
+  it('are the same plane on the same clock, once theirs is flown on to now as they are', () => {
+    // What they sent half a second ago: their plane 30 m back then, where ours was.
+    const gap = planeGap(ours, theirs(1030), vec3(), 0.5)!;
+    expect(Math.hypot(gap.x, gap.y, gap.z)).toBeCloseTo(0, 9);
   });
 
   it('are not when another aircraft, another height or another run, or the next load', () => {

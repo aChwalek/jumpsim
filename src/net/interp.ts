@@ -12,6 +12,11 @@ const MAX_EXTRAPOLATION_MS = 250;
 /** How fast the clock offset creeps back up, ms per ms: lets it follow a sender's clock drifting. */
 const OFFSET_CREEP = 0.0005;
 const KEEP = 32;
+/**
+ * A snapshot this much older than the last one is not late: the sender's
+ * clock was set back. Kept as it is, the jumper would wait for it to catch up.
+ */
+const SET_BACK_MS = 1000;
 
 /**
  * The last snapshots of one jumper, in the order they were taken, and where
@@ -35,7 +40,17 @@ export class SnapshotBuffer {
     return this.heardAt;
   }
 
+  /** When the newest snapshot was true, the sender's clock, ms; NaN while nothing has come. */
+  get newest(): number {
+    return this.items[this.items.length - 1]?.t ?? Number.NaN;
+  }
+
   push(s: Snapshot, localNow: number): void {
+    const newest = this.items[this.items.length - 1];
+    if (newest && s.t < newest.t - SET_BACK_MS) {
+      this.items.length = 0;
+      this.offset = Number.POSITIVE_INFINITY;
+    }
     if (Number.isFinite(this.offset)) this.offset += OFFSET_CREEP * Math.max(0, localNow - this.heardAt);
     this.offset = Math.min(this.offset, localNow - s.t);
     this.heardAt = localNow;
@@ -48,13 +63,16 @@ export class SnapshotBuffer {
     if (items.length > KEEP) items.shift();
   }
 
-  /** The jumper as they were INTERP_DELAY_MS ago, into `out`. False while nothing has come. */
-  sample(localNow: number, out: Snapshot): boolean {
+  /**
+   * The jumper as they were INTERP_DELAY_MS ago, into `out`; never later than
+   * `notAfter` (the sender's clock, ms). False while nothing has come.
+   */
+  sample(localNow: number, out: Snapshot, notAfter = Number.POSITIVE_INFINITY): boolean {
     const items = this.items;
     const first = items[0];
     const last = items[items.length - 1];
     if (!first || !last) return false;
-    const target = localNow - this.offset - INTERP_DELAY_MS;
+    const target = Math.min(localNow - this.offset - INTERP_DELAY_MS, notAfter);
     if (target <= first.t) {
       copySnapshot(out, first);
       return true;

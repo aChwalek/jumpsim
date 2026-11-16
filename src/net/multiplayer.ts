@@ -208,6 +208,11 @@ export class Multiplayer {
     return Date.now() + this.clockOffset;
   }
 
+  /** The server's clock at a moment of ours (performance.now, ms): a frame's, say. */
+  roomTime(local: number): number {
+    return this.serverNow() - (performance.now() - local);
+  }
+
   /** Players in the room, us included. */
   get players(): number {
     return Math.max(1, this.state.players.size);
@@ -260,12 +265,16 @@ export class Multiplayer {
     this.mesh.broadcastControl(JSON.stringify(this.hello));
   }
 
-  /** Sends `out` if it is time to: call every frame once `out` is filled. */
-  send(elapsed: number): void {
+  /**
+   * Sends `out` if it is time to: call every frame once `out` is filled. `at`:
+   * when it is true, on the room's clock (ms): the others can tell how old it
+   * is when it comes, and draw us where we are by then.
+   */
+  send(elapsed: number, at = this.serverNow()): void {
     this.sinceSent += elapsed;
     if (this.sinceSent < 1 / SEND_RATE) return;
     this.sinceSent = 0;
-    this.out.t = performance.now();
+    this.out.t = at;
     this.mesh.broadcastState(encodeSnapshot(this.out));
   }
 

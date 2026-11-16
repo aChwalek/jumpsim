@@ -58,7 +58,10 @@ export function copyReleased(out: ReleasedFrame, r: ReleasedFrame): ReleasedFram
  * stays their own; only this goes out, 15 times a second.
  */
 export interface Snapshot {
-  /** The sender's clock (performance.now), ms. */
+  /**
+   * When it was true, ms: the room's clock (the server's), which says how old
+   * it is when it comes; from an older sender, their own (performance.now).
+   */
   t: number;
   phase: Phase;
   stance: Stance;
