@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { facetedHeight } from '../../src/world/cover';
+import { TREES_ALL_WITHIN } from '../../src/world/forest';
 import { TERRAIN_SPACING } from '../../src/world/ground';
 import { createRealDz, type RealDzData } from '../../src/world/real';
 import { LOOKS } from '../../src/world/realDzs';
@@ -37,9 +38,12 @@ const REACH = 40960;
 const HEIGHT_WEIGHT = 8;
 const TEXEL_WEIGHT = 12;
 /** Squares wider than this, m, carry no trees: from that far the photo shows the forest. */
-const TREES_UP_TO = 1600;
-/** A square coarser than the finest keeps at most one tree a cell, cells this many a side. */
-const TREE_CELLS = 32;
+const TREES_UP_TO = 3200;
+/**
+ * A square is drawn only from so far that its texels are small enough: about
+ * this many times its texel, m, at the least (a phone's coarser target).
+ */
+const SHOWN_FROM_TEXELS = 200;
 /** Higher than this above the sea, m, the trees of the Alps are conifers: spruce, larch, arolla pine. */
 const CONIFERS_ABOVE = 1300;
 /** The tree line, m below the height the map's grass stops at (its look's grassBelow, above the landing). */
@@ -56,6 +60,25 @@ interface TreeRec {
   radius: number;
   conifer: boolean;
   rgb: [number, number, number];
+  /** How far off it is still drawn: 0 the farthest, 1 the nearest (src/world/forest.ts). */
+  rank: number;
+}
+
+/**
+ * The share of the trees, by rank, a square of this size must carry with
+ * its coarser squares: every tree the game draws from as near as the square
+ * is drawn (forest.ts: all of them within TREES_ALL_WITHIN, then fewer).
+ */
+function keptBy(size: number): number {
+  if (size > TREES_UP_TO) return 0;
+  const nearest = (SHOWN_FROM_TEXELS * size) / (TEX - 1);
+  return Math.min(1, (TREES_ALL_WITHIN / nearest) ** 2);
+}
+
+/** A tree's rank, the same at every build: at random, the tall ones first. */
+function rankOf(x: number, z: number, height: number): number {
+  const u = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453) % 1;
+  return Math.min(0.999, u * (1.25 - 0.5 * Math.min(1, height / 40)));
 }
 
 interface Tile {
@@ -338,6 +361,7 @@ export async function main(args: string[]): Promise<void> {
         radius: t.radius,
         conifer: t.conifer || DATA.origin.elevation + y > CONIFERS_ABOVE,
         rgb: [0, 0, 0],
+        rank: rankOf(t.x, t.z, t.height),
       });
     }
     console.log(`trees: ${found.length} found, ${found.filter((t) => t.conifer).length} conifers (${seconds()})`);
@@ -384,27 +408,6 @@ export async function main(args: string[]): Promise<void> {
       if (light > 0.55 || (light > 0.3 && green < 0.02)) return [];
       return [{ ...tree, rgb: [Math.round(r), Math.round(g), Math.round(b)] as [number, number, number] }];
     });
-  /**
-   * A coarser square's trees: of its children's, the tallest in each of its
-   * cells, its crown as wide as theirs put together, so that the forest seen
-   * from further off keeps its cover with fewer trees.
-   */
-  const thin = (t: Tile, trees: TreeRec[]): TreeRec[] => {
-    const cell = t.size / TREE_CELLS;
-    const cells = new Map<number, { best: TreeRec; area: number }>();
-    for (const tree of trees) {
-      const key = Math.floor((tree.z - t.z0) / cell) * TREE_CELLS + Math.floor((tree.x - t.x0) / cell);
-      const c = cells.get(key);
-      const area = tree.radius * tree.radius;
-      if (!c) cells.set(key, { best: tree, area });
-      else {
-        c.area += area;
-        if (tree.height > c.best.height) c.best = tree;
-      }
-    }
-    return [...cells.values()].map(({ best, area }) => ({ ...best, radius: Math.min(cell * 0.7, Math.max(best.radius, Math.sqrt(area))) }));
-  };
-
   // --- Pictures and files -------------------------------------------------------------------------
   if (!tilesetOnly) {
     rmSync(out, { recursive: true, force: true });
@@ -450,23 +453,29 @@ export async function main(args: string[]): Promise<void> {
     return rgb;
   };
   let treesWritten = 0;
+  // Each tree is kept once, in the coarsest square that must carry it
+  // (keptBy): the game draws a square's trees with all its coarser squares'.
+  // Coloured from the finest photo, where the finest square takes them in.
   const process = async (t: Tile): Promise<{ rgb: Uint8Array; trees: TreeRec[] }> => {
     let rgb: Uint8Array;
-    let trees: TreeRec[];
+    let pending: TreeRec[];
     if (t.children) {
       const kids: Uint8Array[] = [];
-      const under: TreeRec[] = [];
+      pending = [];
       for (const c of t.children) {
         const done = await process(c);
         kids.push(done.rgb);
-        under.push(...done.trees);
+        pending.push(...done.trees);
       }
       rgb = shrink(kids);
-      trees = t.size <= TREES_UP_TO ? colour(t, rgb, thin(t, under)) : [];
     } else {
       rgb = await leafPicture(t);
-      trees = t.size <= TREES_UP_TO ? colour(t, rgb, treesIn(t)) : [];
+      pending = colour(t, rgb, treesIn(t));
     }
+    // Those the parent need not carry stay here; the others go up.
+    const cut = keptBy(t.size * 2);
+    const trees = t.size <= TREES_UP_TO ? pending.filter((tree) => tree.rank >= cut) : [];
+    const up = t.size <= TREES_UP_TO ? pending.filter((tree) => tree.rank < cut) : [];
     treesWritten += trees.length;
     const job = geometry(t, grids.get(t)!);
     const forest = treeArrays(trees, job.translation);
@@ -501,7 +510,7 @@ export async function main(args: string[]): Promise<void> {
         }
       });
     await pool.ready();
-    return { rgb, trees };
+    return { rgb, trees: up };
   };
   if (!tilesetOnly) await process(root);
   await pool.close();
@@ -636,18 +645,18 @@ function geometry(t: Tile, h: Float64Array) {
 
 /**
  * A square's trees as the worker writes them, about its centre: places
- * (x, ground y, z), shapes (height, crown radius, conifer 1 or 0), the
+ * (x, ground y, z), shapes (height, crown radius, conifer 1 or 0, rank), the
  * ground's slope under them (east, south), colours (RGBA bytes). None if it has none.
  */
 function treeArrays(trees: TreeRec[], centre: number[]) {
   if (!trees.length) return null;
   const positions = new Float32Array(trees.length * 3);
-  const shapes = new Float32Array(trees.length * 3);
+  const shapes = new Float32Array(trees.length * 4);
   const slopes = new Float32Array(trees.length * 2);
   const colors = new Uint8Array(trees.length * 4);
   trees.forEach((t, k) => {
     positions.set([t.x - centre[0]!, t.y - centre[1]!, t.z - centre[2]!], k * 3);
-    shapes.set([t.height, t.radius, t.conifer ? 1 : 0], k * 3);
+    shapes.set([t.height, t.radius, t.conifer ? 1 : 0, t.rank], k * 4);
     slopes.set([t.gx, t.gz], k * 2);
     colors.set([...t.rgb, 255], k * 4);
   });

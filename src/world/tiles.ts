@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import { TilesRenderer } from '3d-tiles-renderer/three';
-import { GLTFExtensionsPlugin } from '3d-tiles-renderer/three/plugins';
+import { GLTFExtensionsPlugin, TilesFadePlugin } from '3d-tiles-renderer/three/plugins';
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { handheld } from '../viewport';
@@ -172,6 +172,9 @@ export function buildTerrainTiles(
       mesh.renderOrder = 0;
     });
   });
+  // A square giving way to finer ones dissolves into them instead of switching at once. Registered
+  // after the listener above, so that it takes the ground's material, not the glTF's.
+  tiles.registerPlugin(new TilesFadePlugin({ fadeDuration: 400 }));
 
   return {
     object: tiles.group,

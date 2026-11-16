@@ -50,14 +50,14 @@ async function build(job) {
     .setIndices(accessor('SCALAR', indices))
     .setMaterial(material);
   const mesh = doc.createMesh('ground').addPrimitive(primitive);
-  // The square's trees, a point each: where, how tall and wide, which kind, the slope under it, its colour.
+  // The square's trees, a point each: where, how tall and wide, which kind, its rank, the slope under it, its colour.
   if (trees) {
     const points = doc
       .createPrimitive()
       .setMode(0)
       .setAttribute('POSITION', accessor('VEC3', trees.positions))
       .setAttribute('COLOR_0', accessor('VEC4', trees.colors).setNormalized(true))
-      .setAttribute('_SHAPE', accessor('VEC3', trees.shapes))
+      .setAttribute('_SHAPE', accessor('VEC4', trees.shapes))
       .setAttribute('_SLOPE', accessor('VEC2', trees.slopes))
       .setMaterial(doc.createMaterial('trees'));
     mesh.addPrimitive(points);

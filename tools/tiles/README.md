@@ -51,11 +51,15 @@ the relief about its own exit every metre.
     narrow for their height); trees above the tree line (200 m below the
     look's `grassBelow`); trees where the photo is bright and not green.
   - Conifer if its crown is narrow, or above 1300 m.
-  - The finest squares carry every tree. A coarser one keeps the tallest of
-    each cell (32 a side), its crown as wide as theirs put together. Squares
-    over 1600 m carry none.
+  - Each tree is kept once, in the coarsest square that must carry it by its
+    rank (random, the tall ones first): a 3200 m square the 16 % drawn
+    farthest, a 1600 m one the next, up to 64 %, an 800 m one the rest. The
+    game draws a square's trees with all its coarser squares', all of them
+    within 500 m and a share falling with distance beyond
+    (`src/world/forest.ts`): a square giving way to finer ones only adds
+    trees the distance already hid, and no square's edge shows.
   - They go in the square's .glb as points (position, colour, `_SHAPE`:
-    height, radius, conifer; `_SLOPE`: the ground's), drawn by
+    height, radius, conifer, rank; `_SLOPE`: the ground's), drawn by
     `src/world/forest.ts`. `--no-trees` builds without them.
 - **Compression**: photos in KTX2 (Basis ETC1S, quality 192, mipmaps), 8 times
   smaller on the graphics card than a JPEG once decoded; 192 is a fifth

@@ -2,5 +2,5 @@
 // (src/world/tiles.ts). Upload a build (tools/tiles/upload.mjs) before shipping its line here.
 
 export const TILESETS: Record<string, string> = {
-  "chamonix": "chamonix/202611161537/tileset.json"
+  "chamonix": "chamonix/202611161604/tileset.json"
 };

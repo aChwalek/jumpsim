@@ -4,6 +4,13 @@
 // whole, trunk and tiers of crown; further off plainly; its shadow lies on
 // the slope under it.
 //
+// Each tree is in one square only, the coarsest that must carry it by its
+// rank, and a square's trees are drawn with all its coarser squares': when a
+// square gives way to four finer ones, trees are only added, never taken
+// away. How many are drawn falls off with distance tree by tree, by rank,
+// their crowns a little wider to keep the forest's cover: no edge of a
+// square shows in the forest.
+//
 // The squares near the eye put their trees in both a whole and a plain mesh,
 // and the graphics card draws each tree in one of them by its distance; the
 // others only in plain meshes. The meshes are filled again only when the
@@ -12,6 +19,8 @@
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
+/** Every tree is drawn within this, m; beyond, a share falling with the square of the distance (tools/tiles keeps them so). */
+export const TREES_ALL_WITHIN = 500;
 /** Nearer than this, m, a tree is drawn whole; farther, plainly; over BAND either side, the one dissolves into the other. */
 const WHOLE = 350;
 const BAND = 30;
@@ -25,8 +34,9 @@ const SHADOWS = 1600;
 const RESORT = 40;
 
 /**
- * x, y, z, height | radius, slope x, slope z, conifer | r, g, b | fade: 12
- * floats a tree. Fade: 0 shown; t > 0 coming in since t (s); t < 0 going since -t.
+ * x, y, z, height | radius, slope x, slope z, rank (+1 for a conifer) | r, g,
+ * b | fade: 12 floats a tree. Fade: 0 shown; t > 0 coming in since t (s); t <
+ * 0 going since -t.
  */
 const STRIDE = 12;
 
@@ -161,6 +171,12 @@ const TREE_GLSL = /* glsl */ `
     float since = clamp((forestTime - abs(fade)) / ${FADE.toFixed(2)}, 0.0, 1.0);
     return fade < 0.0 ? 1.0 - since : since;
   }
+  // The share of trees drawn this far off: all within ${TREES_ALL_WITHIN} m, then falling.
+  float treeShare(float far) { return min(1.0, pow(${TREES_ALL_WITHIN.toFixed(1)} / max(far, 1.0), 2.0)); }
+  // Whether a tree of this rank is drawn at this share, dissolving in over a little rank: all of them, whole, when all are drawn.
+  float treeByRank(float share) { return clamp((share * 1.08 - fract(crown.w)) / 0.08, 0.0, 1.0); }
+  // Fewer trees, a little wider each, up to twice: the forest keeps its cover.
+  float treeWider(float share) { return clamp(pow(1.0 / max(share, 0.0625), 0.25), 1.0, 2.0); }
 `;
 
 /** A pixel shows if the tree's share is above its place in a 4 x 4 pattern: two shares that add up to one share the pixels. */
@@ -187,8 +203,10 @@ function bodyMaterial(split: 0 | 1 | 2, time: { value: number }): THREE.MeshLamb
         `float seed = treeSeed();
         float turn = seed * 6.2831;
         vec2 xz = mat2(cos(turn), sin(turn), -sin(turn), cos(turn)) * position.xz;
+        float far = distance(cameraPosition, tree.xyz + vec3(0.0, tree.w * 0.5, 0.0));
+        float share = treeShare(far);
         // Crowns as wide as found, a little more or less; trunks by the tree's height.
-        float wide = part > 0.5 ? crown.x * (0.92 + 0.16 * seed) : tree.w * 0.022 + 0.08;
+        float wide = part > 0.5 ? crown.x * (0.92 + 0.16 * seed) * treeWider(share) : tree.w * 0.022 + 0.08;
         vec3 transformed = vec3(xz.x * wide, position.y * tree.w, xz.y * wide) + tree.xyz;
         // Darker low in the crown, lighter at the tips; each tree a shade of its own.
         vec3 shade = vec3(0.85 + 0.3 * seed, 0.9 + 0.2 * fract(seed * 7.13), 0.85 + 0.25 * fract(seed * 3.71));
@@ -197,12 +215,12 @@ function bodyMaterial(split: 0 | 1 | 2, time: { value: number }): THREE.MeshLamb
       .replace(
         '#include <project_vertex>',
         `#include <project_vertex>
-        vShow = treeShown();
+        vShow = treeShown() * treeByRank(share);
         ${
           split === 0
             ? ''
             : `// Whole near, plain far, the one dissolving into the other across the band.
-          float across = smoothstep(${(WHOLE - BAND).toFixed(1)}, ${(WHOLE + BAND).toFixed(1)}, distance(cameraPosition, tree.xyz + vec3(0.0, tree.w * 0.5, 0.0)));
+          float across = smoothstep(${(WHOLE - BAND).toFixed(1)}, ${(WHOLE + BAND).toFixed(1)}, far);
           vShow *= ${split === 1 ? '1.0 - across' : 'across'};`
         }
         if (vShow <= 0.0) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);`,
@@ -238,11 +256,13 @@ function shadowMaterial(sun: { away: THREE.Vector2; stretch: { value: number } }
       .replace('#include <common>', `#include <common>\n${TREE_GLSL}\nuniform vec2 sunAway;\nuniform float sunStretch;`)
       .replace(
         '#include <begin_vertex>',
-        `float reach = tree.w * 0.55 * sunStretch;
+        `float share = treeShare(distance(cameraPosition, tree.xyz));
+        float wide = crown.x * treeWider(share);
+        float reach = tree.w * 0.55 * sunStretch;
         vec2 side = vec2(-sunAway.y, sunAway.x);
-        vec2 d = sunAway * (position.x * (crown.x + reach) + reach) + side * (position.z * crown.x * 1.05);
+        vec2 d = sunAway * (position.x * (wide + reach) + reach) + side * (position.z * wide * 1.05);
         vec3 transformed = vec3(tree.x + d.x, tree.y + crown.y * d.x + crown.z * d.y + 0.05, tree.z + d.y);
-        vShow = treeShown();`,
+        vShow = treeShown() * treeByRank(share);`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying float vShow;')
@@ -286,6 +306,9 @@ export function buildForest(): Forest {
 
   // Each square's trees split by kind, so that a mesh of one shape takes them whole.
   const groves = new Map<object, { conifers: Grove; broadleaves: Grove }>();
+  // The squares the tiles show; the trees of those and of every coarser square above them are drawn.
+  const visible = new Set<object>();
+  let regroup = false;
   let dirty = true;
   let shadows = false;
   const sortedAt = new THREE.Vector3(Infinity, 0, 0);
@@ -380,7 +403,7 @@ export function buildForest(): Forest {
         d[o + 4] = shape.getY(k);
         d[o + 5] = slope.getX(k);
         d[o + 6] = slope.getY(k);
-        d[o + 7] = conifer ? 1 : 0;
+        d[o + 7] = Math.min(0.999, shape.getW(k)) + (conifer ? 1 : 0);
         d[o + 8] = base[0]! * 0.45 + color.r * 0.55;
         d[o + 9] = base[1]! * 0.45 + color.g * 0.55;
         d[o + 10] = base[2]! * 0.45 + color.b * 0.5;
@@ -393,26 +416,44 @@ export function buildForest(): Forest {
       points.removeFromParent();
       geometry.dispose();
       groves.set(tile, { conifers, broadleaves });
+      regroup = true;
     },
     remove(tile) {
+      visible.delete(tile);
       const g = groves.get(tile);
       if (!g) return;
       groves.delete(tile);
       if (drawn(g.conifers)) dirty = true;
+      regroup = true;
     },
     show(tile, shown) {
-      const g = groves.get(tile);
-      if (!g || g.conifers.shown === shown) return;
-      for (const grove of [g.conifers, g.broadleaves]) {
-        grove.shown = shown;
-        // Going: kept a moment longer, dissolving.
-        grove.goingUntil = shown ? 0 : time.value + FADE;
-        fadeAll(grove, shown);
-      }
-      dirty = true;
+      if (shown) visible.add(tile);
+      else visible.delete(tile);
+      regroup = true;
     },
     update(eye, seconds) {
       time.value = seconds;
+      if (regroup) {
+        regroup = false;
+        // The squares shown and every coarser one above them.
+        const wanted = new Set<object>();
+        for (const tile of visible) {
+          for (let t: { parent?: object | null } | null | undefined = tile as { parent?: object | null }; t && !wanted.has(t); t = t.parent as typeof t) {
+            wanted.add(t);
+          }
+        }
+        for (const [tile, g] of groves) {
+          const shown = wanted.has(tile);
+          if (g.conifers.shown === shown) continue;
+          for (const grove of [g.conifers, g.broadleaves]) {
+            grove.shown = shown;
+            // Going: kept a moment longer, dissolving.
+            grove.goingUntil = shown ? 0 : seconds + FADE;
+            fadeAll(grove, shown);
+          }
+          dirty = true;
+        }
+      }
       // The squares near and far again, once the eye has gone some way: refill only if one has crossed over.
       if (dirty || eye.distanceTo(sortedAt) > RESORT) {
         for (const { conifers, broadleaves } of groves.values()) {
