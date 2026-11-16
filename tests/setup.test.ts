@@ -315,3 +315,31 @@ test('a helicopter hovers upwind of the target by the drift of the freefall, its
   expect(nose.headingDeg).toBe(0);
   expect(nose.x).toBeCloseTo(west.x, 6);
 });
+
+test('separate outfit colours survive saves and migrate the old single-colour suit', () => {
+  expect(validSetup({ gear: { suitColor: 'red' } }).gear).toMatchObject({
+    suitColor: 'red', pantsColor: 'red', shoesColor: 'white', face: false,
+  });
+  expect(validSetup({ gear: { suitColor: 'blue', pantsColor: 'black', shoesColor: 'yellow', face: true } }).gear).toMatchObject({
+    suitColor: 'blue', pantsColor: 'black', shoesColor: 'yellow', face: true,
+  });
+  expect(validSetup({ gear: { suitColor: 'green', pantsColor: 'constructor', shoesColor: 5, face: 'yes' } }).gear).toMatchObject({
+    suitColor: 'green', pantsColor: 'green', shoesColor: 'white', face: false,
+  });
+});
+
+
+test('helmet, face and cloth customisation survive validation and reject unknown values', () => {
+  const gear = { helmetKind: 'open', visorRaised: true, goggles: false, skinColor: 'dark', pattern: 'chevrons', accentColor: 'pink', face: true };
+  expect(validSetup({ gear }).gear).toMatchObject(gear);
+  expect(validSetup({ gear: { helmetKind: 'constructor', visorRaised: 'yes', goggles: 1, skinColor: 'toString', pattern: 'dots', accentColor: 'plaid' } }).gear).toMatchObject({
+    helmetKind: 'full', visorRaised: false, goggles: true, skinColor: 'tan', pattern: 'plain', accentColor: 'white',
+  });
+});
+
+
+test('outfits render with a closed helmet while keeping saved customisation for later', () => {
+  const gear = validSetup({ gear: { helmetKind: 'open', visorRaised: true, face: true, pattern: 'chevrons', accentColor: 'pink' } }).gear;
+  expect(gear.helmetKind).toBe('open');
+  expect(outfitOf(gear)).toMatchObject({ helmetKind: 'full', visorRaised: false, face: false, goggles: false, pattern: 'chevrons' });
+});

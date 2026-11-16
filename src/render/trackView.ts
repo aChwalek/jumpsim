@@ -10,7 +10,7 @@ import { Markers, type MarkerTarget } from '../net/markers';
 import { RemoteJumper } from '../net/remote';
 import type { OtherShown, TrackFrame, TrackMeta } from '../replay/track';
 import { outfitOf, reserveRigFor, rigFor, suitOf, validSetup, wingColor, type Setup } from '../setup';
-import { FlightModel, neutralControls } from '../sim/flightModel';
+import { FlightModel } from '../sim/flightModel';
 import { feetHeight } from '../sim/landing';
 import { Plane, propRate } from '../sim/plane';
 import { J } from '../sim/ragdoll';
@@ -20,6 +20,7 @@ import { CANOPY_COLORS, RESERVE_PALETTE } from './canopyColors';
 import { CanopyView, type SliderState } from './canopyView';
 import { PlaneView } from './planeView';
 import { RagdollView } from './ragdollView';
+import { ReleasedMain } from './releasedMain';
 import { RigView, type RigFrame } from './rigView';
 import type { Lighting } from './scene';
 import { SMOKE_BURN } from './smoke';
@@ -69,13 +70,7 @@ export class TrackView {
   private readonly smokeBefore = new THREE.Vector3();
   private readonly smokeVel = new THREE.Vector3();
   private smokeWasOut = false;
-  private readonly pos = new THREE.Vector3();
-  private readonly att = new THREE.Quaternion();
-  private readonly air = new THREE.Vector3();
-  private readonly top = new THREE.Vector3();
-  private readonly fall = new THREE.Vector3();
-  private readonly risers = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
-  private readonly noHands = neutralControls();
+  private readonly releasedMain = new ReleasedMain();
   /** The others on the jump, as `meta.others`, drawn as another player is; their names over them. */
   private readonly others: RemoteJumper[] = [];
   private readonly names: string[] = [];
@@ -244,39 +239,8 @@ export class TrackView {
 
   /** The main once cut away, where it drifts, then in a heap where it lands. */
   private drawReleased(f: TrackFrame, s: TrackScene): void {
-    const view = this.released;
-    if (!view || !f.hasReleased) return;
-    const r = f.released;
-    this.pos.set(r.pos.x, r.pos.y, r.pos.z);
-    this.att.set(r.att.x, r.att.y, r.att.z, r.att.w);
-    this.air.copy(s.wind).sub(this.top.set(r.vel.x, r.vel.y, r.vel.z));
-    view.setCrumple(r.crumple);
-    view.setHeap(r.heap, this.pos, this.fall.set(r.fallTo.x, 0, r.fallTo.z));
-    const ground = s.groundAt(r.pos.x, r.pos.z, r.pos.y);
-    view.update(
-      this.pos,
-      this.att,
-      { time: f.t, dt: s.dt, air: this.air, controls: this.noHands, hands: this.noHands, pilotAtt: null, ground },
-      s.light,
-    );
-    view.topAttach(this.top);
-    view.deployment.update({
-      stage: 'canopy',
-      dt: s.dt,
-      wind: s.wind,
-      airDensity: s.airDensity,
-      hand: this.top,
-      pin: this.top,
-      vel: this.pos,
-      launch: this.pos,
-      bagOut: this.top,
-      canopyTop: this.top,
-      canopy: view,
-      pilotChuteOpen: 0,
-      stageTime: 10,
-      risers: this.risers,
-      ground,
-    });
+    if (!this.released || !f.hasReleased) return;
+    this.releasedMain.draw(this.released, f.released, { time: f.t, dt: s.dt, wind: s.wind, airDensity: s.airDensity, groundAt: s.groundAt, light: s.light });
   }
 
   /** The plane flies straight on at the speed it had. */

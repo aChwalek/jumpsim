@@ -2548,6 +2548,74 @@ function guideCue(): string {
   return parts.join('');
 }
 
+/** The loading screen of the page (index.html), until the first picture. */
+let splash = document.getElementById('splash');
+
+/** Behind the title screen, the drop zone turned about slowly: how far from its target, how high over it, how fast. */
+const TITLE_RADIUS = 800;
+const TITLE_HEIGHT = 230;
+/** Over any ground on the way round, m: in the mountains the circle goes up. */
+const TITLE_CLEAR = 120;
+/** Once round in five minutes, rad/s. */
+const TITLE_TURN = (2 * Math.PI) / 300;
+/** Heights along the circle: so many, each the highest within so many either side, then averaged over so many. */
+const TITLE_STEPS = 72;
+const TITLE_AHEAD = 6;
+const TITLE_SMOOTH = 4;
+/** The heights along the circle, for the drop zone they were found for. */
+let titleCircle: { dz: DzPack; y: number[] } | null = null;
+
+/**
+ * How high the circle goes all the way round. Over a valley it stays low,
+ * the walls round it; it starts up before a rise in the ground and comes
+ * down after it, slowly: the highest ground ahead and behind, averaged.
+ */
+function titleHeights(): number[] {
+  const t = dz.target;
+  const floor = dz.groundAt(t.x, t.z) + TITLE_HEIGHT;
+  const n = TITLE_STEPS;
+  const at = (i: number): number => (i + n) % n;
+  const ground = Array.from({ length: n }, (_, i) => {
+    const a = (i / n) * 2 * Math.PI;
+    return Math.max(floor, dz.groundAt(t.x + Math.cos(a) * TITLE_RADIUS, t.z + Math.sin(a) * TITLE_RADIUS) + TITLE_CLEAR);
+  });
+  const highest = ground.map((_, i) => {
+    let m = -Infinity;
+    for (let k = -TITLE_AHEAD; k <= TITLE_AHEAD; k++) m = Math.max(m, ground[at(i + k)]!);
+    return m;
+  });
+  // Averaging fewer than were looked at keeps each height over the ground near it.
+  return highest.map((_, i) => {
+    let sum = 0;
+    for (let k = -TITLE_SMOOTH; k <= TITLE_SMOOTH; k++) sum += highest[at(i + k)]!;
+    return sum / (2 * TITLE_SMOOTH + 1);
+  });
+}
+
+function aimTitle(now: number): void {
+  const t = dz.target;
+  if (titleCircle?.dz !== dz) titleCircle = { dz, y: titleHeights() };
+  const turns = ((now / 1000) * TITLE_TURN) / (2 * Math.PI);
+  const f = (turns - Math.floor(turns)) * TITLE_STEPS;
+  const i = Math.floor(f);
+  const ys = titleCircle.y;
+  const y = ys[i % TITLE_STEPS]! + (ys[(i + 1) % TITLE_STEPS]! - ys[i % TITLE_STEPS]!) * ease(f - i);
+  const a = turns * 2 * Math.PI;
+  camera.layers.set(0);
+  camera.position.set(t.x + Math.cos(a) * TITLE_RADIUS, y, t.z + Math.sin(a) * TITLE_RADIUS);
+  camera.up.set(0, 1, 0);
+  camera.lookAt(t.x, dz.groundAt(t.x, t.z), t.z);
+}
+
+/** Draws without our jumper, the plane and a cut-away canopy: they wait, frozen, for the jump. */
+function withoutJumper(draw: () => void): void {
+  const released = releasedView ? [releasedView.object, releasedView.shadow, releasedView.deployment.object] : [];
+  const hidden = [rigView.object, planeView.object, ragdollView.object, ...released].map((o): [THREE.Object3D, boolean] => [o, o.visible]);
+  for (const [o] of hidden) o.visible = false;
+  draw();
+  for (const [o, was] of hidden) o.visible = was;
+}
+
 /** The drop zone from above for the menu's map, and what it was last drawn with. */
 const topView = new TopView(renderer, scene, light.fog);
 let mapDrawn = '';
@@ -2580,7 +2648,11 @@ function drawMap(now: number): void {
   menu.map.pictureDrawn(setup.dz);
 }
 
-/** Our jumper as the others will draw it. */
+/** The body as drawn at the last frame flown, and the heap of the canopy: what the others see of us. */
+const drawnPose = makePose();
+let drawnHeap = 0;
+
+/** Our jumper as the others will draw it: all of it, as we draw it. */
 function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation: number | null, elapsed: number): void {
   const o = net.out;
   const s = model.state;
@@ -2605,6 +2677,28 @@ function sendJumper(net: Multiplayer, pose: Stance, onRisers: boolean, inflation
   Object.assign(o.vel, s.vel);
   Object.assign(o.att, s.att);
   Object.assign(o.pilotAtt, s.pilotAtt);
+  o.slider = sliderState;
+  o.twist = s.twist;
+  o.posed = true;
+  copyPose(o.pose, drawnPose);
+  o.heap = drawnHeap;
+  Object.assign(o.heapFrom, heapFrom);
+  if (arrival) Object.assign(o.fallTo, arrival.fallTo);
+  o.walker = !!arrival?.walker;
+  o.gather = gather ?? 0;
+  o.hasJoints = ragdoll !== null;
+  if (ragdoll) jointArray(ragdoll, o.joints);
+  const free = jump?.released;
+  o.hasReleased = !!free && releasedView !== null;
+  if (free) {
+    const r = o.released;
+    Object.assign(r.pos, free.pos);
+    Object.assign(r.vel, free.vel);
+    Object.assign(r.att, free.att);
+    r.crumple = free.crumple;
+    r.heap = free.heap;
+    Object.assign(r.fallTo, free.fallTo);
+  }
   net.send(elapsed);
 }
 
@@ -2655,6 +2749,8 @@ function frame(now: number): void {
   // After the devices: Start may just have opened the menu, which then ignores it until let go.
   menu.poll();
   hud.setMenuOpen(menu.isOpen);
+  /** The title screen: the drop zone seen from a circle round it, without our jumper. */
+  const titled = menu.titleShown && !watching && !replay;
   perf.mark(0);
   const live = !waiting && !paused;
   /** How far the replay of the whole jump went on this frame, s of its own clock. */
@@ -2769,6 +2865,8 @@ function frame(now: number): void {
     } else if (!rigView.detached) rigView.canopy.setHeap(0);
     if (arrival?.walker && !rigView.detached) rigView.canopy.dragHeap(walkedTo.set(model.state.pos.x, 0, model.state.pos.z));
     if (gather !== null && !rigView.detached) carryCanopy(shown, gather);
+    copyPose(drawnPose, shown);
+    drawnHeap = heap;
     rigView.body.group.visible = !ragdoll;
     ragdollView.update(ragdoll ? jointArray(ragdoll, liveJoints) : null);
     hud.setCard(canReplay(), !!arrival?.walker, lastTrack !== null);
@@ -2795,7 +2893,9 @@ function frame(now: number): void {
     sparks.light!.intensity = 0;
   }
   if (net) {
-    if (!replay) sendJumper(net, pose, onRisers, inflation, elapsed);
+    // Watching our replay, the pilot is drawn from it: the others go on seeing us as we are, still.
+    if (replay) net.send(elapsed);
+    else sendJumper(net, pose, onRisers, inflation, elapsed);
     // While a jump is watched again, the others of now are not in it.
     net.update({ dt: moving, time: airTime, wind: rigFrame.wind, airDensity: env.airDensity, groundAt: solid }, setup.dz, !watching);
     if (net.players !== playersShown) showGear();
@@ -2824,6 +2924,8 @@ function frame(now: number): void {
     aimWatching(watching, Math.min(elapsed, 0.1));
   } else if (replay) {
     // Placed above.
+  } else if (titled) {
+    aimTitle(now);
   } else if (view === 'outside') {
     camera.layers.enable(GEAR_LAYER);
     camera.layers.enable(OUTSIDE_LAYER);
@@ -2856,8 +2958,16 @@ function frame(now: number): void {
   perf.beforeRender();
   drawMap(now);
   nightVision(renderer, light.night);
-  renderer.render(scene, camera);
-  if (view === 'eyes' && !replay && !watching) {
+  if (titled) withoutJumper(() => renderer.render(scene, camera));
+  else renderer.render(scene, camera);
+  // The page's first picture is drawn: the loading screen goes.
+  if (splash) {
+    const going = splash;
+    splash = null;
+    going.classList.add('gone');
+    setTimeout(() => going.remove(), 600);
+  }
+  if (view === 'eyes' && !replay && !watching && !titled) {
     // The gear in the hands goes on top, from the same eye.
     gearCamera.position.copy(camera.position);
     gearCamera.quaternion.copy(camera.quaternion);
@@ -2987,8 +3097,9 @@ function showWatching(w: Watching, elapsed: number): void {
 applyWeather();
 showGear();
 spawn('pattern');
-menu.open(false);
 const roomInUrl = roomFromUrl();
+// Arriving: the title screen. With a room's link, straight to the jump the room sets up.
+menu.open(false, roomInUrl ? 'home' : 'title');
 if (roomInUrl) joinRoom(roomInUrl);
 else void countPublic();
 requestAnimationFrame(frame);

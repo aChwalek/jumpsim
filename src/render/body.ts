@@ -8,13 +8,16 @@
 // enough to stay with the world.
 
 import * as THREE from 'three';
+import { limbMesh, roundLimbEnds, shoeGeometry } from './characterParts';
+import { rigPack } from './rigPack';
+import { CharacterHead, ClothStyle } from './characterStyle';
 import { HIP_BACK, HIP_DROP, THIGH, type RigParams } from '../sim/rig';
 import { GEAR_LAYER, OUTSIDE_LAYER } from './scene';
 import { JOINTS, type Joint } from '../sim/ragdoll';
 import { canisterColor, type SmokeKind } from './smoke';
 import { glowMaterial, glowPoints, pointsGeometry } from './lamps';
 import type { Suit } from '../sim/suit';
-import { DEFAULT_GLOW, DEFAULT_HELMET, DEFAULT_SUIT, GLOW_COLORS, OUTFIT_COLORS, type Outfit } from './outfit';
+import { DEFAULT_GLOW, DEFAULT_SUIT, GLOW_COLORS, OUTFIT_COLORS, type Outfit } from './outfit';
 
 const UPPER_ARM = 0.3;
 const FOREARM = 0.28;
@@ -296,16 +299,17 @@ export class Body {
   /** A point at each joint, for the ragdoll to start from (see `joints`). */
   private readonly marks: Record<Joint, THREE.Object3D>;
   /** The jumpsuit's cloth and the helmet's shell, of the colours worn. */
-  private readonly suitMaterial = new THREE.MeshLambertMaterial({ color: OUTFIT_COLORS[DEFAULT_SUIT] });
-  private readonly shellMaterial = new THREE.MeshLambertMaterial({ color: OUTFIT_COLORS[DEFAULT_HELMET] });
+  private readonly clothStyle = new ClothStyle();
+  private readonly headStyle = new CharacterHead();
+  private readonly suitMaterial = this.clothStyle.material(OUTFIT_COLORS[DEFAULT_SUIT]);
+  private readonly pantsMaterial = this.clothStyle.material(OUTFIT_COLORS[DEFAULT_SUIT]);
+  private readonly shoeMaterial = new THREE.MeshLambertMaterial({ color: 0xe4e4e0 });
   /** The wings' fabric: of the canopy's colour. */
-  private readonly wingMaterial = new THREE.MeshLambertMaterial({ color: 0x2a6fd0, side: THREE.DoubleSide });
+  private readonly wingMaterial = this.clothStyle.material(0x2a6fd0, THREE.DoubleSide);
   /** Between the legs, from the crotch to the ankles, or past the feet: crotch, knee, foot, foot, knee, tail. */
   private readonly legWing = new Membrane(this.wingMaterial, 6, [0, 1, 4, 1, 2, 5, 1, 5, 4, 4, 5, 3]);
   /** The jumpsuit's thighs and shins, made baggier by a suit. */
   private readonly legCloth: THREE.Mesh[] = [];
-  /** The torso and legs, in the wings' fabric in a wingsuit. */
-  private readonly wingCloth: THREE.Mesh[] = [];
   private cut: SuitCut = { ...NO_WINGS, bag: 1 };
   private armsShown = true;
   private readonly wingPoints = Array.from({ length: 6 }, () => new THREE.Vector3());
@@ -316,9 +320,8 @@ export class Body {
     this.eye = new THREE.Vector3(rig.eyePos.x, rig.eyePos.y, rig.eyePos.z);
     const suit = this.suitMaterial;
     const webbing = new THREE.MeshLambertMaterial({ color: 0x33363b, emissive: 0x0d0e10 });
-    const container = new THREE.MeshLambertMaterial({ color: 0x2c3036, emissive: 0x0b0c0e });
     const glove = new THREE.MeshLambertMaterial({ color: 0x6f747c, emissive: 0x1d1f23 });
-    const shoe = new THREE.MeshLambertMaterial({ color: 0xdcdcdc });
+    const shoe = this.shoeMaterial;
     const near = (mesh: THREE.Mesh): THREE.Mesh => {
       mesh.layers.set(GEAR_LAYER);
       return mesh;
@@ -332,7 +335,6 @@ export class Body {
     const height = 0.56;
     const torso = near(new THREE.Mesh(new THREE.CapsuleGeometry(radius, height - 2 * radius, 4, 14), suit));
     torso.scale.set(1.35, 1, 0.85);
-    this.wingCloth.push(torso);
     const middle = TORSO_TOP - height / 2;
     torso.position.set(0, middle, TORSO_BACK);
     const front = TORSO_BACK - radius * 0.85 - 0.006;
@@ -342,12 +344,11 @@ export class Body {
       box(0.045, 0.48, 0.01, -0.1, middle + 0.02, front, webbing),
       box(0.045, 0.48, 0.01, 0.1, middle + 0.02, front, webbing),
       box(0.25, 0.035, 0.012, 0, middle + 0.1, front - 0.006, webbing),
-      // The container on the back, the pilot chute's handle at its foot.
-      box(0.34, 0.5, 0.15, 0, middle, back + 0.075, container),
-      box(0.05, 0.03, 0.03, BOC.x, BOC.y, BOC.z, new THREE.MeshLambertMaterial({ color: 0xffd84a })),
-      // The reserve's flap on top of the main's.
-      box(0.3, 0.012, 0.13, 0, middle + 0.12, back + 0.15, webbing),
     );
+    const pack = rigPack();
+    pack.position.set(0, middle, back + 0.075);
+    pack.traverse((o) => o.layers.set(GEAR_LAYER));
+    this.trunk.add(pack);
     // The two handles of an emergency: cutaway pillow right, reserve left.
     this.cutawayHandle = box(0.05, 0.07, 0.025, HANDLES.x, HANDLES.y, HANDLES.z - 0.006, new THREE.MeshLambertMaterial({ color: 0xd8261c, emissive: 0x2a0503 }));
     this.reserveHandle = box(0.055, 0.045, 0.02, -HANDLES.x, HANDLES.y, HANDLES.z - 0.006, new THREE.MeshLambertMaterial({ color: 0xb9bec6, emissive: 0x202226 }));
@@ -359,28 +360,19 @@ export class Body {
       return mesh;
     };
     const eye = rig.eyePos;
-    const skin = new THREE.MeshLambertMaterial({ color: 0xc89a7c });
-    const shell = this.shellMaterial;
-    const visor = new THREE.MeshLambertMaterial({ color: 0x121418, emissive: 0x050608 });
     // The eyes are high in the model (10 cm over the risers' joint): from
     // outside, where the eyes cannot be told apart, the head sits a little
     // lower, so the neck is a neck and not a stalk. Collar of the jumpsuit.
-    const drop = 0.06;
+    const drop = 0.13;
     const neckTop = new THREE.Vector3(0, eye.y - 0.1 - drop, 0.07);
     const neckFoot = new THREE.Vector3(0, TORSO_TOP - 0.02, 0.1);
     const neck = outside(new THREE.Mesh(new THREE.CapsuleGeometry(0.058, neckTop.distanceTo(neckFoot), 3, 10), suit));
     neck.position.addVectors(neckTop, neckFoot).multiplyScalar(0.5);
     neck.quaternion.setFromUnitVectors(UP, new THREE.Vector3().subVectors(neckTop, neckFoot).normalize());
-    const head = outside(new THREE.Mesh(new THREE.SphereGeometry(0.1, 18, 14), skin));
+    const head = this.headStyle.group;
     head.position.set(0, eye.y + 0.005 - drop, eye.z + 0.065);
-    // A full-face helmet: the shell, and the dark visor across the front.
-    const helmet = outside(new THREE.Mesh(new THREE.SphereGeometry(0.122, 22, 16).scale(0.94, 1, 1.08), shell));
-    helmet.position.set(0, eye.y + 0.025 - drop, eye.z + 0.07);
-    const glass = outside(
-      new THREE.Mesh(new THREE.SphereGeometry(0.126, 18, 8, 1.5 * Math.PI - 0.95, 1.9, 1.05, 0.72).scale(0.94, 1, 1.08), visor),
-    );
-    glass.position.copy(helmet.position);
-    this.trunk.add(neck, head, helmet, glass);
+    head.traverse((o) => o.layers.set(OUTSIDE_LAYER));
+    this.trunk.add(neck, head);
     /** A glow stick at a point, upright or across, on the layer of what it is fixed to. */
     const glowStick = (parent: THREE.Object3D, x: number, y: number, z: number, across: boolean, layer: number): void => {
       const stick = new THREE.Mesh(STICK_GEOMETRY, this.stickMaterial);
@@ -394,7 +386,7 @@ export class Body {
         this.glowSticks.push(o);
       }
     };
-    glowStick(this.trunk, 0, helmet.position.y + 0.03, helmet.position.z + 0.136, false, OUTSIDE_LAYER);
+    glowStick(this.trunk, 0, head.position.y + 0.03, head.position.z + 0.136, false, OUTSIDE_LAYER);
     glowStick(this.trunk, 0, middle + 0.1, front - 0.02, true, GEAR_LAYER);
     const marks = {} as Record<Joint, THREE.Object3D>;
     const mark = (joint: Joint, parent: THREE.Object3D, x: number, y: number, z: number): void => {
@@ -417,10 +409,9 @@ export class Body {
       thigh.position.set(side * HIP_APART, pilotY - HIP_DROP, HIP_BACK);
       const shin = new THREE.Group();
       shin.position.y = -THIGH;
-      const thighCloth = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, THIGH - 0.12, 4, 10).translate(0, -THIGH / 2 + 0.02, 0), suit);
-      const shinCloth = new THREE.Mesh(new THREE.CapsuleGeometry(0.062, shinLength - 0.1, 4, 10).translate(0, -shinLength / 2 + 0.02, 0), suit);
+      const thighCloth = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, THIGH - 0.12, 4, 10).translate(0, -THIGH / 2 + 0.02, 0), this.pantsMaterial);
+      const shinCloth = new THREE.Mesh(new THREE.CapsuleGeometry(0.062, shinLength - 0.1, 4, 10).translate(0, -shinLength / 2 + 0.02, 0), this.pantsMaterial);
       this.legCloth.push(thighCloth, shinCloth);
-      this.wingCloth.push(thighCloth, shinCloth);
       thigh.add(
         thighCloth,
         // A leg strap round the top of the thigh.
@@ -429,7 +420,7 @@ export class Body {
       );
       shin.add(
         shinCloth,
-        new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.09, 0.28).translate(0, -shinLength, -0.07), shoe),
+        new THREE.Mesh(shoeGeometry().translate(0, -shinLength, 0), shoe),
       );
       this.trunk.add(thigh);
       this.legs.push({ thigh, shin });
@@ -453,17 +444,18 @@ export class Body {
     this.group.add(this.trunk);
 
     // Arms, stretched from shoulder to elbow to hand each time they move.
-    const limb = (radius: number): THREE.Mesh => near(new THREE.Mesh(new THREE.CapsuleGeometry(radius, 1 - 2 * radius, 3, 10), suit));
+    const limb = (radius: number): THREE.Mesh => limbMesh(radius, suit);
     for (const sign of [-1, 1]) {
       const arm: Arm = {
         sign,
-        upper: limb(0.042),
-        fore: limb(0.034),
+        upper: limb(0.052),
+        fore: limb(0.042),
         hand: near(new THREE.Mesh(new THREE.IcosahedronGeometry(0.046, 2).scale(0.85, 1.15, 0.9), glove)),
         elbow: new THREE.Vector3(),
         // Shoulder, elbow, the end of the wing on the arm, halfway down its trailing edge, its root, the hip.
         wing: new Membrane(this.wingMaterial, 6, [1, 2, 3, 1, 3, 4, 1, 4, 5, 1, 5, 0]),
       };
+      for (const mesh of [arm.upper, arm.fore]) mesh.traverse((o) => o.layers.set(GEAR_LAYER));
       near(arm.wing.mesh);
       this.group.add(arm.upper, arm.fore, arm.hand, arm.wing.mesh);
       this.arms.push(arm);
@@ -493,7 +485,10 @@ export class Body {
   /** The colours of the jumpsuit, of the helmet and of the glow sticks. */
   setOutfit(outfit: Outfit): void {
     this.suitMaterial.color.setHex(outfit.suit);
-    this.shellMaterial.color.setHex(outfit.helmet);
+    this.headStyle.set(outfit);
+    this.clothStyle.set(outfit);
+    this.pantsMaterial.color.setHex(outfit.pants ?? outfit.suit);
+    this.shoeMaterial.color.setHex(outfit.shoes ?? 0xe4e4e0);
     this.stickMaterial.color.setHex(outfit.glow).multiplyScalar(STICK_BRIGHT);
     const halo = new THREE.Color(outfit.glow).multiplyScalar(HALO_BRIGHT);
     const colors = this.haloGeometry.getAttribute('color');
@@ -563,7 +558,6 @@ export class Body {
     const cut = (this.cut = suitCut(suit));
     this.wingMaterial.color.setHex(color);
     for (const mesh of this.legCloth) mesh.scale.set(cut.bag, 1, cut.bag);
-    for (const mesh of this.wingCloth) mesh.material = cut.legWing ? this.wingMaterial : this.suitMaterial;
     for (const arm of this.arms) {
       arm.upper.scale.x = arm.upper.scale.z = cut.bag;
       arm.fore.scale.x = arm.fore.scale.z = cut.bag;
@@ -693,6 +687,7 @@ export class Body {
     const length = dir.length() || 1e-6;
     mesh.position.addVectors(a, b).multiplyScalar(0.5);
     mesh.scale.y = length;
+    roundLimbEnds(mesh, length);
     mesh.quaternion.setFromUnitVectors(UP, dir.divideScalar(length));
   }
 

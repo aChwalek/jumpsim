@@ -14,8 +14,24 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Lowpull" />
     <style>
-      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #211a2f; }
       canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+      /* While the game loads: the name on the sunset, and a bar going by. Gone on the first picture (main.ts). */
+      #splash {
+        position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 30px;
+        background:
+          radial-gradient(ellipse 95% 65% at 50% 112%, rgba(244, 123, 66, 0.5), rgba(167, 64, 135, 0.28) 48%, rgba(79, 42, 127, 0) 78%),
+          #211a2f;
+        transition: opacity 0.5s ease;
+      }
+      #splash img { width: min(60vw, 380px); height: auto; }
+      #splash i { position: relative; width: min(40vw, 200px); height: 3px; border-radius: 2px; overflow: hidden; background: rgba(255, 240, 227, 0.14); }
+      #splash i::after {
+        content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 40%; border-radius: inherit;
+        background: linear-gradient(90deg, #a74087, #f47b42, #ffd56b); animation: splash-bar 1.2s ease-in-out infinite;
+      }
+      @keyframes splash-bar { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+      #splash.gone { opacity: 0; pointer-events: none; }
       /*
        * A phone held upright: everything on its side all the same, a quarter turn round (see viewport.ts).
        * Turned, the body is what the picture, the instruments, the controls and the menu are laid out in.
@@ -220,7 +236,8 @@
     <canvas id="view"></canvas>
     <div id="blackout"></div>
     <div id="touch"></div>
-    <div id="hud">
+    <!-- Nothing of the flight's instruments shows until the game has said what is on (main.ts). -->
+    <div id="hud" class="menu">
       <div id="perf" class="corner flight"></div>
       <div id="topRight" class="corner flight"><div id="wind"></div><div id="gear"></div></div>
       <div id="altimeter" class="flight"></div>
@@ -241,6 +258,7 @@
       <div id="watch"></div>
     </div>
     <div id="menu"></div>
+    <div id="splash" aria-hidden="true"><img src="/brand/lowpull.svg" width="436" height="145" alt="" /><i></i></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
