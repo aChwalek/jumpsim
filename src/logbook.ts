@@ -55,6 +55,8 @@ export interface LogEntry {
   flight?: { seconds: number; horizontalDistance: number };
   /** Measured on new jumps only, including attempts ending in a crash. */
   swoop?: Swoop;
+  /** Slid on the feet after the first touch, m: only when there was such a slide. */
+  slid?: number;
   outcome: Outcome;
   /** At touchdown, m/s; for an impact, the speed of it. */
   sink: number;
@@ -77,6 +79,9 @@ export const OUTCOME_GROUPS = [
   { id: 'hard', outcomes: ['hard'] },
   { id: 'crash', outcomes: ['crash', 'impact'] },
 ] as const satisfies readonly { id: string; outcomes: readonly Outcome[] }[];
+
+/** Landings that ended on the feet: a slide counts as a record only then. */
+const STANDING: readonly Outcome[] = OUTCOME_GROUPS.filter((g) => g.id === 'upright' || g.id === 'run').flatMap((g) => g.outcomes);
 
 /** Keeps the browser's storage small: the oldest go first. */
 const MAX_ENTRIES = 1000;
@@ -146,6 +151,8 @@ export interface LogStats {
   longestSwoopDistance: number | null;
   longestSwoopSeconds: number | null;
   fastestSwoopSpeed: number | null;
+  /** Longest slide on the feet that ended standing, m. */
+  longestSlide: number | null;
   bestStreak: number;
   currentStreak: number;
   /** Lowest pull by hand on a survived jump, m (AAD excluded). */
@@ -188,6 +195,7 @@ export function logStats(entries: readonly LogEntry[]): LogStats {
     longestSwoopDistance: maximum(survived.flatMap((e) => e.swoop ? [e.swoop.distance] : [])),
     longestSwoopSeconds: maximum(survived.flatMap((e) => e.swoop ? [e.swoop.seconds] : [])),
     fastestSwoopSpeed: maximum(survived.flatMap((e) => e.swoop ? [e.swoop.topSpeed] : [])),
+    longestSlide: maximum(entries.flatMap((e) => e.slid && STANDING.includes(e.outcome) ? [e.slid] : [])),
     bestStreak,
     currentStreak,
     lowestPull: pulls.length ? Math.min(...pulls) : null,

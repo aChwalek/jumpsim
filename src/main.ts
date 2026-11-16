@@ -736,6 +736,8 @@ function logThisJump(outcome: Outcome, sink: number, groundSpeed: number, distan
     canopySeconds: canopyTime,
     flight: { seconds: flightTime, horizontalDistance: flightDistance },
     swoop: swoop.result ? { ...swoop.result } : undefined,
+    // Measured apart from the swoop, which ends at the first touch as in competition.
+    slid: skidded >= 0.5 ? Math.round(skidded * 100) / 100 : undefined,
     outcome,
     sink,
     groundSpeed,
