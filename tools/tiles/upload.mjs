@@ -5,15 +5,15 @@
 //   node tools/tiles/upload.mjs chamonix 202611161410 [--from n]
 //
 // A build's files never change: they are cached a year, by the browsers too,
-// so that a second flight downloads nothing. Through Cloudflare's API, paced
-// (r2.mjs): `wrangler r2 bulk put` goes faster and is turned away. `--from n`
-// starts at the n-th square, to finish an upload cut short. The tileset goes
-// last, once every square it names is there.
+// so that a second flight downloads nothing. Through R2's S3 endpoint if its
+// key is at hand, else Cloudflare's API, paced (r2.mjs). `--from n` starts at
+// the n-th square, to finish an upload cut short. The tileset goes last, once
+// every square it names is there.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BUCKET, minutes, paced, putObject } from './r2.mjs';
+import { BUCKET, minutes, parallel, putObject, via } from './r2.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const [map, version] = process.argv.slice(2);
@@ -39,7 +39,7 @@ const squares = files
 const tileset = files.filter((f) => f.endsWith('tileset.json')).map(entry);
 const put = (type) => (e) => putObject(e.key, readFileSync(e.file), { 'Content-Type': type, 'Cache-Control': CACHE });
 
-console.log(`${squares.length} squares and the tileset to ${BUCKET}/${map}/${version}/, about ${minutes(squares.length)} min`);
-await paced(squares, put('model/gltf-binary'), 'squares');
-await paced(tileset, put('application/json'), 'tileset');
+console.log(`${squares.length} squares and the tileset to ${BUCKET}/${map}/${version}/ through ${via}, about ${minutes(squares.length)} min`);
+await parallel(squares, put('model/gltf-binary'), 'squares');
+await parallel(tileset, put('application/json'), 'tileset');
 console.log('done');

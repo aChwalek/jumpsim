@@ -31,10 +31,15 @@ before anything that needs a paid plan or a new paid product.
   - Upload a build before shipping the code that names it
     (`src/world/tilesets.ts`, written by the build).
   - Delete old versions once nothing names them.
-- **Cloudflare's API takes 1200 requests per 5 minutes**: bulk uploads must
-  be paced. `tools/tiles/upload.mjs` sends 3.5 a second with wrangler's
-  login. `wrangler r2 bulk put` goes faster, is turned away (429), and can
-  hang silently.
+- **Cloudflare's API takes 1200 requests per 5 minutes**: bulk transfers to
+  R2 must not go through it.
+  - Upload through R2's S3 endpoint instead, with the bucket's own key in
+    `~/.config/jumpsim/r2-tiles.env` (outside any repo; never commit it).
+    `tools/tiles/r2.mjs` uses it: a whole map uploads in about a minute.
+  - Without that key, the scripts fall back to the API at 3.5 requests a
+    second: 18 minutes a map.
+  - `wrangler r2 bulk put` goes faster than the API allows, is turned away
+    (429), and can hang silently.
 - **The players' data costs too**: the first flight over a tiled map
   downloads tens of megabytes, and phones on mobile data pay for it.
   - When changing how fine the tiles are (`src/world/tiles.ts`) or how they

@@ -54,7 +54,9 @@ the relief about its own exit every metre.
   the old terrain. The file's own `geometricError` (height × 8, texel × 12)
   only stands if the extras are missing.
 - **Hosting**: `node tools/tiles/upload.mjs <map> <version>` puts a build in
-  the R2 bucket `jumpsim-tiles`, served straight from R2 at
+  the R2 bucket `jumpsim-tiles` (through its S3 endpoint with the key in
+  `~/.config/jumpsim/r2-tiles.env`, about a minute; else through
+  Cloudflare's API, paced, 18 minutes), served straight from R2 at
   `https://tiles.lowpull.app/<map>/<version>/` (its own domain, CORS reads
   from any origin: `cors.json`), cached a year: a build never changes. The
   Worker never sees them, so they cost none of its daily requests. Upload a

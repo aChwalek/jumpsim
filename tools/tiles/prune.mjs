@@ -7,7 +7,7 @@
 // Keep the version src/world/tilesets.ts names on main, and any a branch
 // still being tried out names.
 
-import { BUCKET, deleteObject, listKeys, minutes, paced } from './r2.mjs';
+import { BUCKET, deleteKeys, listKeys, via } from './r2.mjs';
 
 const map = process.argv[2];
 const keep = process.argv.includes('--keep') ? process.argv[process.argv.indexOf('--keep') + 1] : undefined;
@@ -19,6 +19,7 @@ console.log(`${BUCKET}/${map}/: ${keys.length} files, ${gone.length} to delete (
 if (!process.argv.includes('--yes')) {
   console.log('nothing deleted: add --yes');
 } else if (gone.length) {
-  console.log(`deleting, about ${minutes(gone.length)} min`);
-  await paced(gone, deleteObject, 'deleted');
+  console.log(`deleting through ${via}`);
+  await deleteKeys(gone);
+  console.log('done');
 }
