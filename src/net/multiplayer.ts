@@ -10,7 +10,20 @@ import { Markers, type MarkerTarget } from './markers';
 import { Mesh } from './mesh';
 import { ROOM_NAME } from './protocol';
 import { RemoteJumper, type RemoteFrame } from './remote';
-import { RoomState, cleanName, nextLoad, publicDz, readRoomMessage, sharedPart, type RoomMessage, type SharedSetup } from './room';
+import {
+  LOAD_EVERY_MS,
+  RoomState,
+  bestOffset,
+  clockSample,
+  cleanName,
+  nextLoad,
+  publicDz,
+  readRoomMessage,
+  sharedPart,
+  type ClockSample,
+  type RoomMessage,
+  type SharedSetup,
+} from './room';
 import { decodeSnapshot, emptySnapshot, encodeSnapshot, type Snapshot } from './snapshot';
 import type { OtherBody } from '../bots';
 import type { OtherJumper } from '../replay/track';
@@ -24,13 +37,20 @@ const SILENT_MS = 3000;
 const START_SETTLE_MS = 3000;
 /** How often a public room looks whether its load has left, ms. */
 const LOAD_CHECK_MS = 250;
+/** The server is asked the time this often, ms; and a few times in a row on coming in, this far apart. */
+const TIME_EVERY_MS = 20_000;
+const TIME_BURST = 5;
+const TIME_BURST_GAP_MS = 300;
+/** The last answers kept: the quickest one sets the clock. A trip longer than this is not one, ms. */
+const TIME_KEPT = 8;
+const TIME_TRIP_MAX_MS = 5000;
 
 /** What the room tells the sim. */
 export interface RoomEvents {
   /** What everyone jumps with, from whoever leads. Not called on the one who leads. */
   setup(shared: SharedSetup): void;
-  /** Everyone goes, now. */
-  start(start: Start, shared: SharedSetup): void;
+  /** Everyone goes, now. `at`: when the load left, server clock (ms): its plane flies by it. */
+  start(start: Start, shared: SharedSetup, at: number): void;
   /** Who is in, who leads, who is ready: something changed. */
   changed(): void;
   /** Someone at our drop zone left their plane. */
@@ -111,11 +131,16 @@ export class Multiplayer {
   readonly isPublic: boolean;
   /** A public room whose loads leave on the clock; at a BASE site there is no plane: each goes when ready. */
   readonly onClock: boolean;
-  /** The server's clock minus ours, ms: what the loads go by. */
+  /** The server's clock minus ours (Date.now), ms: what the loads go by, and their planes. */
   private clockOffset = 0;
-  /** When the load we wait for leaves (our clock, ms). */
-  private loadAt = 0;
+  private readonly clockSamples: ClockSample[] = [];
+  private timeAsked = 0;
+  private timeBurst: number[] = [];
+  /** When the load we wait for leaves, server clock, ms. */
+  private loadSlot = 0;
   private loadTimer = 0;
+  /** Which of the last load to leave we are, 0 the first: each has a place of their own in the plane. */
+  seat = 0;
 
   constructor(
     readonly room: string,
@@ -129,15 +154,16 @@ export class Multiplayer {
     this.isPublic = pinned !== null;
     this.onClock = pinned !== null && !dzInfo(pinned).base;
     if (this.onClock) {
-      this.loadAt = this.nextLoadAt;
+      this.loadSlot = nextLoad(this.serverNow());
       this.loadTimer = window.setInterval(() => this.rotate(), LOAD_CHECK_MS);
     }
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
     this.mesh = new Mesh(`${scheme}://${location.host}/signal/${room}`, '/turn', {
       welcome: (you, peers) => {
-        // Told when we came in by the server's clock: near enough, the trip there and back is short.
-        this.clockOffset = you.joined - Date.now();
-        this.loadAt = this.nextLoadAt;
+        // Told when we came in by the server's clock, a one-way trip ago: until it has answered the time.
+        if (this.clockSamples.length === 0) this.clockOffset = you.joined - Date.now();
+        this.loadSlot = nextLoad(this.serverNow());
+        this.askTime();
         this.state.welcome(you, peers, this.name, this.ready);
         this.sayHello();
         this.leading();
@@ -172,7 +198,14 @@ export class Multiplayer {
         if (s) this.remote(id).jumper.buffer.push(s, performance.now());
       },
       control: (id, data) => this.onControl(id, data),
+      time: (sent, now) => this.onTime(sent, now),
     });
+    this.timeAsked = window.setInterval(() => this.mesh.askTime(), TIME_EVERY_MS);
+  }
+
+  /** The server's clock now, ms: the same for everyone in the room, to a few ms. */
+  serverNow(): number {
+    return Date.now() + this.clockOffset;
   }
 
   /** Players in the room, us included. */
@@ -194,7 +227,7 @@ export class Multiplayer {
     if (ready === this.ready) return;
     this.ready = ready;
     // A public BASE site: no rotation, up there straight away.
-    if (ready && this.isPublic && !this.onClock && this.shared) return this.started(this.shared.jump.start, this.shared);
+    if (ready && this.isPublic && !this.onClock && this.shared) return this.started(this.shared.jump.start, this.shared, this.serverNow());
     this.sayHello();
     this.maybeStart();
     this.events.changed();
@@ -215,9 +248,10 @@ export class Multiplayer {
   /** Leading: everyone goes now, ready or not. A public room goes by the clock only. */
   startNow(): void {
     if (this.isPublic || !this.state.isHost || !this.shared) return;
-    const message: RoomMessage = { kind: 'start', start: this.shared.jump.start, setup: this.shared };
+    const at = this.serverNow();
+    const message: RoomMessage = { kind: 'start', start: this.shared.jump.start, setup: this.shared, at };
     this.mesh.broadcastRoom(message);
-    this.started(message.start, this.shared);
+    this.started(message.start, this.shared, at);
   }
 
   /** Tells the others who we are now. */
@@ -311,6 +345,8 @@ export class Multiplayer {
 
   dispose(): void {
     window.clearInterval(this.loadTimer);
+    window.clearInterval(this.timeAsked);
+    for (const t of this.timeBurst) window.clearTimeout(t);
     this.markers.dispose();
     this.mesh.dispose();
     for (const { jumper } of this.remotes.values()) jumper.dispose();
@@ -342,21 +378,41 @@ export class Multiplayer {
     if (!this.isPublic && this.state.isHost && this.state.allReady && performance.now() - this.startedAt > START_SETTLE_MS) this.startNow();
   }
 
-  /** A public room's load left: those aboard go, each on their own, the others wait for the next. */
+  /**
+   * A public room's load left: those aboard go, each on their own, the others
+   * wait for the next. Only ever on to a later one: the clock set again a few
+   * ms back does not make a load leave twice.
+   */
   private rotate(): void {
-    const next = this.nextLoadAt;
-    if (next === this.loadAt) return;
-    this.loadAt = next;
-    if (this.ready && this.shared) return this.started(this.shared.jump.start, this.shared);
+    const next = nextLoad(this.serverNow());
+    if (next <= this.loadSlot) return;
+    this.loadSlot = next;
+    // The one that just left, even if this page was asleep past others.
+    if (this.ready && this.shared) return this.started(this.shared.jump.start, this.shared, next - LOAD_EVERY_MS);
     this.state.started();
     this.events.changed();
   }
 
-  private started(start: Start, shared: SharedSetup): void {
+  /** The server's time, a few times now and then now and again: the quickest answer sets the clock. */
+  private askTime(): void {
+    for (const t of this.timeBurst) window.clearTimeout(t);
+    this.timeBurst = Array.from({ length: TIME_BURST }, (_, i) => window.setTimeout(() => this.mesh.askTime(), i * TIME_BURST_GAP_MS));
+  }
+
+  private onTime(sent: number, now: number): void {
+    const sample = clockSample(sent, now, Date.now());
+    if (!Number.isFinite(sample.offset) || sample.trip < 0 || sample.trip > TIME_TRIP_MAX_MS) return;
+    this.clockSamples.push(sample);
+    if (this.clockSamples.length > TIME_KEPT) this.clockSamples.shift();
+    this.clockOffset = bestOffset(this.clockSamples) ?? this.clockOffset;
+  }
+
+  private started(start: Start, shared: SharedSetup, at: number): void {
     this.startedAt = performance.now();
+    this.seat = this.state.seat;
     this.state.started();
     this.ready = false;
-    this.events.start(start, shared);
+    this.events.start(start, shared, at);
     this.sayHello();
     this.events.changed();
   }
@@ -374,7 +430,8 @@ export class Multiplayer {
       this.events.setup(m.setup);
     } else if (m.kind === 'start' && fromHost && !this.isPublic) {
       this.shared = m.setup;
-      this.started(m.start, m.setup);
+      // From an older version, no time: about now.
+      this.started(m.start, m.setup, m.at ?? this.serverNow());
     }
   }
 

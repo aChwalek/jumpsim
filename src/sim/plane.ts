@@ -37,6 +37,18 @@ export type ExitSpot = 'inside' | 'high' | 'low' | 'step';
 /** From the back of the cabin out to the step: forward goes out, back goes in. */
 export const EXIT_SPOTS: readonly ExitSpot[] = ['inside', 'high', 'low', 'step'];
 
+/**
+ * The place of the one at `seat` in a load of players, 0 the first, who
+ * takes the place chosen. The next waits inside, behind them, with the door
+ * in sight: at the places either side of the sill (`high`, `step`), heads
+ * are a hand's breadth apart, one filling the other's view. Then those.
+ */
+export function seatSpot(seat: number, chosen: ExitSpot): ExitSpot {
+  if (seat <= 0) return chosen;
+  return SEAT_ORDER.filter((s) => s !== chosen)[seat - 1] ?? 'inside';
+}
+const SEAT_ORDER: readonly ExitSpot[] = ['inside', 'step', 'high', 'low'];
+
 /** One place at the door, plane frame. */
 export interface DoorSpot {
   /** The jumper's eyes, m. */
@@ -222,6 +234,8 @@ export class Plane {
   readonly level: Quat = quat();
   /** Propeller angle, or the main rotor's, rad. */
   prop = 0;
+  /** How long it has flown its run, s: from when the load left. */
+  flown = 0;
   readonly type: Aircraft;
   /** Compass heading of the run, degrees. */
   readonly headingDeg: number;
@@ -252,7 +266,20 @@ export class Plane {
     this.pos.x += this.vel.x * dt;
     this.pos.y += this.vel.y * dt;
     this.pos.z += this.vel.z * dt;
+    this.flown += dt;
     this.prop = (this.prop + propRate(this.type) * dt) % (2 * Math.PI);
+  }
+
+  /**
+   * Straight to where it is once it has flown its run `flown` s: where the
+   * clock of the load says, for everyone aboard to be in the same plane.
+   */
+  fly(flown: number): void {
+    const dt = flown - this.flown;
+    this.pos.x += this.vel.x * dt;
+    this.pos.y += this.vel.y * dt;
+    this.pos.z += this.vel.z * dt;
+    this.flown = flown;
   }
 
   /** World position of a point given in the plane's frame. */

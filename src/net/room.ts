@@ -22,6 +22,22 @@ export const LOAD_EVERY_MS = 30_000;
 /** When the next load leaves, after `now` (server clock, ms). */
 export const nextLoad = (now: number): number => (Math.floor(now / LOAD_EVERY_MS) + 1) * LOAD_EVERY_MS;
 
+/** One answer of the server's clock: how long the trip there and back took, and the server's clock minus ours it gives, ms. */
+export interface ClockSample {
+  trip: number;
+  offset: number;
+}
+
+/** Asked at `sent` and answered at `back` (our clock), the server saying `now`: taken to have said it halfway. */
+export const clockSample = (sent: number, now: number, back: number): ClockSample => ({ trip: back - sent, offset: now + (back - sent) / 2 - back });
+
+/** The offset of the quickest trip: the least thrown off by a way there slower than the way back, or the reverse. */
+export function bestOffset(samples: readonly ClockSample[]): number | null {
+  let best: ClockSample | null = null;
+  for (const s of samples) if (!best || s.trip < best.trip) best = s;
+  return best?.offset ?? null;
+}
+
 /** What everyone in a room jumps with: all of the setup but each one's own gear, and the bots of a jump alone. */
 export type SharedSetup = Omit<Setup, 'gear' | 'bots'>;
 
@@ -42,8 +58,8 @@ export type RoomMessage =
   | { kind: 'hello'; name: string; ready: boolean }
   /** From whoever leads: what everyone jumps with. */
   | { kind: 'setup'; setup: SharedSetup }
-  /** From whoever leads: everyone goes now. */
-  | { kind: 'start'; start: Start; setup: SharedSetup };
+  /** From whoever leads: everyone goes now. `at`: when the load left, server clock, ms (not from an older version). */
+  | { kind: 'start'; start: Start; setup: SharedSetup; at?: number };
 
 /** A room message from someone else, made safe; null if it is not one. */
 export function readRoomMessage(m: unknown): RoomMessage | null {
@@ -57,7 +73,12 @@ export function readRoomMessage(m: unknown): RoomMessage | null {
       return { kind: 'setup', setup: sharedPart(validSetup(r.setup)) };
     case 'start':
       if (!STARTS.includes(r.start as Start)) return null;
-      return { kind: 'start', start: r.start as Start, setup: sharedPart(validSetup(r.setup)) };
+      return {
+        kind: 'start',
+        start: r.start as Start,
+        setup: sharedPart(validSetup(r.setup)),
+        ...(typeof r.at === 'number' && Number.isFinite(r.at) ? { at: r.at } : {}),
+      };
     default:
       return null;
   }
@@ -123,6 +144,16 @@ export class RoomState {
   /** In the order they came in. */
   get list(): Player[] {
     return [...this.players.values()].sort((a, b) => a.joined - b.joined || (a.id < b.id ? -1 : 1));
+  }
+
+  /**
+   * Which of the room we are, 0 the first, in the order they came in: the
+   * same on every machine, so that two on a load never take the same place
+   * in the plane. Not among those ready only: who is ready as a load leaves
+   * is not seen the same everywhere.
+   */
+  get seat(): number {
+    return Math.max(0, this.list.findIndex((p) => p.id === this.selfId));
   }
 
   get allReady(): boolean {

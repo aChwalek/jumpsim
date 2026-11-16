@@ -34,6 +34,8 @@ export interface MeshEvents {
   state(id: string, data: ArrayBuffer): void;
   /** Rarely, reliable and in order: who someone is, what they fly. */
   control(id: string, data: string): void;
+  /** The server's clock, `now`, in answer to `askTime` at `sent` (our clock). */
+  time(sent: number, now: number): void;
 }
 
 /**
@@ -74,6 +76,12 @@ export class Mesh {
 
   broadcastState(data: ArrayBuffer): void {
     for (const p of this.peers.values()) if (p.state.readyState === 'open') p.state.send(data);
+  }
+
+  /** Asks the server what time it is: the answer comes to `time`. */
+  askTime(): void {
+    const message: ClientMessage = { type: 'time', sent: Date.now() };
+    if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify(message));
   }
 
   /** To the whole room through the server: rare messages everyone must get. */
@@ -151,6 +159,9 @@ export class Mesh {
         break;
       case 'signal':
         void this.onSignal(m.from, m.data as Signal);
+        break;
+      case 'time':
+        this.events.time(m.sent, m.now);
         break;
     }
   }
