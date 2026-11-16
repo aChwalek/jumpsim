@@ -1,16 +1,46 @@
+import { copyPose, makePose, type Pose } from '../render/body';
+import type { SliderState } from '../render/canopyView';
 import type { DeployStage } from '../render/deployment';
 import type { Stance } from '../render/posture';
 import type { Controls } from '../sim/flightModel';
+import { noBodyInputs, type BodyInputs } from '../sim/freefall';
 import type { JumpPhase } from '../sim/jump';
+import { JOINT_COUNT } from '../sim/ragdoll';
 import { quat, vec3, type Quat, type Vec3 } from '../sim/vec';
 
 /** No jump: started under canopy, or landed and waiting. */
 export type Phase = JumpPhase | 'none';
 
+/** The main once cut away, flying on its own. */
+export interface ReleasedFrame {
+  pos: Vec3;
+  vel: Vec3;
+  att: Quat;
+  /** How far it has lost its shape, 0 to 1. */
+  crumple: number;
+  /** How far it has gone down in a heap, 0 to 1; and the way, level. */
+  heap: number;
+  fallTo: Vec3;
+}
+
+export const makeReleased = (): ReleasedFrame => ({ pos: vec3(), vel: vec3(), att: quat(), crumple: 0, heap: 0, fallTo: vec3(0, 0, 1) });
+
+export function copyReleased(out: ReleasedFrame, r: ReleasedFrame): ReleasedFrame {
+  Object.assign(out.pos, r.pos);
+  Object.assign(out.vel, r.vel);
+  Object.assign(out.att, r.att);
+  out.crumple = r.crumple;
+  out.heap = r.heap;
+  Object.assign(out.fallTo, r.fallTo);
+  return out;
+}
+
 /**
- * What the others need to draw a jumper at an instant: where the body and
- * the canopy are, how the body is held, how far the canopy is out. Each
- * player's sim stays their own; only this goes out, 15 times a second.
+ * What the others need to draw a jumper at an instant, all of it as its
+ * owner draws it: where the body and the canopy are, how the body is held,
+ * how far the canopy is out, the slider, the twists, the heap on the ground,
+ * the body thrown about by a crash, the main cut away. Each player's sim
+ * stays their own; only this goes out, 15 times a second.
  */
 export interface Snapshot {
   /** The sender's clock (performance.now), ms. */
@@ -36,12 +66,41 @@ export interface Snapshot {
   /** Pressure lost by each half of the canopy in a stall, 0 to 1. */
   deflationL: number;
   deflationR: number;
+  /**
+   * Steering the body in freefall: what the arms and legs are drawn from
+   * when not `posed` (a bot drawn on this machine).
+   */
+  body: BodyInputs;
   controls: Controls;
   hands: Controls;
   pos: Vec3;
   vel: Vec3;
   att: Quat;
   pilotAtt: Quat;
+  slider: SliderState;
+  /** Line twists, rad: past half a turn either way, the lines are wound. */
+  twist: number;
+  /**
+   * `pose` is the body as its owner drew it: their keys, the landing, the
+   * walk, a blow that knocked them out, the canopy in their arms. False for
+   * a bot, an older sender or an older track: drawn from `stance` and `body`.
+   */
+  posed: boolean;
+  pose: Pose;
+  /** On the ground: how far the canopy has gone down in a heap, 0 to 1; from where, and the way (level). */
+  heap: number;
+  heapFrom: Vec3;
+  fallTo: Vec3;
+  /** Walking off, the heap dragged along behind. */
+  walker: boolean;
+  /** How far the canopy has been gathered up into the arms, 0 to 1. */
+  gather: number;
+  /** Thrown about by a crash: the ragdoll's joints, world frame, x y z each; the body is not drawn. */
+  hasJoints: boolean;
+  joints: Float32Array;
+  /** The main, once cut away. */
+  hasReleased: boolean;
+  released: ReleasedFrame;
 }
 
 export const emptySnapshot = (): Snapshot => ({
@@ -60,12 +119,26 @@ export const emptySnapshot = (): Snapshot => ({
   bagOut: 1,
   deflationL: 0,
   deflationR: 0,
+  body: noBodyInputs(),
   controls: { brakeL: 0, brakeR: 0, frontL: 0, frontR: 0 },
   hands: { brakeL: 0, brakeR: 0, frontL: 0, frontR: 0 },
   pos: vec3(),
   vel: vec3(),
   att: quat(),
   pilotAtt: quat(),
+  slider: 'open',
+  twist: 0,
+  posed: false,
+  pose: makePose(),
+  heap: 0,
+  heapFrom: vec3(),
+  fallTo: vec3(0, 0, 1),
+  walker: false,
+  gather: 0,
+  hasJoints: false,
+  joints: new Float32Array(3 * JOINT_COUNT),
+  hasReleased: false,
+  released: makeReleased(),
 });
 
 /**
@@ -100,6 +173,7 @@ export const STANCE_CODES: Record<Stance, number> = {
   sitBackAngle: 23,
 };
 const DEPLOY_CODES: Record<DeployStage, number> = { stowed: 0, hand: 1, tow: 2, bag: 3, canopy: 4, free: 5 };
+const SLIDER_CODES: Record<SliderState, number> = { open: 0, collapsed: 1, stowed: 2 };
 
 /** Code to value, for reading. */
 function byCode<T extends string>(codes: Record<T, number>): (T | undefined)[] {
@@ -110,11 +184,23 @@ function byCode<T extends string>(codes: Record<T, number>): (T | undefined)[] {
 const PHASES = byCode(PHASE_CODES);
 const STANCES = byCode(STANCE_CODES);
 const DEPLOYS = byCode(DEPLOY_CODES);
+const SLIDERS = byCode(SLIDER_CODES);
 const CONTROLS = ['brakeL', 'brakeR', 'frontL', 'frontR'] as const;
 
-const VERSION = 1;
-/** Bytes: a header of enums, flags and controls, the time, then 18 floats. */
-export const SNAPSHOT_BYTES = 16 + 8 + 18 * 4;
+/** 2: everything as drawn. 1 (the place, the canopy and the stance only) is still read. */
+const VERSION = 2;
+/** Version 1, all of it: a header of enums, flags and controls, the time, then 18 floats. */
+const V1_BYTES = 16 + 8 + 18 * 4;
+/** Then the twists, the heap's start and way, and the pose: 8 numbers, then 4 points, two bytes each. */
+const POSE_VALUES = 8 + 4 * 3;
+export const SNAPSHOT_BYTES = V1_BYTES + 4 + 5 * 4 + POSE_VALUES * 2;
+/** And only when there is one: the ragdoll's joints, mm from `pos`, two bytes each; the cut-away main. */
+const JOINTS_BYTES = 3 * JOINT_COUNT * 2;
+const RELEASED_BYTES = 10 * 4 + 2 + 2 * 2;
+
+/** The bytes it goes in. */
+export const snapshotBytes = (s: Snapshot): number =>
+  SNAPSHOT_BYTES + (s.hasJoints ? JOINTS_BYTES : 0) + (s.hasReleased ? RELEASED_BYTES : 0);
 
 const enum Flag {
   Reserve = 1,
@@ -126,9 +212,33 @@ const enum Flag {
   Packed = 64,
 }
 
-const byte = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255);
+/** The second byte of flags; the slider's code in its top half. */
+const enum More {
+  Posed = 1,
+  Walker = 2,
+  Joints = 4,
+  Released = 8,
+}
 
-export function encodeSnapshot(s: Snapshot, buffer = new ArrayBuffer(SNAPSHOT_BYTES)): ArrayBuffer {
+const byte = (x: number): number => Math.round(Math.max(0, Math.min(1, x)) * 255);
+/** Angles in rad and points in m up to 8, to a 4096th. */
+const POSE_SCALE = 4096;
+const short = (x: number, scale: number): number => Math.max(-32767, Math.min(32767, Math.round((Number.isFinite(x) ? x : 0) * scale)));
+
+function poseValues(p: Pose): number[] {
+  return [p.hipL, p.hipR, p.kneeL, p.kneeR, p.spread, p.sway, p.lean, p.bow, ...p.handL.toArray(), ...p.handR.toArray(), ...p.elbowL.toArray(), ...p.elbowR.toArray()];
+}
+
+function setPose(p: Pose, v: readonly number[]): void {
+  [p.hipL, p.hipR, p.kneeL, p.kneeR, p.spread, p.sway, p.lean, p.bow] = v as [number, number, number, number, number, number, number, number];
+  p.handL.fromArray(v, 8);
+  p.handR.fromArray(v, 11);
+  p.elbowL.fromArray(v, 14);
+  p.elbowR.fromArray(v, 17);
+}
+
+export function encodeSnapshot(s: Snapshot): ArrayBuffer {
+  const buffer = new ArrayBuffer(snapshotBytes(s));
   const v = new DataView(buffer);
   v.setUint8(0, VERSION);
   v.setUint8(1, PHASE_CODES[s.phase]);
@@ -148,11 +258,25 @@ export function encodeSnapshot(s: Snapshot, buffer = new ArrayBuffer(SNAPSHOT_BY
     v.setUint8(5 + i, byte(s.controls[k]));
     v.setUint8(9 + i, byte(s.hands[k]));
   });
+  v.setUint8(
+    13,
+    (s.posed ? More.Posed : 0) |
+      (s.walker ? More.Walker : 0) |
+      (s.hasJoints ? More.Joints : 0) |
+      (s.hasReleased ? More.Released : 0) |
+      (SLIDER_CODES[s.slider] << 4),
+  );
+  v.setUint8(14, byte(s.heap));
+  v.setUint8(15, byte(s.gather));
   v.setFloat64(16, s.t, true);
   let o = 24;
   const f = (x: number) => {
     v.setFloat32(o, x, true);
     o += 4;
+  };
+  const h = (x: number, scale: number) => {
+    v.setInt16(o, short(x, scale), true);
+    o += 2;
   };
   f(s.pos.x), f(s.pos.y), f(s.pos.z);
   f(s.vel.x), f(s.vel.y), f(s.vel.z);
@@ -161,18 +285,40 @@ export function encodeSnapshot(s: Snapshot, buffer = new ArrayBuffer(SNAPSHOT_BY
   f(s.inflation ?? 0), f(s.deployTime), f(s.bagOut);
   // Both halves in the last float, a byte each: whole numbers that small are exact.
   f(byte(s.deflationL) + 256 * byte(s.deflationR));
+  f(s.twist);
+  f(s.heapFrom.x), f(s.heapFrom.y), f(s.heapFrom.z);
+  f(s.fallTo.x), f(s.fallTo.z);
+  for (const x of poseValues(s.pose)) h(x, POSE_SCALE);
+  if (s.hasJoints) {
+    const j = s.joints;
+    for (let i = 0; i < j.length; i += 3) h(j[i]! - s.pos.x, 1000), h(j[i + 1]! - s.pos.y, 1000), h(j[i + 2]! - s.pos.z, 1000);
+  }
+  if (s.hasReleased) {
+    const r = s.released;
+    f(r.pos.x), f(r.pos.y), f(r.pos.z);
+    f(r.vel.x), f(r.vel.y), f(r.vel.z);
+    f(r.att.x), f(r.att.y), f(r.att.z), f(r.att.w);
+    v.setUint8(o++, byte(r.crumple));
+    v.setUint8(o++, byte(r.heap));
+    h(r.fallTo.x, 32767), h(r.fallTo.z, 32767);
+  }
   return buffer;
 }
 
 /** Null when it is not a snapshot this version reads. */
 export function decodeSnapshot(buffer: ArrayBuffer, out = emptySnapshot()): Snapshot | null {
-  if (buffer.byteLength !== SNAPSHOT_BYTES) return null;
+  if (buffer.byteLength < V1_BYTES) return null;
   const v = new DataView(buffer);
-  if (v.getUint8(0) !== VERSION) return null;
+  const version = v.getUint8(0);
+  const more = version === VERSION ? v.getUint8(13) : 0;
+  const size =
+    version === 1 ? V1_BYTES : SNAPSHOT_BYTES + (more & More.Joints ? JOINTS_BYTES : 0) + (more & More.Released ? RELEASED_BYTES : 0);
+  if ((version !== 1 && version !== VERSION) || buffer.byteLength !== size) return null;
   const phase = PHASES[v.getUint8(1)];
   const stance = STANCES[v.getUint8(2)];
   const deploy = DEPLOYS[v.getUint8(3)];
-  if (phase === undefined || stance === undefined || deploy === undefined) return null;
+  const slider = SLIDERS[more >> 4];
+  if (phase === undefined || stance === undefined || deploy === undefined || slider === undefined) return null;
   const flags = v.getUint8(4);
   out.phase = phase;
   out.stance = stance;
@@ -187,12 +333,25 @@ export function decodeSnapshot(buffer: ArrayBuffer, out = emptySnapshot()): Snap
     out.controls[k] = v.getUint8(5 + i) / 255;
     out.hands[k] = v.getUint8(9 + i) / 255;
   });
+  Object.assign(out.body, noBodyInputs());
+  out.slider = slider;
+  out.posed = (more & More.Posed) !== 0;
+  out.walker = (more & More.Walker) !== 0;
+  out.hasJoints = (more & More.Joints) !== 0;
+  out.hasReleased = (more & More.Released) !== 0;
+  out.heap = version === 1 ? 0 : v.getUint8(14) / 255;
+  out.gather = version === 1 ? 0 : v.getUint8(15) / 255;
   out.t = v.getFloat64(16, true);
   let o = 24;
   const f = (): number => {
     const x = v.getFloat32(o, true);
     o += 4;
     return Number.isFinite(x) ? x : 0;
+  };
+  const h = (scale: number): number => {
+    const x = v.getInt16(o, true) / scale;
+    o += 2;
+    return x;
   };
   out.pos.x = f(), out.pos.y = f(), out.pos.z = f();
   out.vel.x = f(), out.vel.y = f(), out.vel.z = f();
@@ -205,12 +364,43 @@ export function decodeSnapshot(buffer: ArrayBuffer, out = emptySnapshot()): Snap
   const deflation = Math.max(0, Math.round(f()));
   out.deflationL = (deflation % 256) / 255;
   out.deflationR = Math.min(255, Math.floor(deflation / 256)) / 255;
+  if (version === 1) {
+    out.twist = 0;
+    Object.assign(out.heapFrom, out.pos);
+    Object.assign(out.fallTo, { x: 0, y: 0, z: 1 });
+    return out;
+  }
+  out.twist = f();
+  out.heapFrom.x = f(), out.heapFrom.y = f(), out.heapFrom.z = f();
+  out.fallTo.x = f(), out.fallTo.y = 0, out.fallTo.z = f();
+  const pose: number[] = [];
+  for (let i = 0; i < POSE_VALUES; i++) pose.push(h(POSE_SCALE));
+  setPose(out.pose, pose);
+  if (out.hasJoints) {
+    const j = out.joints;
+    for (let i = 0; i < j.length; i += 3) (j[i] = out.pos.x + h(1000)), (j[i + 1] = out.pos.y + h(1000)), (j[i + 2] = out.pos.z + h(1000));
+  }
+  if (out.hasReleased) {
+    const r = out.released;
+    r.pos.x = f(), r.pos.y = f(), r.pos.z = f();
+    r.vel.x = f(), r.vel.y = f(), r.vel.z = f();
+    r.att.x = f(), r.att.y = f(), r.att.z = f(), r.att.w = f();
+    r.crumple = v.getUint8(o++) / 255;
+    r.heap = v.getUint8(o++) / 255;
+    r.fallTo.x = h(32767), r.fallTo.y = 0, r.fallTo.z = h(32767);
+  }
   return out;
 }
 
 export function copySnapshot(out: Snapshot, s: Snapshot): Snapshot {
-  const { controls, hands, pos, vel, att, pilotAtt } = out;
-  Object.assign(out, s, { controls, hands, pos, vel, att, pilotAtt });
+  const { body, controls, hands, pos, vel, att, pilotAtt, pose, heapFrom, fallTo, joints, released } = out;
+  Object.assign(out, s, { body, controls, hands, pos, vel, att, pilotAtt, pose, heapFrom, fallTo, joints, released });
+  copyPose(pose, s.pose);
+  Object.assign(heapFrom, s.heapFrom);
+  Object.assign(fallTo, s.fallTo);
+  joints.set(s.joints);
+  copyReleased(released, s.released);
+  Object.assign(body, s.body);
   Object.assign(controls, s.controls);
   Object.assign(hands, s.hands);
   Object.assign(pos, s.pos);

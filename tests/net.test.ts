@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { INTERP_DELAY_MS, SnapshotBuffer, nlerp } from '../src/net/interp';
+import { INTERP_DELAY_MS, SnapshotBuffer, lerpSnapshot, nlerp } from '../src/net/interp';
 import { readHello } from '../src/net/multiplayer';
-import { SNAPSHOT_BYTES, decodeSnapshot, emptySnapshot, encodeSnapshot, type Snapshot } from '../src/net/snapshot';
+import { SNAPSHOT_BYTES, copySnapshot, decodeSnapshot, emptySnapshot, encodeSnapshot, type Snapshot } from '../src/net/snapshot';
 import { quat } from '../src/sim/vec';
 
 const at = (t: number, x: number): Snapshot => {
@@ -40,6 +40,105 @@ describe('snapshot', () => {
     expect(b.hands.frontR).toBeCloseTo(0.5, 2);
     expect(b.deflationL).toBeCloseTo(0.8, 2);
     expect(b.deflationR).toBe(1);
+  });
+
+  it('carries the body as drawn, the slider, the twists and the heap', () => {
+    const s = emptySnapshot();
+    Object.assign(s, { slider: 'collapsed', twist: -7.25, posed: true, heap: 0.6, walker: true, gather: 0.3 });
+    Object.assign(s.heapFrom, { x: 812.5, y: 3.25, z: -41 });
+    Object.assign(s.fallTo, { x: 0.6, y: 0, z: -0.8 });
+    const p = s.pose;
+    Object.assign(p, { hipL: 1.8, hipR: -0.35, kneeL: 2.4, kneeR: 0.05, spread: 0.3, sway: -0.2, lean: 0.1, bow: 0.35 });
+    p.handL.set(-0.5, 0.05, 0.25);
+    p.handR.set(0.17, -0.5, -0.3);
+    p.elbowL.set(-1, 0, 0.6);
+    p.elbowR.set(1, 0.2, 0.6);
+    const buffer = encodeSnapshot(s);
+    expect(buffer.byteLength).toBe(SNAPSHOT_BYTES);
+    const b = decodeSnapshot(buffer)!;
+    expect([b.slider, b.posed, b.walker]).toEqual(['collapsed', true, true]);
+    expect(b.twist).toBeCloseTo(-7.25, 5);
+    expect(b.heap).toBeCloseTo(0.6, 2);
+    expect(b.gather).toBeCloseTo(0.3, 2);
+    expect(b.heapFrom).toEqual(s.heapFrom);
+    expect(b.fallTo.x).toBeCloseTo(0.6, 6);
+    expect(b.fallTo.z).toBeCloseTo(-0.8, 6);
+    for (const key of ['hipL', 'hipR', 'kneeL', 'kneeR', 'spread', 'sway', 'lean', 'bow'] as const) expect(b.pose[key]).toBeCloseTo(p[key], 3);
+    for (const key of ['handL', 'handR', 'elbowL', 'elbowR'] as const) {
+      expect(b.pose[key].distanceTo(p[key])).toBeLessThan(1e-3);
+    }
+    expect([b.hasJoints, b.hasReleased]).toEqual([false, false]);
+  });
+
+  it('carries the body thrown about by a crash and the main cut away, only while there are some', () => {
+    const s = emptySnapshot();
+    Object.assign(s.pos, { x: 1000, y: 12, z: -300 });
+    s.hasJoints = true;
+    for (let i = 0; i < s.joints.length; i += 3) s.joints.set([1000 + i * 0.01, 12 - i * 0.02, -300 + 0.5], i);
+    s.hasReleased = true;
+    const r = s.released;
+    Object.assign(r.pos, { x: 1100, y: 640, z: -250 });
+    Object.assign(r.vel, { x: 2, y: -9, z: 1 });
+    Object.assign(r.att, { x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 });
+    Object.assign(r, { crumple: 0.7, heap: 0.2 });
+    Object.assign(r.fallTo, { x: -1, y: 0, z: 0 });
+    const buffer = encodeSnapshot(s);
+    expect(buffer.byteLength).toBeGreaterThan(SNAPSHOT_BYTES);
+    // Into one that had neither: both come.
+    const b = decodeSnapshot(buffer, emptySnapshot())!;
+    expect([b.hasJoints, b.hasReleased]).toEqual([true, true]);
+    for (let i = 0; i < s.joints.length; i++) expect(Math.abs(b.joints[i]! - s.joints[i]!)).toBeLessThanOrEqual(0.0006);
+    expect(b.released.pos).toEqual(r.pos);
+    expect(b.released.vel).toEqual(r.vel);
+    expect(b.released.att.y).toBeCloseTo(Math.SQRT1_2, 6);
+    expect(b.released.crumple).toBeCloseTo(0.7, 2);
+    expect(b.released.heap).toBeCloseTo(0.2, 2);
+    expect(b.released.fallTo.x).toBeCloseTo(-1, 4);
+    // Gone again: the packet shrinks back, and a snapshot reused forgets them.
+    s.hasJoints = s.hasReleased = false;
+    const after = encodeSnapshot(s);
+    expect(after.byteLength).toBe(SNAPSHOT_BYTES);
+    expect([decodeSnapshot(after, b)!.hasJoints, b.hasReleased]).toEqual([false, false]);
+  });
+
+  it('still reads a sender of the first version, drawn from their stance', () => {
+    const s = emptySnapshot();
+    Object.assign(s, { posed: true, slider: 'stowed', heap: 0.5, twist: 3 });
+    Object.assign(s.pos, { x: 5, y: 900, z: 7 });
+    s.stance = 'headDown';
+    const v1 = encodeSnapshot(s).slice(0, 96);
+    new DataView(v1).setUint8(0, 1);
+    new Uint8Array(v1).fill(0, 13, 16);
+    const b = decodeSnapshot(v1, s)!;
+    expect(b).not.toBeNull();
+    expect([b.stance, b.posed, b.slider, b.heap, b.twist, b.hasJoints, b.hasReleased]).toEqual(['headDown', false, 'open', 0, 0, false, false]);
+    expect(b.pos).toEqual({ x: 5, y: 900, z: 7 });
+  });
+
+  it('copies all of it, and goes between two of them', () => {
+    const a = emptySnapshot();
+    const b = emptySnapshot();
+    for (const s of [a, b]) Object.assign(s, { posed: true, hasJoints: true, hasReleased: true });
+    Object.assign(b, { twist: 2, heap: 1, gather: 0.5 });
+    b.pose.hipL = 1;
+    b.pose.handL.set(0, 0, 1);
+    b.joints.fill(2);
+    Object.assign(b.released.pos, { x: 10, y: 20, z: 30 });
+    b.released.crumple = 1;
+    const copy = copySnapshot(emptySnapshot(), b);
+    b.pose.hipL = 9;
+    b.joints[0] = 9;
+    b.released.pos.x = 9;
+    expect([copy.pose.hipL, copy.joints[0], copy.released.pos.x]).toEqual([1, 2, 10]);
+    const out = lerpSnapshot(emptySnapshot(), a, copy, 0.5);
+    expect([out.twist, out.heap, out.gather, out.pose.hipL, out.pose.handL.z, out.joints[3]]).toEqual([1, 0.5, 0.25, 0.5, 0.5, 1]);
+    expect([out.released.pos.x, out.released.crumple]).toEqual([5, 0.5]);
+    expect(a.pose.hipL).toBe(0);
+    // A crash in only one of the two: the first one's, not halfway to nothing.
+    const crashed = copySnapshot(emptySnapshot(), copy);
+    const before = emptySnapshot();
+    Object.assign(before, { posed: true, hasJoints: false });
+    expect(lerpSnapshot(emptySnapshot(), crashed, before, 0.5).joints[0]).toBe(2);
   });
 
   it('keeps a packed canopy packed', () => {

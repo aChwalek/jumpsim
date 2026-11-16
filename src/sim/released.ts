@@ -65,6 +65,11 @@ export class ReleasedCanopy {
     return 1 - Math.exp(-this.time / CRUMPLE);
   }
 
+  /** How far it has gone down in a heap on the ground, 0 to 1. */
+  get heap(): number {
+    return this.landedFor === null ? 0 : ease(this.landedFor / 1.8);
+  }
+
   step(dt: number, env: Environment): void {
     this.time += dt;
     if (this.landedFor !== null) {

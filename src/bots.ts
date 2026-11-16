@@ -256,10 +256,25 @@ function fill(o: Snapshot, bot: Bot): void {
   o.landed = landed;
   o.deflationL = model.deflationL;
   o.deflationR = model.deflationR;
+  Object.assign(o.body, bot.input);
   Object.assign(o.controls, bot.controls);
   Object.assign(o.hands, bot.hands);
   Object.assign(o.pos, s.pos);
   Object.assign(o.vel, s.vel);
   Object.assign(o.att, s.att);
   Object.assign(o.pilotAtt, s.pilotAtt);
+  o.twist = s.twist;
+  // Its body is posed by its view, from its stance and keys.
+  o.posed = false;
+  const free = jump.released;
+  o.hasReleased = free !== null;
+  if (free) {
+    const r = o.released;
+    Object.assign(r.pos, free.pos);
+    Object.assign(r.vel, free.vel);
+    Object.assign(r.att, free.att);
+    r.crumple = free.crumple;
+    r.heap = free.heap;
+    Object.assign(r.fallTo, free.fallTo);
+  }
 }
