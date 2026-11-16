@@ -119,6 +119,33 @@ const PULL_FLOOR = 700;
 const BREAK_OFF_ABOVE = 450;
 /** Tracking away from the others, at most this long, s. */
 const AWAY_FOR = 6;
+/**
+ * Upright at the break-off, the way out of the round is on the back: sitting
+ * (or on the back already), it leans back onto it; head down, it turns round
+ * first, its back to the others, and tips over onto it. Then a back track,
+ * head first away from the others, and over onto the belly for the pull. The
+ * break-off is no higher: the pull waits for the way out, a little lower.
+ *
+ * Head down, turned round near enough within this, degrees, and hardly turning any more, rad/s: tipped
+ * over onto the back still turning, the back track goes off at a slant. Or after this long, s, whatever is left.
+ */
+const ABOUT_WITHIN = 10;
+const ABOUT_STILL = 0.5;
+const ABOUT_FOR = 3;
+/**
+ * Flat on the back within this, rad, or after this long, s, before stretching
+ * out: with the feet still under it, or over it, the track has no way to go.
+ */
+const ON_BACK_WITHIN = 20 * DEG;
+const ON_BACK_FOR = 1.5;
+/** The back track, s: cut short only this far below where the pull was meant to be, m. */
+const BACK_TRACK_FOR = 3.5;
+const LATE_BY = 150;
+/**
+ * Rolled over onto the belly still in the track, which keeps it a roll about the head and not a
+ * somersault; the track goes on this long, s, then flat for the pull.
+ */
+const BELLY_TRACK_FOR = 1.5;
 
 /** The leader goes round the landing area this far from it, m: a canopy still gets home from there. It starts turning this much before. */
 const LEASH = 1100;
@@ -373,6 +400,11 @@ export function botHeights(exitHeight: number): { pull: number; breakOff: number
   return { pull, breakOff: pull + BREAK_OFF_ABOVE };
 }
 
+/** Upright at the break-off, the way out of the round: head down, turned round; onto the back; the back track; over onto the belly. */
+type WayOut = 'about' | 'onBack' | 'backTrack' | 'belly';
+/** The position each step of the way out is flown in. */
+const WAY_OUT_POSITION: Record<WayOut, BodyPosition> = { about: 'headDown', onBack: 'back', backTrack: 'back', belly: 'belly' };
+
 /** The shortest way round from one compass heading to another, degrees, positive to the right. */
 const turnTo = (fromDeg: number, toDeg: number): number => ((((toDeg - fromDeg) % 360) + 540) % 360) - 180;
 /** Compass bearing of a horizontal vector, degrees. */
@@ -394,6 +426,9 @@ export class Bot {
   private exitIn: number | null = null;
   /** Since the break-off, s; null before it. */
   private away: number | null = null;
+  /** Upright at the break-off, where it is on the way out of the round, and since when, s; null flat. */
+  private wayOut: WayOut | null = null;
+  private wayOutFor = 0;
   /** Under an open canopy, s. */
   private flown = 0;
   /** Where its final starts, m above the ground: set once the canopy flies; null with no pattern to fly, straight in. */
@@ -618,7 +653,7 @@ export class Bot {
     const height = jump.height();
     // Cut away, or on the way to the pull: nothing more to fly.
     if (jump.cutawayAt !== null || jump.pullWhenFlat) return;
-    if (height < this.pullAt) {
+    if (height < this.pullAt && !this.leaving) {
       this.tracking = false;
       return jump.act();
     }
@@ -660,10 +695,20 @@ export class Bot {
     const flock = leader !== null && this.line;
     // Leading a round, there is nobody to lose: the height alone says when to go.
     const alone = this.leads;
-    if (this.away === null && (height < this.breakOffAt || (!alone && !with_.falling)) && jump.time > 1) this.away = 0;
+    if (this.away === null && (height < this.breakOffAt || (!alone && !with_.falling)) && jump.time > 1) {
+      this.away = 0;
+      // Upright, out of the round on the back. The others face its middle, their backs to the way
+      // out; leading it, the round is in front, the way out behind.
+      const position = jump.body.position;
+      if (!flock && !jump.wings && position !== 'belly') {
+        this.wayOut = position === 'headDown' ? 'about' : 'onBack';
+        if (alone) this.outDeg = heading + 180;
+      }
+    }
     if (this.away !== null) {
-      // The break-off: flat again, turn away from the others and track, then flat until the pull.
       this.away += dt;
+      if (this.wayOut) return this.leave(dt, heading, height);
+      // The break-off: flat again, turn away from the others and track, then flat until the pull.
       if (jump.body.position !== 'belly') jump.fly('belly');
       input.turn = this.turn(heading, this.outDeg);
       this.tracking = flock || (this.away < AWAY_FOR && Math.abs(turnTo(heading, this.outDeg)) < 60);
@@ -721,6 +766,53 @@ export class Bot {
   }
 
   /**
+   * Upright at the break-off, out of the round on the back. Head down, it
+   * turns round first, the eyes away from the others, and tips over onto the
+   * back, the head going away from them; sitting, it leans back onto it. Then
+   * the back track, head first away, the feet to the others; over onto the
+   * belly, a little more track, and flat for the pull, which waits for all
+   * that: a little lower than meant, cut short only well below it.
+   */
+  private leave(dt: number, headingDeg: number, height: number): void {
+    const jump = this.jump;
+    const input = this.input;
+    const done = (this.wayOutFor += dt);
+    const step = this.wayOut!;
+    const onBack = jump.body.position === 'back' && jump.body.offPosition() < ON_BACK_WITHIN;
+    const next: WayOut | null =
+      step === 'about' &&
+      ((Math.abs(turnTo(headingDeg, this.outDeg)) < ABOUT_WITHIN && Math.abs(jump.body.state.yawRate) < ABOUT_STILL) || done > ABOUT_FOR)
+        ? 'onBack'
+        : step === 'onBack' && (onBack || done > ON_BACK_FOR)
+          ? 'backTrack'
+          : step !== 'belly' && (height < this.pullAt - LATE_BY || (step === 'backTrack' && done > BACK_TRACK_FOR))
+            ? 'belly'
+            : null;
+    if (next) {
+      this.wayOut = next;
+      this.wayOutFor = 0;
+    }
+    const now = this.wayOut!;
+    const position = WAY_OUT_POSITION[now];
+    if (jump.body.position !== position && !jump.body.maneuvering) jump.fly(position);
+    this.tracking = now === 'backTrack' || (now === 'belly' && this.wayOutFor < BELLY_TRACK_FOR);
+    if (now === 'onBack') {
+      // Swinging onto the back the body glides towards the feet, into the others: backed off, head
+      // first. And no turn: no telling yet where the feet point.
+      input.forward = -1;
+      return;
+    }
+    // On the back the eyes look past the feet, back at the others; everywhere else away from them.
+    const turn = this.turn(headingDeg, now === 'backTrack' ? this.outDeg + 180 : this.outDeg);
+    input.turn = now === 'about' ? turn : clamp(turn, -TRACK_TURN, TRACK_TURN);
+  }
+
+  /** On the way out of the round, upright: the pull waits until it is over, on the belly. */
+  private get leaving(): boolean {
+    return this.wayOut !== null && (this.wayOut !== 'belly' || this.wayOutFor < BELLY_TRACK_FOR);
+  }
+
+  /**
    * Leading a round: as it pleases. It holds its heading, for the round not to spin, and
    * upright goes from sitting to head down and back every so often.
    */
@@ -738,7 +830,11 @@ export class Bot {
   }
 
   private turn(headingDeg: number, toDeg: number): number {
-    return clamp(K_TURN * turnTo(headingDeg, toDeg) * DEG * this.mirror(), -1, 1);
+    // Stretched out on the back the body goes head first, and a turn is taken from there (see
+    // Freefall.step): the other way round from where the eyes look.
+    const body = this.jump.body;
+    const seen = 1 + (body.params.tracks[body.position].dir - 1) * body.track < 0 ? -1 : 1;
+    return clamp(K_TURN * turnTo(headingDeg, toDeg) * DEG * this.mirror() * seen, -1, 1);
   }
 
   /**
