@@ -37,7 +37,7 @@ export class ReleasedMain {
     view.update(
       this.pos,
       this.att,
-      { time: s.time, dt: s.dt, air: this.air, controls: this.noHands, hands: this.noHands, pilotAtt: null, ground },
+      { time: s.time, dt: s.dt, air: this.air, controls: this.noHands, hands: this.noHands, pilotAtt: null, ground, groundAt: s.groundAt },
       s.light,
     );
     view.topAttach(this.top);
