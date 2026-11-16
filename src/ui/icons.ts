@@ -45,5 +45,9 @@ export const LOGO =
 export const ICON_PEOPLE = icon(
   '<circle cx="9" cy="8" r="3.2"/><path d="M3 19.5c.6-3.4 3-5.3 6-5.3s5.4 1.9 6 5.3"/><path d="M15.5 4.9a3.2 3.2 0 0 1 0 6.2M17.6 14.6c1.8.7 3 2.4 3.4 4.9"/>',
 );
+/** Someone, and one more: asking a friend along. */
+export const ICON_INVITE = icon(
+  '<circle cx="10" cy="8" r="3.3"/><path d="M3.5 19.5c.6-3.5 3.2-5.4 6.5-5.4s5.9 1.9 6.5 5.4"/><path d="M19 6.5v6M16 9.5h6"/>',
+);
 /** A lock, on what someone else sets. */
 export const ICON_LOCK = icon('<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/>');
