@@ -84,6 +84,10 @@ class Shape {
   }
 
   private attach(capacity: number): void {
+    // Let go of the old buffer on the graphics card, and of the number of
+    // trees three.js took it to hold the first time it drew the shape: kept,
+    // it draws no more than that, and whole squares of trees go missing.
+    this.geometry.dispose();
     this.array = new Float32Array(capacity * STRIDE);
     this.buffer = new THREE.InstancedInterleavedBuffer(this.array, STRIDE);
     this.buffer.setUsage(THREE.DynamicDrawUsage);
