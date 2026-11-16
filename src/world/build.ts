@@ -59,7 +59,7 @@ export function buildWorld(dz: DzPack, light: Lighting, view?: WorldView): World
   // The terrain as tiles, each square with its own photo, where the drop zone has them.
   let local: LocalPhotos | undefined;
   // Their trees, one per crown the LiDAR saw, instead of the ones sown in OpenStreetMap's woods.
-  const forest = dz.tiles && view && tilesWanted() ? buildForest() : undefined;
+  const forest = dz.tiles && view && tilesWanted() ? buildForest(view.renderer) : undefined;
   const tiles =
     dz.tiles && view && tilesWanted()
       ? buildTerrainTiles(
