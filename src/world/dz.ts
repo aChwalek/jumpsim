@@ -236,6 +236,12 @@ export interface DzPack {
   cliffTop?: CliffTop;
   /** No grass grows higher than this above the landing area, m: high mountains, rock and snow. */
   grassBelow?: number;
+  /**
+   * The runways from the charts: their ends, width and surface; and the
+   * taxiways and aprons, as polygons. Drawn only on the painted ground
+   * (?style=painted): the photos show them.
+   */
+  airfield?: { runways: { a: [number, number]; b: [number, number]; width: number; surface: string }[]; paved: number[][] };
   target: { x: number; z: number; radius: number };
   surfaces: Rect[];
   /** Flat surfaces of any shape. */

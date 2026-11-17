@@ -14,7 +14,7 @@
 
 import * as THREE from 'three';
 import type { Rect } from './dz';
-import { PHOTO_GLSL, type Photos } from './ground';
+import { PAINTED, PAINT_GLSL, PHOTO_GLSL, type Photos } from './ground';
 
 export interface GrassSpec {
   /** The field: grass grows all over this rectangle, in the rectangle's colour. */
@@ -85,8 +85,14 @@ const VERTEX = /* glsl */ `
   #ifdef USE_PHOTO
   #define PHOTO_TEX(t, uv, blur) textureLod(t, uv, blur)
   ${PHOTO_GLSL}
-  // Averaged over a couple of metres: a single pixel of the photo is noise.
-  vec3 coverAt(vec2 p) { return photoAt(p, 1.0); }
+  ${
+    PAINTED
+      ? `${PAINT_GLSL}
+  // In the painted colour of the ground it stands on.
+  vec3 coverAt(vec2 p) { return paint(photoOver(p), 0.0, 0.0); }`
+      : `// Averaged over a couple of metres: a single pixel of the photo is noise.
+  vec3 coverAt(vec2 p) { return photoAt(p, 1.0); }`
+  }
   #else
   uniform sampler2D coverMap;
   vec3 coverAt(vec2 p) { return texture2D(coverMap, ((p - mapBox.xy) / mapBox.z + 0.5) / float(MAP)).rgb; }

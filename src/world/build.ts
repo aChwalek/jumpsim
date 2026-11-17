@@ -7,10 +7,11 @@ import { buildCliffTop, rockTexture, type RockMask } from './cliffTop';
 import { facetedHeight, surfaceColorAt } from './cover';
 import { isWet, type DzPack } from './dz';
 import { buildGrass } from './grass';
-import { TERRAIN_SPACING, buildDisc, buildSurfaces, buildTerrain, buildWater, groundMaterial, loadPhotos } from './ground';
+import { PAINTED, TERRAIN_SPACING, buildDisc, buildSurfaces, buildTerrain, buildWater, groundMaterial, loadPhotos } from './ground';
 import { buildBuildings, buildCars, buildFlags, buildLedgeMarks, buildPeople, buildTrees, buildVines, buildWindsock } from './objects';
 import { buildForest, type Forest } from './forest';
 import { localPhotos, type LocalPhotos } from './localPhotos';
+import { buildPainted } from './painted';
 import { buildTerrainTiles, tilesWanted, type TerrainTiles } from './tiles';
 
 export interface World {
@@ -80,6 +81,8 @@ export function buildWorld(dz: DzPack, light: Lighting, view?: WorldView): World
   const photos =
     local ?? (dz.imagery ? loadPhotos(dz.imagery, dz.grass.area.color, dz.imageryGain, dz.rockTint, dz.imagerySpots, dz.grassBelow) : undefined);
   let arrived = -1;
+  // Painted (?style=painted), the roads, runways and landing area are drawn sharp on the relief.
+  const painted = PAINTED && photos ? buildPainted(dz, { groundAt, details: dz.terrainDetail ?? [], reach: dz.terrainReach }) : undefined;
   const grass = buildGrass(
     {
       ...dz.grass,
@@ -90,12 +93,16 @@ export function buildWorld(dz: DzPack, light: Lighting, view?: WorldView): World
       // Nor does it grow in water, on the bare rock of a cliff top, which has its own tussocks,
       // nor up among the rock and snow of high mountains.
       wet: (x, z) =>
-        isWet(dz, x, z) || (!!dz.cliffTop && bareRock(dz.cliffTop.rock, x, z)) || (dz.grassBelow !== undefined && groundAt(x, z) > dz.grassBelow),
+        isWet(dz, x, z) ||
+        (!!dz.cliffTop && bareRock(dz.cliffTop.rock, x, z)) ||
+        (dz.grassBelow !== undefined && groundAt(x, z) > dz.grassBelow) ||
+        !!painted?.onRoad(x, z),
       colorAt: surfaceColorAt(dz.landColor ?? (() => dz.grass.area.color), dz.surfaces, dz.areas ?? []),
     },
     grassLight,
   );
-  const water = buildWater(dz.water, light.horizon, dz.waterAreas, photos, { groundAt, details: dz.terrainDetail ?? [], reach: dz.terrainReach });
+  // Painted, the water keeps its own colour rather than the photo's.
+  const water = buildWater(dz.water, light.horizon, dz.waterAreas, PAINTED ? undefined : photos, { groundAt, details: dz.terrainDetail ?? [], reach: dz.terrainReach });
   const flags = buildFlags(dz.flags, light.fabric, groundAt);
   const trees = buildTrees(forest ? [] : dz.trees, groundAt);
   const cliffTop = dz.cliffTop ? buildCliffTop(dz.cliffTop, groundAt, dz.base?.pad) : undefined;
@@ -118,6 +125,7 @@ export function buildWorld(dz: DzPack, light: Lighting, view?: WorldView): World
   if (vines) object.add(named('vines', vines.object));
   if (dz.bridges) object.add(named('bridges', buildBridges(dz.bridges, groundAt)));
   if (cliffTop) object.add(named('cliffTop', cliffTop.object));
+  if (painted) object.add(named('painted', painted.object));
   // Windows, street lamps and floodlights, lit at dusk.
   const lamps = named('lamps', buildLamps(dz, light.lamps));
   object.add(lamps);
@@ -189,6 +197,7 @@ export function buildWorld(dz: DzPack, light: Lighting, view?: WorldView): World
     dispose() {
       tiles?.dispose();
       forest?.dispose();
+      painted?.dispose();
       photos?.dispose();
       rock?.texture.dispose();
       object.traverse((node) => {

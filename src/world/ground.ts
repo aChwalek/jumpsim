@@ -294,6 +294,74 @@ export const PHOTO_GLSL = /* glsl */ `
   vec3 photoAt(vec2 p) { return photoAt(p, 0.0); }
 `;
 
+/**
+ * A trial (?style=painted): the ground in flat colours, as Valbrise is drawn,
+ * instead of the photo. The photo, averaged over a few metres, only says
+ * which of them lies where: snow, rock, soil, forest, or a meadow lighter or
+ * darker.
+ */
+export const PAINTED = ((): boolean => {
+  try {
+    return new URLSearchParams(location.search).get('style') === 'painted';
+  } catch {
+    return false;
+  }
+})();
+
+/** Metres of photo averaged before the colour is picked: what is smaller is lost. */
+const PAINT_FOOTPRINT = 6;
+
+/** GLSL picking the painted colours (`PAINTED`), after `PHOTO_GLSL`. */
+export const PAINT_GLSL = /* glsl */ `
+  // The level a fragment shader would read for texel coordinates px; a vertex shader has none.
+  #ifndef PAINT_SCREEN
+  #define PAINT_SCREEN(px) 0.0
+  #endif
+  #define PAINT_FOOTPRINT ${PAINT_FOOTPRINT.toFixed(1)}
+  vec3 paintLevel(sampler2D t, vec2 uv, float size) {
+    vec2 n = vec2(textureSize(t, 0));
+    float lod = max(PAINT_SCREEN(uv * n), log2(PAINT_FOOTPRINT * n.x / size));
+    return textureLod(t, uv, max(0.0, lod)).rgb;
+  }
+  // The photo averaged over PAINT_FOOTPRINT metres at least.
+  vec3 photoOver(vec2 p) {
+    vec2 uv3 = (p - photoCentre[3]) / photoSize.w + 0.5;
+    vec2 uv2 = (p - photoCentre[2]) / photoSize.z + 0.5;
+    vec2 uv1 = (p - photoCentre[1]) / photoSize.y + 0.5;
+    vec2 uv0 = (p - photoCentre[0]) / photoSize.x + 0.5;
+    vec3 c = mix(photoFallback, paintLevel(photo3, uv3, photoSize.w), photoReady.w * photoWeight(uv3));
+    c = mix(c, paintLevel(photo2, uv2, photoSize.z), photoReady.z * photoWeight(uv2));
+    c = mix(c, paintLevel(photo1, uv1, photoSize.y), photoReady.y * photoWeight(uv1));
+    c = mix(c, paintLevel(photo0, uv0, photoSize.x), photoReady.x * photoWeight(uv0));
+    return c * photoGain;
+  }
+  // The painted colour a colour of the photo stands for, both linear; the
+  // thresholds are on the photo's sRGB brightness and how green it leans.
+  // Dull grey is rock only where it is \`rocky\` (steep, or high): on the flat
+  // it is a meadow in the shade, the light greys only are roads and gravel,
+  // and warm is dry grass or ploughed soil. White is snow only \`high\` up:
+  // lower down, a quarry, sand or concrete.
+  vec3 paint(vec3 photo, float rocky, float high) {
+    vec3 s = pow(max(photo, 0.0), vec3(1.0 / 2.2));
+    float l = dot(s, vec3(0.3, 0.5, 0.2));
+    float green = s.g - 0.5 * (s.r + s.b);
+    float warm = s.r - s.b;
+    vec3 c;
+    if (l > 0.68 && green < 0.04 && high > 0.5) c = l > 0.76 ? vec3(0.93, 0.95, 0.96) : vec3(0.82, 0.86, 0.89);
+    else if (l < 0.21) c = l < 0.15 ? vec3(0.17, 0.27, 0.13) : vec3(0.21, 0.32, 0.15);
+    else if (green < 0.03 && rocky > 0.5) c = warm > 0.06 ? vec3(0.61, 0.52, 0.35) : l > 0.45 ? vec3(0.66, 0.65, 0.61) : l > 0.3 ? vec3(0.53, 0.52, 0.49) : vec3(0.38, 0.38, 0.36);
+    else if (green < 0.03 && l > 0.37 && warm > 0.06) c = l > 0.5 ? vec3(0.76, 0.7, 0.35) : vec3(0.6, 0.64, 0.29);
+    else if (green < 0.03 && l > 0.37) c = l > 0.6 ? vec3(0.78, 0.76, 0.71) : l > 0.45 ? vec3(0.66, 0.65, 0.61) : vec3(0.53, 0.52, 0.49);
+    else if (green < 0.03 && warm > 0.08) c = vec3(0.54, 0.44, 0.29);
+    else if (l < 0.27) c = vec3(0.24, 0.37, 0.17);
+    else if (l < 0.33) c = vec3(0.31, 0.44, 0.2);
+    else if (l < 0.39) c = vec3(0.35, 0.48, 0.2);
+    else if (l < 0.46) c = vec3(0.44, 0.56, 0.23);
+    else c = warm > 0.1 ? vec3(0.6, 0.64, 0.29) : vec3(0.49, 0.6, 0.27);
+    return pow(c, vec3(2.2));
+  }
+`;
+
 
 /**
  * GLSL for rock faces. A photo taken from above spends a pixel or two on a
@@ -321,7 +389,10 @@ const ROCK_GLSL = /* glsl */ `
     vec2 w = abs(n.xz) + 0.001;
     w /= w.x + w.y;
     float face = rockFace(vec2(p.z, p.y)) * w.x + rockFace(vec2(p.x, p.y)) * w.y;
-  #ifdef GROUND_TILE
+  #if defined(PAINT_FOOTPRINT)
+    // Painted: one grey, without the streaks the photo draws down a face.
+    vec3 tint = vec3(0.24, 0.235, 0.225);
+  #elif defined(GROUND_TILE)
     // The square's own photo, averaged over some 30 m whatever its texels.
     vec3 tint = texture2D(map, vMapUv, tileBlur).rgb * photoGain;
   #else
@@ -415,6 +486,7 @@ export function groundMaterial(
     if (photos && rock) Object.assign(shader.uniforms, { rockMap: { value: rock.texture }, rockBox: { value: rock.box } });
     // A blur that averages some 30 m of the square's photo, as a mipmap bias.
     if (tile) shader.uniforms.tileBlur = { value: Math.min(10, Math.max(0, Math.log2(30 / tile.texel))) };
+    if (tile) shader.uniforms.tileTexel = { value: tile.texel };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vGroundWorld;\nvarying vec3 vGroundNormal;')
       .replace(
@@ -432,17 +504,49 @@ export function groundMaterial(
       .replace(
         anchor,
         `${anchor}
-        ${tile ? '#define GROUND_TILE\nuniform float tileBlur;' : ''}
+        ${tile ? '#define GROUND_TILE\nuniform float tileBlur;\nuniform float tileTexel;' : ''}
         uniform sampler2D detailMap;
         uniform sampler2D grainMap;
         varying vec3 vGroundWorld;
         varying vec3 vGroundNormal;
-        ${photos ? PHOTO_GLSL + ROCK_GLSL : ''}
+        ${photos ? PHOTO_GLSL : ''}
+        ${photos && PAINTED ? `#define PAINT_SCREEN(px) (0.5 * log2(max(max(dot(dFdx(px), dFdx(px)), dot(dFdy(px), dFdy(px))), 1e-8)))\n${PAINT_GLSL}` : ''}
+        ${photos ? ROCK_GLSL : ''}
         ${photos && rock ? LIMESTONE_GLSL : ''}`,
       )
       .replace(
         '#include <color_fragment>',
-        photos
+        photos && PAINTED
+          ? `#include <color_fragment>
+        vec2 vGroundXZ = vGroundWorld.xz;
+        vec3 groundNormal = normalize(vGroundNormal);
+        // Rock where it is steep, or up among the high mountains.
+        float rocky = max(1.0 - smoothstep(0.82, 0.9, groundNormal.y), smoothstep(grassBelow - 300.0, grassBelow - 100.0, vGroundWorld.y));
+        // Snow lies up among the high mountains only: above where the grass stops, or 1500 m over the landing.
+        float high = max(smoothstep(grassBelow - 400.0, grassBelow - 200.0, vGroundWorld.y), step(1500.0, vGroundWorld.y));
+        ${
+          tile
+            ? `vec2 texels = vec2(textureSize(map, 0));
+        float paintLod = max(PAINT_SCREEN(vMapUv * texels), log2(PAINT_FOOTPRINT / tileTexel));
+        diffuseColor.rgb = paint(textureLod(map, vMapUv, max(0.0, paintLod)).rgb * photoGain, rocky, high);`
+            : 'diffuseColor.rgb = paint(photoOver(vGroundXZ), rocky, high);'
+        }
+        // As Valbrise: the grain, blades on what is green, and soft patches at two sizes.
+        vec2 marks = texture2D(grainMap, vGroundXZ / ${GRAIN_TILE}).rg;
+        float grassy = step(1.08 * max(diffuseColor.r, diffuseColor.b), diffuseColor.g);
+        float d1 = mix(marks.g, marks.r, grassy);
+        float d2 = texture2D(detailMap, vGroundXZ / 11.0).r;
+        float d3 = texture2D(detailMap, vGroundXZ / 170.0).r;
+        diffuseColor.rgb *= (0.45 + 1.1 * d1) * (0.75 + 0.5 * d2) * (0.8 + 0.4 * d3);
+        float steep = smoothstep(0.8, 0.6, groundNormal.y);
+        if (steep > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, rockAt(vGroundWorld, groundNormal), steep);
+        ${
+          rock
+            ? `float bare = bareRock(vGroundXZ);
+        if (bare > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, limestoneAt(vGroundWorld, groundNormal) * (0.7 + 0.6 * marks.g), bare);`
+            : ''
+        }`
+          : photos
           ? `#include <color_fragment>
         vec2 vGroundXZ = vGroundWorld.xz;
         ${tile ? 'diffuseColor.rgb *= photoGain;' : 'diffuseColor.rgb = photoAt(vGroundXZ);'}
@@ -486,7 +590,7 @@ export function groundMaterial(
         diffuseColor.rgb *= (0.45 + 1.1 * d1) * (0.75 + 0.5 * d2) * (0.8 + 0.4 * d3);`,
       );
   };
-  const kind = photos ? (tile ? 'ground-tile' : 'ground-photo') + (rock ? '-rock' : '') : 'ground-detail';
+  const kind = photos ? (tile ? 'ground-tile' : 'ground-photo') + (rock ? '-rock' : '') + (PAINTED ? '-painted' : '') : 'ground-detail';
   material.customProgramCacheKey = () => kind;
   return material;
 }
@@ -821,6 +925,7 @@ function drapedPolygons(list: Area[], relief: DrawnRelief, maxSlope: number): TH
     outer = lines;
   });
   const positions: number[] = [];
+  const normals: number[] = [];
   const colors: number[] = [];
   const color = new THREE.Color();
   const cut = (piece: number[][], level: number): void => {
@@ -859,14 +964,20 @@ function drapedPolygons(list: Area[], relief: DrawnRelief, maxSlope: number): TH
           const gx = north ? (h10 - h00) / w : (h11 - h01) / w;
           const gz = north ? (h01 - h00) / h : (h11 - h10) / h;
           if (Math.hypot(gx, gz) > maxSlope) continue;
+          // Square to the triangle it lies in, as the terrain is lit.
+          const norm = Math.hypot(gx, 1, gz);
           const y = (p: number[]): number => {
             const fx = (p[0]! - ax) / w;
             const fz = (p[1]! - az) / h;
             return north ? h00 + (h10 - h00) * fx + (h01 - h00) * fz : h11 + (h01 - h11) * (1 - fx) + (h10 - h11) * (1 - fz);
           };
           for (let k = 1; k + 1 < half.length; k++) {
-            for (const p of [half[0]!, half[k]!, half[k + 1]!]) {
+            const [p0, p1, p2] = [half[0]!, half[k]!, half[k + 1]!];
+            // Facing up, whichever way the polygon was wound: seen from below, a lit face is dark.
+            const up = (p1[1]! - p0[1]!) * (p2[0]! - p0[0]!) - (p1[0]! - p0[0]!) * (p2[1]! - p0[1]!) >= 0;
+            for (const p of up ? [p0, p1, p2] : [p0, p2, p1]) {
               positions.push(p[0]!, y(p), p[1]!);
+              normals.push(-gx / norm, 1 / norm, -gz / norm);
               colors.push(color.r, color.g, color.b);
             }
           }
@@ -893,7 +1004,7 @@ function drapedPolygons(list: Area[], relief: DrawnRelief, maxSlope: number): TH
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(positions.map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   return geometry;
 }
@@ -916,6 +1027,19 @@ function layerGeometry(rects: Rect[], areas: Area[]): THREE.BufferGeometry {
   if (!areas.length) return quads(rects);
   if (!rects.length) return polygons(areas);
   return mergeGeometries([quads(rects), polygons(areas)]);
+}
+
+/** Coloured surfaces laid on `relief` (roads, runways, markings), one mesh per layer. */
+export function buildDraped(areas: Area[], relief: DrawnRelief): THREE.Group {
+  const group = new THREE.Group();
+  for (const [layer, list] of byLayer([], areas)) {
+    // Each polygon is wound whichever way its data runs.
+    const material = groundMaterial({ vertexColors: true, side: THREE.DoubleSide }, layer);
+    const mesh = new THREE.Mesh(drapedPolygons(list.areas, relief, Infinity), material);
+    mesh.renderOrder = layer;
+    group.add(mesh);
+  }
+  return group;
 }
 
 /** Flat coloured surfaces (fields, runway, markings), one mesh per layer. */

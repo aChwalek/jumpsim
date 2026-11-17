@@ -446,6 +446,7 @@ export function createRealDz(data: RealDzData, look: RealDzLook): DzPack {
     targetColor: look.targetColor ?? (data.dz.target?.color ? hex(data.dz.target.color, 0xcdbf9a) : undefined),
     surfaces: [],
     areas: [],
+    airfield: { runways: data.dz.runways, paved: data.dz.paved.map((p) => p.points) },
     grass: { area: field, mown, bare },
     water: [],
     waterAreas,
